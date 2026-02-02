@@ -190,8 +190,14 @@ pub struct MediaFileResponse {
     pub id: String,
     /// Item this file belongs to
     pub item_id: String,
-    /// File role (primary, secondary, etc.)
+    /// File role (source, universal, extra)
     pub role: String,
+    /// File profile (A, B, C)
+    pub profile: String,
+    /// Whether this file can be classified as Profile A
+    pub can_be_profile_a: bool,
+    /// Whether this file can be converted to Profile B
+    pub can_be_profile_b: bool,
     /// Path to the file
     pub file_path: String,
     /// File size in bytes
@@ -208,10 +214,18 @@ pub struct MediaFileResponse {
     pub height: Option<i32>,
     /// Duration in ticks (100ns units)
     pub duration_ticks: Option<i64>,
+    /// Bit rate in bits per second
+    pub bit_rate: Option<i64>,
     /// Whether the file is HDR
     pub is_hdr: bool,
     /// Whether this file serves as universal fallback
     pub serves_as_universal: bool,
+    /// Whether this file has faststart moov atom
+    pub has_faststart: bool,
+    /// Keyframe interval in seconds
+    pub keyframe_interval_secs: Option<f64>,
+    /// File creation timestamp
+    pub created_at: String,
 }
 
 impl From<MediaFile> for MediaFileResponse {
@@ -220,6 +234,9 @@ impl From<MediaFile> for MediaFileResponse {
             id: file.id.to_string(),
             item_id: file.item_id.to_string(),
             role: file.role.to_string(),
+            profile: file.profile.to_string(),
+            can_be_profile_a: file.can_be_profile_a,
+            can_be_profile_b: file.can_be_profile_b,
             file_path: file.file_path,
             file_size: file.file_size,
             container: file.container,
@@ -228,8 +245,12 @@ impl From<MediaFile> for MediaFileResponse {
             width: file.width,
             height: file.height,
             duration_ticks: file.duration_ticks,
+            bit_rate: file.bit_rate,
             is_hdr: file.is_hdr,
             serves_as_universal: file.serves_as_universal,
+            has_faststart: file.has_faststart,
+            keyframe_interval_secs: file.keyframe_interval_secs,
+            created_at: file.created_at.to_rfc3339(),
         }
     }
 }
