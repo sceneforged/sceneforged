@@ -33,5 +33,22 @@ jobs:
 
       - name: Deploy
         run: |
-          docker compose -f /opt/stacks/sceneforged/compose.yaml pull
-          docker compose -f /opt/stacks/sceneforged/compose.yaml up -d --force-recreate
+          # Stop and remove existing container
+          docker stop sceneforged || true
+          docker rm sceneforged || true
+          # Start new container with same config as compose
+          docker run -d \
+            --name sceneforged \
+            --restart unless-stopped \
+            --network media \
+            -p 8080:8080 \
+            -e TZ=Europe/London \
+            -e RUST_LOG=info \
+            -v /opt/docker-config/sceneforged:/config:rw \
+            -v /home/dallas/sceneforged/ui:/app/static:ro \
+            -v /mnt/data/Public/Media/Movies/Movies:/media/movies:rw \
+            -v /mnt/data/Public/Media/Movies/Movies-Theater:/media/movies-theater:rw \
+            -v /mnt/data/Public/Media/Movies/Re-Cuts:/media/recuts:rw \
+            -v /mnt/data/Public/Media/TV:/media/tv:rw \
+            -v /mnt/data/downloads/synced:/downloads:rw \
+            localhost:5000/sceneforged:latest
