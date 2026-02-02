@@ -216,6 +216,20 @@ test.describe('Sceneforged UI - Navigation', () => {
     await setupMocks(page);
   });
 
+  // Helper to open mobile menu if needed
+  async function openMobileMenuIfNeeded(page: Page) {
+    const viewport = page.viewportSize();
+    if (viewport && viewport.width < 768) {
+      // Mobile viewport - click hamburger menu (last button in mobile header)
+      // The mobile header is in a div.md\:hidden, inside it there's a header
+      const mobileHeader = page.locator('.md\\:hidden header');
+      const buttons = mobileHeader.locator('button');
+      const menuButton = buttons.last();
+      await menuButton.click();
+      await page.waitForTimeout(300); // Wait for menu animation
+    }
+  }
+
   test('Navigate from home to admin pages', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (err) => errors.push(err.message));
@@ -223,19 +237,23 @@ test.describe('Sceneforged UI - Navigation', () => {
     await page.goto('/');
     await expectPageHeading(page, 'Welcome to Sceneforged');
 
-    // Navigate to Admin Dashboard
+    // Open mobile menu if needed and navigate to Admin Dashboard
+    await openMobileMenuIfNeeded(page);
     await page.getByRole('link', { name: /dashboard/i }).click();
     await expectPageHeading(page, 'Admin Dashboard');
 
     // Navigate to History
+    await openMobileMenuIfNeeded(page);
     await page.getByRole('link', { name: /history/i }).click();
     await expectPageHeading(page, 'History');
 
     // Navigate to Settings
+    await openMobileMenuIfNeeded(page);
     await page.getByRole('link', { name: /settings/i }).click();
     await expectPageHeading(page, 'Settings');
 
     // Navigate to Home
+    await openMobileMenuIfNeeded(page);
     await page.getByRole('link', { name: /home/i }).click();
     await expectPageHeading(page, 'Welcome to Sceneforged');
 
@@ -246,6 +264,10 @@ test.describe('Sceneforged UI - Navigation', () => {
   test('Sidebar shows libraries when loaded', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
+
+    // Open mobile menu if needed
+    await openMobileMenuIfNeeded(page);
+
     await expect(page.getByRole('link', { name: /movies/i })).toBeVisible({ timeout: 10000 });
     await expect(page.getByRole('link', { name: /tv shows/i })).toBeVisible({ timeout: 10000 });
   });
@@ -379,7 +401,18 @@ test.describe('Sceneforged UI - Edge Cases', () => {
 
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
-    await expect(page.getByText(/no libraries/i)).toBeVisible({ timeout: 10000 });
+
+    // On mobile, need to open menu to see sidebar
+    const viewport = page.viewportSize();
+    if (viewport && viewport.width < 768) {
+      const mobileHeader = page.locator('.md\\:hidden header');
+      const menuButton = mobileHeader.locator('button').last();
+      await menuButton.click();
+      await page.waitForTimeout(300);
+    }
+
+    // Look for "No Libraries" link in navigation
+    await expect(page.getByRole('link', { name: /no libraries/i })).toBeVisible({ timeout: 10000 });
   });
 });
 
