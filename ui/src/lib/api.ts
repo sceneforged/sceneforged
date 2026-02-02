@@ -426,6 +426,27 @@ export async function getLibrary(libraryId: string): Promise<Library | null> {
   return fetchApi(`/libraries/${libraryId}`);
 }
 
+export interface CreateLibraryRequest {
+  name: string;
+  media_type: 'movies' | 'tvshows' | 'music';
+  paths: string[];
+}
+
+export async function createLibrary(data: CreateLibraryRequest): Promise<Library> {
+  return fetchApi('/libraries', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteLibrary(libraryId: string): Promise<void> {
+  await fetchApi(`/libraries/${libraryId}`, { method: 'DELETE' });
+}
+
+export async function scanLibrary(libraryId: string): Promise<void> {
+  await fetchApi(`/libraries/${libraryId}/scan`, { method: 'POST' });
+}
+
 export async function getItems(params?: {
   library_id?: string;
   parent_id?: string;

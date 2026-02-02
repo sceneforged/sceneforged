@@ -138,13 +138,25 @@
         Try Again
       </Button>
     </div>
+  {:else if $libraryStore.libraries.length === 0}
+    <!-- No libraries configured -->
+    <div class="text-center py-20">
+      <LibraryIcon class="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" />
+      <h2 class="text-lg font-medium text-muted-foreground">No libraries configured</h2>
+      <p class="text-sm text-muted-foreground mt-1">
+        Create a library in Settings to get started
+      </p>
+      <Button variant="outline" class="mt-4" onclick={() => goto('/settings')}>
+        Go to Settings
+      </Button>
+    </div>
   {:else if $libraryStore.items.length === 0}
     <!-- Empty state -->
     <div class="text-center py-20">
       <LibraryIcon class="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" />
       <h2 class="text-lg font-medium text-muted-foreground">No items found</h2>
       <p class="text-sm text-muted-foreground mt-1">
-        {searchQuery ? 'Try a different search term' : 'Add some media to your library to get started'}
+        {searchQuery ? 'Try a different search term' : 'Scan your library to add media items'}
       </p>
     </div>
   {:else}

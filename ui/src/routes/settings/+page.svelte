@@ -44,10 +44,16 @@
     updateJellyfin,
     deleteJellyfin,
     reloadConfig,
+    getLibraries,
+    createLibrary,
+    deleteLibrary,
+    scanLibrary,
     type ArrConfigResponse,
     type JellyfinConfigResponse,
+    type CreateLibraryRequest,
   } from '$lib/api';
-  import type { ToolStatus, HealthResponse } from '$lib/types';
+  import type { ToolStatus, HealthResponse, Library } from '$lib/types';
+  import { Library as LibraryIcon, Play, Music } from 'lucide-svelte';
 
   let tools = $state<ToolStatus[]>([]);
   let arrs = $state<ArrConfigResponse[]>([]);
@@ -87,17 +93,32 @@
   let jellyfinError = $state<string | null>(null);
   let deletingJellyfin = $state<string | null>(null);
 
+  // Library state
+  let libraries = $state<Library[]>([]);
+  let libraryEditorOpen = $state(false);
+  let libraryForm = $state({
+    name: '',
+    media_type: 'movies' as 'movies' | 'tvshows' | 'music',
+    paths: '',
+  });
+  let libraryLoading = $state(false);
+  let libraryError = $state<string | null>(null);
+  let deletingLibrary = $state<string | null>(null);
+  let scanningLibrary = $state<string | null>(null);
+
   async function loadData() {
     loading = true;
     error = null;
     try {
-      const [toolsData, arrsData, jellyfinsData, healthData] = await Promise.all([
+      const [toolsData, arrsData, jellyfinsData, healthData, librariesData] = await Promise.all([
         getTools(),
         getConfigArrs(),
         getConfigJellyfins(),
         getHealth(),
+        getLibraries(),
       ]);
       tools = toolsData;
+      libraries = librariesData;
       arrs = arrsData;
       jellyfins = jellyfinsData;
       health = healthData;
@@ -311,6 +332,80 @@
     }
   }
 
+  // Library CRUD
+  function openLibraryEditor() {
+    libraryForm = {
+      name: '',
+      media_type: 'movies',
+      paths: '',
+    };
+    libraryError = null;
+    libraryEditorOpen = true;
+  }
+
+  async function handleSaveLibrary() {
+    if (!libraryForm.name.trim()) {
+      libraryError = 'Name is required';
+      return;
+    }
+    if (!libraryForm.paths.trim()) {
+      libraryError = 'At least one path is required';
+      return;
+    }
+
+    libraryLoading = true;
+    libraryError = null;
+
+    try {
+      const paths = libraryForm.paths.split('\n').map(p => p.trim()).filter(p => p);
+      await createLibrary({
+        name: libraryForm.name.trim(),
+        media_type: libraryForm.media_type,
+        paths,
+      });
+      libraryEditorOpen = false;
+      await loadData();
+    } catch (e) {
+      libraryError = e instanceof Error ? e.message : 'Failed to create library';
+    } finally {
+      libraryLoading = false;
+    }
+  }
+
+  async function handleDeleteLibrary(id: string, name: string) {
+    if (!confirm(`Delete library "${name}"? This will remove all items from this library.`)) return;
+
+    deletingLibrary = id;
+    try {
+      await deleteLibrary(id);
+      await loadData();
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Failed to delete library';
+    } finally {
+      deletingLibrary = null;
+    }
+  }
+
+  async function handleScanLibrary(id: string) {
+    scanningLibrary = id;
+    try {
+      await scanLibrary(id);
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Failed to start scan';
+    } finally {
+      scanningLibrary = null;
+    }
+  }
+
+  function getMediaTypeIcon(type: string) {
+    switch (type) {
+      case 'movies': return Film;
+      case 'tvshows': return Tv;
+      case 'music': return Music;
+      default: return LibraryIcon;
+    }
+  }
+
   function getToolIcon(name: string) {
     switch (name.toLowerCase()) {
       case 'ffmpeg':
@@ -458,6 +553,73 @@
             </p>
           </div>
         {/if}
+      {/if}
+    </CardContent>
+  </Card>
+
+  <!-- Libraries -->
+  <Card>
+    <CardHeader>
+      <div class="flex items-center justify-between">
+        <div>
+          <CardTitle class="flex items-center gap-2">
+            <LibraryIcon class="h-5 w-5" />
+            Libraries
+          </CardTitle>
+          <CardDescription>Media library paths for scanning</CardDescription>
+        </div>
+        <Button size="sm" onclick={() => openLibraryEditor()}>
+          <Plus class="h-4 w-4 mr-2" />
+          Add
+        </Button>
+      </div>
+    </CardHeader>
+    <CardContent>
+      {#if libraries.length === 0}
+        <div class="text-center py-8 text-muted-foreground">
+          <LibraryIcon class="h-12 w-12 mx-auto mb-2 opacity-50" />
+          <p>No libraries configured</p>
+          <p class="text-sm mt-1">Click "Add" to create your first library</p>
+        </div>
+      {:else}
+        <div class="space-y-3">
+          {#each libraries as library}
+            {@const TypeIcon = getMediaTypeIcon(library.media_type)}
+            <div class="flex items-center justify-between p-3 rounded-lg border">
+              <div class="flex items-center gap-3">
+                <div class="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10">
+                  <TypeIcon class="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <p class="font-medium">{library.name}</p>
+                  <p class="text-xs text-muted-foreground">{library.media_type} &middot; {library.paths.length} path{library.paths.length !== 1 ? 's' : ''}</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onclick={() => handleScanLibrary(library.id)}
+                  disabled={scanningLibrary === library.id}
+                >
+                  {#if scanningLibrary === library.id}
+                    <RefreshCw class="h-4 w-4 animate-spin" />
+                  {:else}
+                    Scan
+                  {/if}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onclick={() => handleDeleteLibrary(library.id, library.name)}
+                  disabled={deletingLibrary === library.id}
+                >
+                  <Trash2 class="h-4 w-4 {deletingLibrary === library.id ? 'animate-pulse' : ''}" />
+                </Button>
+              </div>
+            </div>
+          {/each}
+        </div>
       {/if}
     </CardContent>
   </Card>
@@ -740,6 +902,80 @@
               Saving...
             {:else}
               Save
+            {/if}
+          </Button>
+        {/snippet}
+      </DialogFooter>
+    {/snippet}
+  </DialogContent>
+</Dialog>
+
+<!-- Library Editor Dialog -->
+<Dialog bind:open={libraryEditorOpen}>
+  <DialogContent>
+    {#snippet children()}
+      <DialogHeader>
+        {#snippet children()}
+          <DialogTitle>Add Library</DialogTitle>
+          <DialogDescription>Configure a media library to scan</DialogDescription>
+        {/snippet}
+      </DialogHeader>
+
+      <div class="space-y-4 py-4">
+        <div class="space-y-2">
+          <label for="library-name" class="text-sm font-medium">Name</label>
+          <Input id="library-name" bind:value={libraryForm.name} placeholder="My Movies" />
+        </div>
+
+        <div class="space-y-2">
+          <label class="text-sm font-medium">Media Type</label>
+          <div class="flex gap-4">
+            <label class="flex items-center gap-2">
+              <input type="radio" bind:group={libraryForm.media_type} value="movies" />
+              <span>Movies</span>
+            </label>
+            <label class="flex items-center gap-2">
+              <input type="radio" bind:group={libraryForm.media_type} value="tvshows" />
+              <span>TV Shows</span>
+            </label>
+            <label class="flex items-center gap-2">
+              <input type="radio" bind:group={libraryForm.media_type} value="music" />
+              <span>Music</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <label for="library-paths" class="text-sm font-medium">Paths (one per line)</label>
+          <textarea
+            id="library-paths"
+            bind:value={libraryForm.paths}
+            placeholder="/media/movies&#10;/media/movies-theater"
+            rows="4"
+            class="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          ></textarea>
+          <p class="text-xs text-muted-foreground">Enter filesystem paths where your media files are located</p>
+        </div>
+
+        {#if libraryError}
+          <div class="flex items-center gap-2 text-sm text-destructive">
+            <AlertCircle class="h-4 w-4" />
+            <span>{libraryError}</span>
+          </div>
+        {/if}
+      </div>
+
+      <DialogFooter>
+        {#snippet children()}
+          <Button variant="outline" onclick={() => libraryEditorOpen = false} disabled={libraryLoading}>
+            Cancel
+          </Button>
+          <Button onclick={handleSaveLibrary} disabled={libraryLoading}>
+            {#if libraryLoading}
+              <Loader2 class="h-4 w-4 mr-2 animate-spin" />
+              Creating...
+            {:else}
+              Create
             {/if}
           </Button>
         {/snippet}

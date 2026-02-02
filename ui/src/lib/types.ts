@@ -115,7 +115,7 @@ export interface Library {
   updated_at: string;
 }
 
-export type MediaType = 'movies' | 'tv_shows' | 'music';
+export type MediaType = 'movies' | 'tvshows' | 'music';
 
 export interface Item {
   id: string;
