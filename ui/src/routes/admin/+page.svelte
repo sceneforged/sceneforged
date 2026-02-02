@@ -463,7 +463,7 @@
       </CardHeader>
       <CardContent>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Button variant="outline" class="h-auto py-4 flex-col gap-2" href="/settings#libraries">
+          <Button variant="outline" class="h-auto py-4 flex-col gap-2" href="/admin/libraries">
             <Library class="h-6 w-6" />
             <span>Libraries</span>
           </Button>

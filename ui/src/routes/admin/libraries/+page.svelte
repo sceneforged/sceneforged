@@ -15,7 +15,8 @@
     Music,
     FolderOpen,
     Loader2,
-    ScanLine
+    ScanLine,
+    ChevronRight
   } from 'lucide-svelte';
   import { getLibraries, createLibrary, deleteLibrary, scanLibrary } from '$lib/api';
   import type { Library as LibraryType, MediaType } from '$lib/types';
@@ -213,30 +214,33 @@
     <div class="grid gap-4">
       {#each libraries as lib (lib.id)}
         {@const Icon = getMediaTypeIcon(lib.media_type)}
-        <Card>
+        <Card class="hover:border-primary/50 transition-colors">
           <CardContent class="p-4">
             <div class="flex items-start justify-between">
-              <div class="flex items-start gap-3">
-                <div class="p-2 bg-muted rounded-lg">
+              <a href="/admin/libraries/{lib.id}" class="flex items-start gap-3 flex-1 min-w-0 group">
+                <div class="p-2 bg-muted rounded-lg group-hover:bg-primary/10 transition-colors">
                   <Icon class="h-6 w-6 text-primary" />
                 </div>
-                <div>
-                  <h3 class="font-medium">{lib.name}</h3>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <h3 class="font-medium group-hover:text-primary transition-colors">{lib.name}</h3>
+                    <ChevronRight class="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                  </div>
                   <div class="flex items-center gap-2 mt-1">
                     <Badge variant="outline">{lib.media_type}</Badge>
                   </div>
                   <div class="text-sm text-muted-foreground mt-2">
                     {#each lib.paths as path}
-                      <div class="font-mono text-xs">{path}</div>
+                      <div class="font-mono text-xs truncate">{path}</div>
                     {/each}
                   </div>
                 </div>
-              </div>
-              <div class="flex items-center gap-2">
+              </a>
+              <div class="flex items-center gap-2 ml-4">
                 <Button
                   variant="outline"
                   size="sm"
-                  onclick={() => handleScan(lib)}
+                  onclick={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); handleScan(lib); }}
                   disabled={scanning === lib.id}
                 >
                   {#if scanning === lib.id}
@@ -249,7 +253,7 @@
                 <Button
                   variant="destructive"
                   size="sm"
-                  onclick={() => handleDelete(lib)}
+                  onclick={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); handleDelete(lib); }}
                 >
                   <Trash2 class="h-4 w-4" />
                 </Button>

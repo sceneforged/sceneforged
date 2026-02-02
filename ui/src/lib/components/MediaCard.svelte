@@ -22,10 +22,15 @@
   // Resolve library ID from prop or item
   const resolvedLibraryId = $derived(libraryId ?? item.library_id);
 
-  // Handle poster click - navigate to play page
+  // Handle poster click - navigate to play page (only if web-playable)
   function handlePosterClick(e: MouseEvent) {
     e.stopPropagation();
-    goto(`/play/${item.id}`);
+    if (isWebPlayable) {
+      goto(`/play/${item.id}`);
+    } else {
+      // Navigate to detail page instead when no web-playable version
+      goto(`/browse/${resolvedLibraryId}/${item.id}`);
+    }
   }
 
   // Handle title click - navigate to browse/details page
