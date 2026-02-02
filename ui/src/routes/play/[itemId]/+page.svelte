@@ -24,23 +24,10 @@
     await loadPlaybackInfo();
   });
 
-  // Pick the best media source - prefer HLS/universal over direct
+  // Pick the best media source - all sources from API are now web-playable (Profile B)
   function selectBestSource(sources: MediaSourceInfo[]): MediaSourceInfo | null {
     if (sources.length === 0) return null;
-
-    // First, look for a source with HLS (serves_as_universal)
-    const hlsSource = sources.find(s => s.hls_url && s.serves_as_universal);
-    if (hlsSource) return hlsSource;
-
-    // Then any source with HLS
-    const anyHls = sources.find(s => s.hls_url);
-    if (anyHls) return anyHls;
-
-    // Fall back to first source with direct stream
-    const direct = sources.find(s => s.direct_stream_url);
-    if (direct) return direct;
-
-    // Last resort - first source
+    // Just use the first source - backend only returns playable sources
     return sources[0];
   }
 

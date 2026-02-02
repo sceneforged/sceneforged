@@ -33,13 +33,25 @@ pub fn playback_routes() -> Router<AppContext> {
         .route("/playback/:item_id/unplayed", post(mark_unplayed_simple))
         .route("/playback/:item_id/favorite", post(toggle_favorite_simple))
         // User-specific routes (for future auth support)
-        .route("/users/:user_id/items/:item_id/progress", post(report_progress))
+        .route(
+            "/users/:user_id/items/:item_id/progress",
+            post(report_progress),
+        )
         .route("/users/:user_id/items/:item_id/played", post(mark_played))
-        .route("/users/:user_id/items/:item_id/played", delete(mark_unplayed))
-        .route("/users/:user_id/items/:item_id/favorite", post(toggle_favorite))
+        .route(
+            "/users/:user_id/items/:item_id/played",
+            delete(mark_unplayed),
+        )
+        .route(
+            "/users/:user_id/items/:item_id/favorite",
+            post(toggle_favorite),
+        )
         .route("/users/:user_id/in_progress", get(get_in_progress))
         .route("/users/:user_id/favorites", get(get_favorites))
-        .route("/users/:user_id/items/:item_id/user_data", get(get_user_item_data))
+        .route(
+            "/users/:user_id/items/:item_id/user_data",
+            get(get_user_item_data),
+        )
 }
 
 // ============================================================================
@@ -76,18 +88,10 @@ pub struct MediaSourceInfo {
 
 impl MediaSourceInfo {
     fn from_media_file(file: MediaFile, base_url: &str) -> Self {
-        let direct_stream_url = Some(format!(
-            "{}/stream/{}/direct",
-            base_url,
-            file.id
-        ));
+        let direct_stream_url = Some(format!("{}/stream/{}/direct", base_url, file.id));
 
         let hls_url = if file.serves_as_universal || file.role == FileRole::Universal {
-            Some(format!(
-                "{}/stream/{}/master.m3u8",
-                base_url,
-                file.id
-            ))
+            Some(format!("{}/stream/{}/master.m3u8", base_url, file.id))
         } else {
             None
         };
@@ -176,7 +180,11 @@ async fn get_playback_info(
     Path(item_id): Path<String>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {
@@ -221,13 +229,27 @@ async fn get_playback_info(
             .into_response();
     }
 
+    // Filter to only web-playable sources (universal/serves_as_universal)
+    let playable_files: Vec<_> = files
+        .into_iter()
+        .filter(|f| f.serves_as_universal || f.role == FileRole::Universal)
+        .collect();
+
+    if playable_files.is_empty() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "No web-playable sources available. Item needs conversion to Profile B."})),
+        )
+            .into_response();
+    }
+
     // Build base URL from config
     let base_url = format!(
         "http://{}:{}/api",
         ctx.config.server.host, ctx.config.server.port
     );
 
-    let media_sources: Vec<MediaSourceInfo> = files
+    let media_sources: Vec<MediaSourceInfo> = playable_files
         .into_iter()
         .map(|f| MediaSourceInfo::from_media_file(f, &base_url))
         .collect();
@@ -246,7 +268,11 @@ async fn report_progress(
     Json(req): Json<ProgressRequest>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {
@@ -298,7 +324,11 @@ async fn mark_played(
     Path((user_id, item_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {
@@ -350,7 +380,11 @@ async fn mark_unplayed(
     Path((user_id, item_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {
@@ -402,7 +436,11 @@ async fn toggle_favorite(
     Path((user_id, item_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {
@@ -455,7 +493,11 @@ async fn get_in_progress(
     Query(query): Query<InProgressQuery>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {
@@ -505,7 +547,11 @@ async fn get_favorites(
     Path(user_id): Path<String>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {
@@ -550,7 +596,11 @@ async fn get_user_item_data(
     Path((user_id, item_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {
