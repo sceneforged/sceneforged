@@ -78,7 +78,7 @@
   <link rel="icon" href={favicon} />
 </svelte:head>
 
-<Toaster richColors position="bottom-right" />
+<Toaster richColors position="bottom-right" expand visibleToasts={9} />
 
 <div class="flex h-screen bg-background">
   <!-- Sidebar - Desktop -->
