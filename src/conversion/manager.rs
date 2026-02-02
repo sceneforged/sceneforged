@@ -62,6 +62,12 @@ impl ConversionManager {
         current_profiles.sort();
         current_profiles.dedup();
 
+        // Check if we have a file that actually serves as universal
+        // (not just classified as Profile B, but actually usable for HLS)
+        let has_universal_file = files.iter().any(|f| {
+            f.serves_as_universal || f.role == sceneforged_common::FileRole::Universal
+        });
+
         // Determine viable conversion targets
         let mut viable_targets = Vec::new();
 
@@ -75,7 +81,9 @@ impl ConversionManager {
             }
 
             // Check if this file can be converted to Profile B
-            if file.can_be_profile_b && !current_profiles.contains(&Profile::B) {
+            // Allow conversion if no file serves as universal, even if a file
+            // is classified as Profile B (it may not have faststart/proper keyframes)
+            if file.can_be_profile_b && !has_universal_file {
                 if !viable_targets.contains(&Profile::B) {
                     viable_targets.push(Profile::B);
                 }
