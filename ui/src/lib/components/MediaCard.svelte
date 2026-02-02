@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Item } from '$lib/types';
+  import type { Item, MediaFile } from '$lib/types';
   import { formatRuntime, formatBytes } from '$lib/api';
   import { Film, Tv, Music, FolderOpen, Star, Play, Check, Clock } from 'lucide-svelte';
   import Badge from './ui/badge/badge.svelte';
@@ -9,9 +9,22 @@
     onclick?: () => void;
     playbackPosition?: number | null;
     played?: boolean;
+    mediaFiles?: MediaFile[];
   }
 
-  let { item, onclick, playbackPosition, played }: Props = $props();
+  let { item, onclick, playbackPosition, played, mediaFiles }: Props = $props();
+
+  function getItemProfiles(files: MediaFile[] | undefined): string {
+    if (!files || files.length === 0) return '';
+    const hasA = files.some(f => !f.serves_as_universal);
+    const hasB = files.some(f => f.serves_as_universal);
+    if (hasA && hasB) return 'A+B';
+    if (hasB) return 'B';
+    if (hasA) return 'A';
+    return '';
+  }
+
+  const profiles = $derived(getItemProfiles(mediaFiles));
 
   // Get appropriate icon based on item kind
   const Icon = $derived.by(() => {
@@ -72,6 +85,11 @@
       {#if item.dolby_vision_profile}
         <Badge variant="secondary" class="text-xs px-1.5 py-0.5">
           DV
+        </Badge>
+      {/if}
+      {#if profiles}
+        <Badge variant="default" class="text-xs px-1.5 py-0.5 bg-blue-600">
+          {profiles}
         </Badge>
       {/if}
     </div>

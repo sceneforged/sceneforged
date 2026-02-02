@@ -115,6 +115,10 @@ dashmap = "6"
 rusqlite = { workspace = true }
 bytes = { workspace = true }
 
+# OpenAPI documentation
+utoipa = { version = "5", features = ["axum_extras", "uuid"] }
+utoipa-swagger-ui = { version = "8", features = ["axum"] }
+
 # Security
 axum-extra = { version = "0.9", features = ["cookie", "typed-header"] }
 bcrypt = "0.16"

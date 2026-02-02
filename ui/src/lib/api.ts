@@ -9,6 +9,7 @@ import type {
   Library,
   Item,
   ItemsPage,
+  MediaFile,
   PlaybackInfo,
   UserItemData,
 } from './types';
@@ -471,6 +472,10 @@ export async function getItem(itemId: string): Promise<Item> {
   return fetchApi(`/items/${itemId}`);
 }
 
+export async function getItemFiles(itemId: string): Promise<MediaFile[]> {
+  return fetchApi(`/items/${itemId}/files`);
+}
+
 export async function searchItems(query: string, limit = 20): Promise<Item[]> {
   return fetchApi(`/search?q=${encodeURIComponent(query)}&limit=${limit}`);
 }
@@ -539,6 +544,19 @@ export function formatTimestamp(ticks: number): string {
     return `${hours}:${pad(minutes)}:${pad(seconds)}`;
   }
   return `${minutes}:${pad(seconds)}`;
+}
+
+// Path Browsing
+export interface DirEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+}
+
+export async function browsePaths(path: string = '/', search?: string): Promise<DirEntry[]> {
+  const params = new URLSearchParams({ path });
+  if (search) params.set('search', search);
+  return fetchApi(`/config/browse?${params}`);
 }
 
 export { ApiError };

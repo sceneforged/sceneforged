@@ -8,7 +8,7 @@
   import Button from '$lib/components/ui/button/button.svelte';
   import { ArrowLeft, Loader2, AlertCircle, ExternalLink } from 'lucide-svelte';
 
-  const itemId = $derived($page.params.itemId);
+  const itemId = $derived($page.params.itemId!);
   const startFromBeginning = $derived($page.url.searchParams.get('start') === '0');
 
   let item = $state<Item | null>(null);
@@ -24,6 +24,7 @@
   });
 
   async function loadPlaybackInfo() {
+    if (!itemId) return;
     loading = true;
     error = null;
 

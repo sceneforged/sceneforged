@@ -21,6 +21,7 @@
   } from 'lucide-svelte';
   import { getJobs, deleteJob, formatJobSource } from '$lib/api';
   import { activeJobs, queuedJobs, runningJobs, connectToEvents, disconnectFromEvents } from '$lib/stores/jobs';
+  import { toast } from 'svelte-sonner';
   import SubmitJobDialog from '$lib/components/SubmitJobDialog.svelte';
   import type { Job } from '$lib/types';
 
@@ -46,9 +47,12 @@
     error = null;
     try {
       await deleteJob(job.id);
+      toast.success('Job removed from queue');
       await loadData();
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to delete job';
+      const message = e instanceof Error ? e.message : 'Failed to delete job';
+      error = message;
+      toast.error(message);
     } finally {
       deletingJobs = new Set([...deletingJobs].filter((id) => id !== job.id));
     }

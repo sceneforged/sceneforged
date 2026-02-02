@@ -7,6 +7,7 @@
   import { Button } from '$lib/components/ui/button';
   import { theme } from '$lib/stores/theme';
   import { authStore } from '$lib/stores/auth';
+  import { Toaster } from 'svelte-sonner';
   import {
     Home,
     ListOrdered,
@@ -76,6 +77,8 @@
   <title>Mediaforge</title>
   <link rel="icon" href={favicon} />
 </svelte:head>
+
+<Toaster richColors position="bottom-right" />
 
 <div class="flex h-screen bg-background">
   <!-- Sidebar - Desktop -->

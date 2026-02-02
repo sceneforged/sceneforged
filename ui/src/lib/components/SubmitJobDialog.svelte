@@ -12,6 +12,7 @@
   import { Input } from '$lib/components/ui/input';
   import { Plus, Loader2, AlertCircle } from 'lucide-svelte';
   import { submitJob } from '$lib/api';
+  import { toast } from 'svelte-sonner';
 
   interface Props {
     onSubmitted?: () => void;
@@ -37,6 +38,7 @@
       await submitJob(filePath.trim());
       filePath = '';
       open = false;
+      toast.success('Job submitted');
       onSubmitted?.();
     } catch (e) {
       if (e instanceof Error) {

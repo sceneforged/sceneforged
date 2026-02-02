@@ -11,6 +11,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 pub fn api_routes() -> Router<AppContext> {
@@ -30,31 +31,82 @@ pub fn api_routes() -> Router<AppContext> {
         .route("/tools", get(get_tools))
 }
 
-async fn health(State(ctx): State<AppContext>) -> impl IntoResponse {
-    let stats = ctx.state.get_stats();
-    Json(serde_json::json!({
-        "status": "healthy",
-        "version": env!("CARGO_PKG_VERSION"),
-        "stats": {
-            "total_processed": stats.total_processed,
-            "success_rate": stats.success_rate()
-        }
-    }))
+/// Health check response.
+#[derive(Serialize, ToSchema)]
+pub struct HealthResponse {
+    /// Service status
+    pub status: String,
+    /// Application version
+    pub version: String,
+    /// Processing statistics
+    pub stats: HealthStats,
 }
 
-async fn stats(State(ctx): State<AppContext>) -> impl IntoResponse {
+/// Health statistics.
+#[derive(Serialize, ToSchema)]
+pub struct HealthStats {
+    /// Total jobs processed
+    pub total_processed: u64,
+    /// Success rate percentage
+    pub success_rate: f32,
+}
+
+/// Check API health status.
+#[utoipa::path(
+    get,
+    path = "/api/health",
+    tag = "health",
+    responses(
+        (status = 200, description = "Service is healthy", body = HealthResponse)
+    )
+)]
+pub async fn health(State(ctx): State<AppContext>) -> impl IntoResponse {
+    let stats = ctx.state.get_stats();
+    Json(HealthResponse {
+        status: "healthy".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        stats: HealthStats {
+            total_processed: stats.total_processed,
+            success_rate: stats.success_rate(),
+        },
+    })
+}
+
+/// Get processing statistics.
+#[utoipa::path(
+    get,
+    path = "/api/stats",
+    tag = "jobs",
+    responses(
+        (status = 200, description = "Processing statistics", body = super::openapi::JobStatsSchema)
+    )
+)]
+pub async fn stats(State(ctx): State<AppContext>) -> impl IntoResponse {
     let stats = ctx.state.get_stats();
     Json(stats)
 }
 
-#[derive(Deserialize)]
-struct ListJobsQuery {
-    status: Option<String>,
-    limit: Option<usize>,
-    offset: Option<usize>,
+#[derive(Deserialize, utoipa::IntoParams)]
+pub struct ListJobsQuery {
+    /// Filter by status (queued, running, completed, failed, cancelled)
+    pub status: Option<String>,
+    /// Maximum number of results to return
+    pub limit: Option<usize>,
+    /// Number of results to skip
+    pub offset: Option<usize>,
 }
 
-async fn list_jobs(
+/// List active jobs.
+#[utoipa::path(
+    get,
+    path = "/api/jobs",
+    tag = "jobs",
+    params(ListJobsQuery),
+    responses(
+        (status = 200, description = "List of jobs", body = Vec<super::openapi::JobSchema>)
+    )
+)]
+pub async fn list_jobs(
     State(ctx): State<AppContext>,
     Query(params): Query<ListJobsQuery>,
 ) -> impl IntoResponse {
@@ -73,18 +125,35 @@ async fn list_jobs(
     Json(jobs)
 }
 
-#[derive(Deserialize)]
-struct SubmitJobRequest {
-    file_path: String,
+/// Request to submit a new job.
+#[derive(Deserialize, ToSchema)]
+pub struct SubmitJobRequest {
+    /// Path to the media file to process
+    pub file_path: String,
 }
 
-#[derive(Serialize)]
-struct SubmitJobResponse {
-    job_id: Uuid,
-    file_path: String,
+/// Response after submitting a job.
+#[derive(Serialize, ToSchema)]
+pub struct SubmitJobResponse {
+    /// Unique job identifier
+    pub job_id: Uuid,
+    /// Path to the submitted file
+    pub file_path: String,
 }
 
-async fn submit_job(
+/// Submit a new job for processing.
+#[utoipa::path(
+    post,
+    path = "/api/jobs/submit",
+    tag = "jobs",
+    request_body = SubmitJobRequest,
+    responses(
+        (status = 200, description = "Job submitted successfully", body = SubmitJobResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 409, description = "Job already exists for this file")
+    )
+)]
+pub async fn submit_job(
     State(ctx): State<AppContext>,
     Json(payload): Json<SubmitJobRequest>,
 ) -> Result<Json<SubmitJobResponse>, (StatusCode, String)> {
@@ -128,14 +197,40 @@ async fn submit_job(
     }
 }
 
-async fn get_job(
+/// Get a specific job by ID.
+#[utoipa::path(
+    get,
+    path = "/api/jobs/{id}",
+    tag = "jobs",
+    params(
+        ("id" = Uuid, Path, description = "Job ID")
+    ),
+    responses(
+        (status = 200, description = "Job details", body = super::openapi::JobSchema),
+        (status = 404, description = "Job not found")
+    )
+)]
+pub async fn get_job(
     State(ctx): State<AppContext>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Job>, StatusCode> {
     ctx.state.get_job(id).map(Json).ok_or(StatusCode::NOT_FOUND)
 }
 
-async fn retry_job(
+/// Retry a failed job.
+#[utoipa::path(
+    post,
+    path = "/api/jobs/{id}/retry",
+    tag = "jobs",
+    params(
+        ("id" = Uuid, Path, description = "Job ID")
+    ),
+    responses(
+        (status = 200, description = "Job requeued", body = super::openapi::JobSchema),
+        (status = 400, description = "Cannot retry this job")
+    )
+)]
+pub async fn retry_job(
     State(ctx): State<AppContext>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Job>, (StatusCode, String)> {
@@ -145,7 +240,20 @@ async fn retry_job(
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
 }
 
-async fn delete_job(State(ctx): State<AppContext>, Path(id): Path<Uuid>) -> impl IntoResponse {
+/// Delete a job.
+#[utoipa::path(
+    delete,
+    path = "/api/jobs/{id}",
+    tag = "jobs",
+    params(
+        ("id" = Uuid, Path, description = "Job ID")
+    ),
+    responses(
+        (status = 204, description = "Job deleted"),
+        (status = 404, description = "Job not found")
+    )
+)]
+pub async fn delete_job(State(ctx): State<AppContext>, Path(id): Path<Uuid>) -> impl IntoResponse {
     if ctx.state.delete_job(id) {
         StatusCode::NO_CONTENT
     } else {
@@ -153,7 +261,16 @@ async fn delete_job(State(ctx): State<AppContext>, Path(id): Path<Uuid>) -> impl
     }
 }
 
-async fn get_queue(State(ctx): State<AppContext>) -> impl IntoResponse {
+/// Get the current job queue.
+#[utoipa::path(
+    get,
+    path = "/api/queue",
+    tag = "jobs",
+    responses(
+        (status = 200, description = "Current queue", body = Vec<super::openapi::JobSchema>)
+    )
+)]
+pub async fn get_queue(State(ctx): State<AppContext>) -> impl IntoResponse {
     let queue_ids = ctx.state.get_queue();
     let jobs: Vec<_> = queue_ids
         .into_iter()
@@ -162,12 +279,23 @@ async fn get_queue(State(ctx): State<AppContext>) -> impl IntoResponse {
     Json(jobs)
 }
 
-#[derive(Deserialize)]
-struct HistoryQuery {
-    limit: Option<usize>,
+#[derive(Deserialize, utoipa::IntoParams)]
+pub struct HistoryQuery {
+    /// Maximum number of results to return
+    pub limit: Option<usize>,
 }
 
-async fn get_history(
+/// Get job history.
+#[utoipa::path(
+    get,
+    path = "/api/history",
+    tag = "jobs",
+    params(HistoryQuery),
+    responses(
+        (status = 200, description = "Job history", body = Vec<super::openapi::JobSchema>)
+    )
+)]
+pub async fn get_history(
     State(ctx): State<AppContext>,
     Query(params): Query<HistoryQuery>,
 ) -> impl IntoResponse {
@@ -176,22 +304,46 @@ async fn get_history(
     Json(history)
 }
 
-async fn get_rules(State(ctx): State<AppContext>) -> impl IntoResponse {
+/// Get all processing rules.
+#[utoipa::path(
+    get,
+    path = "/api/rules",
+    tag = "config",
+    responses(
+        (status = 200, description = "List of rules", body = Vec<super::openapi::RuleSchema>)
+    )
+)]
+pub async fn get_rules(State(ctx): State<AppContext>) -> impl IntoResponse {
     let rules = ctx.config.rules.clone();
     Json(rules)
 }
 
-#[derive(Serialize)]
-struct ArrStatus {
-    name: String,
+/// Arr integration status.
+#[derive(Serialize, ToSchema)]
+pub struct ArrStatus {
+    /// Integration name
+    pub name: String,
+    /// Integration type (radarr/sonarr)
     #[serde(rename = "type")]
-    arr_type: String,
-    url: String,
-    enabled: bool,
-    status: &'static str,
+    pub arr_type: String,
+    /// Server URL
+    pub url: String,
+    /// Whether the integration is enabled
+    pub enabled: bool,
+    /// Connection status
+    pub status: &'static str,
 }
 
-async fn get_arrs(State(ctx): State<AppContext>) -> impl IntoResponse {
+/// Get all Arr integrations.
+#[utoipa::path(
+    get,
+    path = "/api/arrs",
+    tag = "config",
+    responses(
+        (status = 200, description = "List of Arr integrations", body = Vec<ArrStatus>)
+    )
+)]
+pub async fn get_arrs(State(ctx): State<AppContext>) -> impl IntoResponse {
     let arrs: Vec<ArrStatus> = ctx
         .config
         .arrs
@@ -207,13 +359,29 @@ async fn get_arrs(State(ctx): State<AppContext>) -> impl IntoResponse {
     Json(arrs)
 }
 
-#[derive(Serialize)]
-struct TestResult {
-    success: bool,
-    error: Option<String>,
+/// Arr connection test result.
+#[derive(Serialize, ToSchema)]
+pub struct TestResult {
+    /// Whether the test succeeded
+    pub success: bool,
+    /// Error message if failed
+    pub error: Option<String>,
 }
 
-async fn test_arr(
+/// Test Arr integration connection.
+#[utoipa::path(
+    post,
+    path = "/api/arrs/{name}/test",
+    tag = "config",
+    params(
+        ("name" = String, Path, description = "Arr integration name")
+    ),
+    responses(
+        (status = 200, description = "Test result", body = TestResult),
+        (status = 404, description = "Arr not found")
+    )
+)]
+pub async fn test_arr(
     State(ctx): State<AppContext>,
     Path(name): Path<String>,
 ) -> Result<Json<TestResult>, StatusCode> {
@@ -248,15 +416,29 @@ async fn test_arr(
     }
 }
 
-#[derive(Serialize)]
-struct ToolStatusResponse {
-    name: String,
-    available: bool,
-    version: Option<String>,
-    path: Option<String>,
+/// External tool status.
+#[derive(Serialize, ToSchema)]
+pub struct ToolStatusResponse {
+    /// Tool name
+    pub name: String,
+    /// Whether the tool is available
+    pub available: bool,
+    /// Tool version if available
+    pub version: Option<String>,
+    /// Path to the tool
+    pub path: Option<String>,
 }
 
-async fn get_tools() -> impl IntoResponse {
+/// Get status of external tools.
+#[utoipa::path(
+    get,
+    path = "/api/tools",
+    tag = "tools",
+    responses(
+        (status = 200, description = "Tool status list", body = Vec<ToolStatusResponse>)
+    )
+)]
+pub async fn get_tools() -> impl IntoResponse {
     let tools = check_tools();
     let response: Vec<ToolStatusResponse> = tools
         .into_iter()

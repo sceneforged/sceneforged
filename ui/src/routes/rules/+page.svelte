@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { toast } from 'svelte-sonner';
   import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '$lib/components/ui/card';
   import { Badge } from '$lib/components/ui/badge';
   import { Button } from '$lib/components/ui/button';
@@ -39,12 +40,18 @@
   }
 
   async function handleSaveRule(rule: Omit<Rule, 'normalized'>) {
-    if (editingRule) {
-      await updateRule(editingRule.name, rule);
-    } else {
-      await createRule(rule);
+    try {
+      if (editingRule) {
+        await updateRule(editingRule.name, rule);
+        toast.success('Rule saved');
+      } else {
+        await createRule(rule);
+        toast.success('Rule created');
+      }
+      await loadData();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to save rule');
     }
-    await loadData();
   }
 
   async function handleDeleteRule(name: string) {
@@ -54,6 +61,7 @@
     try {
       await deleteRule(name);
       await loadData();
+      toast.success('Rule deleted');
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to delete rule';
     } finally {
@@ -63,8 +71,10 @@
 
   async function handleToggleEnabled(rule: Rule) {
     try {
-      await updateRule(rule.name, { ...rule, enabled: !rule.enabled });
+      const newEnabled = !rule.enabled;
+      await updateRule(rule.name, { ...rule, enabled: newEnabled });
       await loadData();
+      toast.success(newEnabled ? 'Rule enabled' : 'Rule disabled');
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to update rule';
     }

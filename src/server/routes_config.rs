@@ -3,12 +3,13 @@
 use crate::config::{persist, ArrConfig, ArrType, JellyfinConfig, MatchConditions, Rule};
 use crate::server::AppContext;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post, put},
     Json, Router,
 };
+use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 pub fn config_routes() -> Router<AppContext> {
@@ -34,6 +35,8 @@ pub fn config_routes() -> Router<AppContext> {
         // Config operations
         .route("/config/reload", post(reload_config))
         .route("/config/validate", post(validate_config))
+        // Path browsing
+        .route("/config/browse", get(browse_paths))
 }
 
 // ============================================================================
@@ -724,4 +727,60 @@ async fn validate_config(Json(req): Json<ValidateRequest>) -> impl IntoResponse 
         valid: errors.is_empty(),
         errors,
     })
+}
+
+// ============================================================================
+// Path Browsing
+// ============================================================================
+
+#[derive(Deserialize)]
+struct BrowseQuery {
+    path: Option<String>,
+    search: Option<String>,
+}
+
+#[derive(Serialize)]
+struct DirEntry {
+    name: String,
+    path: String,
+    is_dir: bool,
+}
+
+async fn browse_paths(Query(params): Query<BrowseQuery>) -> impl IntoResponse {
+    let base = params.path.unwrap_or_else(|| "/".to_string());
+    let path = PathBuf::from(&base);
+
+    if !path.exists() || !path.is_dir() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Invalid path"})),
+        )
+            .into_response();
+    }
+
+    let mut entries: Vec<DirEntry> = vec![];
+    if let Ok(read_dir) = std::fs::read_dir(&path) {
+        for entry in read_dir.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            // Skip hidden files/directories
+            if name.starts_with('.') {
+                continue;
+            }
+            if let Some(ref search) = params.search {
+                if !name.to_lowercase().contains(&search.to_lowercase()) {
+                    continue;
+                }
+            }
+            // Only show directories for library paths
+            if entry.path().is_dir() {
+                entries.push(DirEntry {
+                    name,
+                    path: entry.path().to_string_lossy().to_string(),
+                    is_dir: true,
+                });
+            }
+        }
+    }
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    Json(entries).into_response()
 }

@@ -3,11 +3,10 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import * as api from '$lib/api';
-  import type { Item, PlaybackInfo, UserItemData } from '$lib/types';
+  import type { Item, MediaFile, UserItemData } from '$lib/types';
   import Button from '$lib/components/ui/button/button.svelte';
   import Badge from '$lib/components/ui/badge/badge.svelte';
   import {
-    Play,
     ArrowLeft,
     Heart,
     Check,
@@ -20,10 +19,10 @@
     Loader2,
   } from 'lucide-svelte';
 
-  const itemId = $derived($page.params.itemId);
+  const itemId = $derived($page.params.itemId!);
 
   let item = $state<Item | null>(null);
-  let playbackInfo = $state<PlaybackInfo | null>(null);
+  let mediaFiles = $state<MediaFile[]>([]);
   let userItemData = $state<UserItemData | null>(null);
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -33,24 +32,22 @@
   });
 
   async function loadItem() {
+    if (!itemId) return;
     loading = true;
     error = null;
 
     try {
-      [item, playbackInfo] = await Promise.all([
+      const [itemData, files] = await Promise.all([
         api.getItem(itemId),
-        api.getPlaybackInfo(itemId).catch(() => null),
+        api.getItemFiles(itemId).catch(() => []),
       ]);
-      userItemData = playbackInfo?.user_data ?? null;
+      item = itemData;
+      mediaFiles = files;
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load item';
     } finally {
       loading = false;
     }
-  }
-
-  function handlePlay() {
-    goto(`/play/${itemId}`);
   }
 
   async function handleToggleFavorite() {
@@ -101,8 +98,6 @@
     }
   });
 
-  const resumePosition = $derived(userItemData?.playback_position_ticks ?? 0);
-  const hasResumePosition = $derived(resumePosition > 0 && !userItemData?.played);
 </script>
 
 <svelte:head>
@@ -137,18 +132,6 @@
 
         <!-- Action buttons -->
         <div class="flex flex-col gap-2 mt-4">
-          <Button class="w-full" onclick={handlePlay}>
-            <Play class="w-4 h-4 mr-2" />
-            {hasResumePosition ? 'Resume' : 'Play'}
-          </Button>
-
-          {#if hasResumePosition}
-            <Button variant="outline" class="w-full" onclick={() => goto(`/play/${itemId}?start=0`)}>
-              <Play class="w-4 h-4 mr-2" />
-              Play from Beginning
-            </Button>
-          {/if}
-
           <div class="flex gap-2">
             <Button
               variant={userItemData?.is_favorite ? 'default' : 'outline'}
@@ -291,23 +274,56 @@
           </div>
         </div>
 
-        <!-- Playback info -->
-        {#if playbackInfo}
+        <!-- Versions -->
+        {#if mediaFiles.length > 0}
           <div class="mb-6">
-            <h2 class="text-lg font-semibold mb-2">Playback</h2>
-            <div class="text-sm">
-              <div>
-                <span class="text-muted-foreground">Stream Type:</span>
-                <span class="ml-2 font-medium capitalize">{playbackInfo.stream_type}</span>
-              </div>
-              {#if playbackInfo.media_file}
-                <div>
-                  <span class="text-muted-foreground">Profile B Compatible:</span>
-                  <span class="ml-2 font-medium">
-                    {playbackInfo.media_file.serves_as_universal ? 'Yes' : 'No'}
-                  </span>
+            <h2 class="text-lg font-semibold mb-2">Versions</h2>
+            <div class="space-y-3">
+              {#each mediaFiles as file}
+                <div class="p-4 border rounded-lg space-y-2">
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <Badge variant={file.serves_as_universal ? 'secondary' : 'default'}>
+                        Profile {file.serves_as_universal ? 'B' : 'A'}
+                      </Badge>
+                      <span class="text-sm font-medium capitalize">{file.role}</span>
+                    </div>
+                    <span class="text-sm text-muted-foreground">{api.formatBytes(file.file_size)}</span>
+                  </div>
+                  <div class="grid grid-cols-2 gap-2 text-sm">
+                    {#if file.width && file.height}
+                      <div>
+                        <span class="text-muted-foreground">Resolution:</span>
+                        <span class="ml-2">{file.width}x{file.height}</span>
+                      </div>
+                    {/if}
+                    {#if file.video_codec}
+                      <div>
+                        <span class="text-muted-foreground">Video:</span>
+                        <span class="ml-2 uppercase">{file.video_codec}</span>
+                      </div>
+                    {/if}
+                    {#if file.audio_codec}
+                      <div>
+                        <span class="text-muted-foreground">Audio:</span>
+                        <span class="ml-2 uppercase">{file.audio_codec}</span>
+                      </div>
+                    {/if}
+                    {#if file.container}
+                      <div>
+                        <span class="text-muted-foreground">Container:</span>
+                        <span class="ml-2 uppercase">{file.container}</span>
+                      </div>
+                    {/if}
+                  </div>
+                  {#if file.is_hdr}
+                    <Badge variant="secondary" class="text-xs">HDR</Badge>
+                  {/if}
+                  <div class="text-xs text-muted-foreground/50 truncate">
+                    {file.file_path}
+                  </div>
                 </div>
-              {/if}
+              {/each}
             </div>
           </div>
         {/if}

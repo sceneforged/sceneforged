@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { toast } from 'svelte-sonner';
   import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '$lib/components/ui/card';
   import { Badge } from '$lib/components/ui/badge';
   import { Button } from '$lib/components/ui/button';
@@ -54,6 +55,7 @@
   } from '$lib/api';
   import type { ToolStatus, HealthResponse, Library } from '$lib/types';
   import { Library as LibraryIcon, Play, Music } from 'lucide-svelte';
+  import PathInput from '$lib/components/PathInput.svelte';
 
   let tools = $state<ToolStatus[]>([]);
   let arrs = $state<ArrConfigResponse[]>([]);
@@ -99,7 +101,7 @@
   let libraryForm = $state({
     name: '',
     media_type: 'movies' as 'movies' | 'tvshows' | 'music',
-    paths: '',
+    paths: [] as string[],
   });
   let libraryLoading = $state(false);
   let libraryError = $state<string | null>(null);
@@ -139,8 +141,13 @@
           ? { ...a, status: result.success ? 'connected' : 'error' }
           : a
       );
+      if (result.success) {
+        toast.success(`Connected to ${name}`);
+      } else {
+        toast.error(`Failed to connect to ${name}`);
+      }
     } catch (e) {
-      // Handle error silently
+      toast.error(`Failed to connect to ${name}`);
     } finally {
       testingArr = null;
     }
@@ -151,8 +158,10 @@
     try {
       await reloadConfig();
       await loadData();
+      toast.success('Config reloaded');
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to reload config';
+      toast.error('Failed to reload config');
     } finally {
       reloading = false;
     }
@@ -230,6 +239,7 @@
       }
       arrEditorOpen = false;
       await loadData();
+      toast.success(`Saved ${arrForm.name}`);
     } catch (e) {
       arrError = e instanceof Error ? e.message : 'Failed to save';
     } finally {
@@ -244,8 +254,10 @@
     try {
       await deleteArr(name);
       await loadData();
+      toast.success(`Deleted ${name}`);
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to delete';
+      toast.error(`Failed to delete ${name}`);
     } finally {
       deletingArr = null;
     }
@@ -311,6 +323,7 @@
       }
       jellyfinEditorOpen = false;
       await loadData();
+      toast.success(`Saved ${jellyfinForm.name}`);
     } catch (e) {
       jellyfinError = e instanceof Error ? e.message : 'Failed to save';
     } finally {
@@ -325,8 +338,10 @@
     try {
       await deleteJellyfin(name);
       await loadData();
+      toast.success(`Deleted ${name}`);
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to delete';
+      toast.error(`Failed to delete ${name}`);
     } finally {
       deletingJellyfin = null;
     }
@@ -337,7 +352,7 @@
     libraryForm = {
       name: '',
       media_type: 'movies',
-      paths: '',
+      paths: [],
     };
     libraryError = null;
     libraryEditorOpen = true;
@@ -348,7 +363,7 @@
       libraryError = 'Name is required';
       return;
     }
-    if (!libraryForm.paths.trim()) {
+    if (libraryForm.paths.length === 0) {
       libraryError = 'At least one path is required';
       return;
     }
@@ -357,14 +372,14 @@
     libraryError = null;
 
     try {
-      const paths = libraryForm.paths.split('\n').map(p => p.trim()).filter(p => p);
       await createLibrary({
         name: libraryForm.name.trim(),
         media_type: libraryForm.media_type,
-        paths,
+        paths: libraryForm.paths,
       });
       libraryEditorOpen = false;
       await loadData();
+      toast.success(`Created library ${libraryForm.name}`);
     } catch (e) {
       libraryError = e instanceof Error ? e.message : 'Failed to create library';
     } finally {
@@ -379,19 +394,25 @@
     try {
       await deleteLibrary(id);
       await loadData();
+      toast.success(`Deleted library ${name}`);
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to delete library';
+      toast.error(`Failed to delete library ${name}`);
     } finally {
       deletingLibrary = null;
     }
   }
 
   async function handleScanLibrary(id: string) {
+    const library = libraries.find(l => l.id === id);
+    const libraryName = library?.name ?? 'library';
     scanningLibrary = id;
     try {
+      toast.info(`Scanning ${libraryName}...`);
       await scanLibrary(id);
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to start scan';
+      toast.error(`Failed to scan ${libraryName}`);
     } finally {
       scanningLibrary = null;
     }
@@ -946,15 +967,9 @@
         </div>
 
         <div class="space-y-2">
-          <label for="library-paths" class="text-sm font-medium">Paths (one per line)</label>
-          <textarea
-            id="library-paths"
-            bind:value={libraryForm.paths}
-            placeholder="/media/movies&#10;/media/movies-theater"
-            rows="4"
-            class="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-          ></textarea>
-          <p class="text-xs text-muted-foreground">Enter filesystem paths where your media files are located</p>
+          <label class="text-sm font-medium">Paths</label>
+          <PathInput bind:paths={libraryForm.paths} placeholder="/media/movies" />
+          <p class="text-xs text-muted-foreground">Add directories containing your media files</p>
         </div>
 
         {#if libraryError}

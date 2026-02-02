@@ -22,6 +22,7 @@ use tower_http::{
 };
 
 pub mod auth;
+pub mod openapi;
 pub mod routes_api;
 pub mod routes_config;
 pub mod routes_library;
@@ -58,6 +59,8 @@ pub fn create_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
         .route("/health", get(health_check))
         // API routes (with optional auth)
         .nest("/api", api_routes(&ctx))
+        // OpenAPI documentation (Swagger UI at /api/docs)
+        .nest("/api", openapi::openapi_routes())
         // Webhook routes (with optional signature verification)
         .nest("/webhook", webhook_routes(&ctx));
 

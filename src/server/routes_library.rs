@@ -16,6 +16,7 @@ use sceneforged_db::{
     queries::{items, libraries, media_files},
 };
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use super::AppContext;
 use crate::scanner::Scanner;
@@ -46,19 +47,30 @@ pub fn library_routes() -> Router<AppContext> {
 // Request/Response types
 // ============================================================================
 
-#[derive(Debug, Deserialize)]
+/// Request to create a new library.
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateLibraryRequest {
+    /// Library name
     pub name: String,
+    /// Type of media in this library (movie, series)
+    #[schema(value_type = String)]
     pub media_type: MediaType,
+    /// Paths to scan for media files
     pub paths: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+/// Library information.
+#[derive(Debug, Serialize, ToSchema)]
 pub struct LibraryResponse {
+    /// Unique library identifier
     pub id: String,
+    /// Library name
     pub name: String,
+    /// Type of media in this library
     pub media_type: String,
+    /// Paths scanned for media files
     pub paths: Vec<String>,
+    /// When the library was created
     pub created_at: String,
 }
 
@@ -74,38 +86,65 @@ impl From<Library> for LibraryResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+/// Media item information.
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ItemResponse {
+    /// Unique item identifier
     pub id: String,
+    /// Library this item belongs to
     pub library_id: String,
+    /// Parent item ID (for episodes, seasons, etc.)
     pub parent_id: Option<String>,
+    /// Type of item (movie, series, season, episode)
     pub item_kind: String,
+    /// Item name/title
     pub name: String,
+    /// Sort name
     pub sort_name: Option<String>,
+    /// Original title (if different from name)
     pub original_title: Option<String>,
+    /// Plot summary
     pub overview: Option<String>,
+    /// Tagline
     pub tagline: Option<String>,
+    /// Genres
     pub genres: Vec<String>,
+    /// Studios
     pub studios: Vec<String>,
+    /// Community rating
     pub community_rating: Option<f64>,
+    /// Year of production
     pub production_year: Option<i32>,
+    /// Premiere date
     pub premiere_date: Option<String>,
+    /// Content rating (PG, R, etc.)
     pub official_rating: Option<String>,
+    /// Runtime in ticks (100ns units)
     pub runtime_ticks: Option<i64>,
+    /// Index number (episode number, etc.)
     pub index_number: Option<i32>,
+    /// Parent index number (season number, etc.)
     pub parent_index_number: Option<i32>,
+    /// HDR format type
     pub hdr_type: Option<String>,
+    /// Dolby Vision profile
     pub dolby_vision_profile: Option<String>,
+    /// When the item was added
     pub date_created: String,
+    /// External provider IDs
     pub provider_ids: ProviderIdsResponse,
 }
 
-#[derive(Debug, Serialize)]
+/// External provider IDs.
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ProviderIdsResponse {
+    /// TMDB ID
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tmdb: Option<String>,
+    /// IMDB ID
     #[serde(skip_serializing_if = "Option::is_none")]
     pub imdb: Option<String>,
+    /// TVDB ID
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tvdb: Option<String>,
 }
@@ -143,20 +182,34 @@ impl From<Item> for ItemResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+/// Media file information.
+#[derive(Debug, Serialize, ToSchema)]
 pub struct MediaFileResponse {
+    /// Unique file identifier
     pub id: String,
+    /// Item this file belongs to
     pub item_id: String,
+    /// File role (primary, secondary, etc.)
     pub role: String,
+    /// Path to the file
     pub file_path: String,
+    /// File size in bytes
     pub file_size: i64,
+    /// Container format
     pub container: String,
+    /// Video codec
     pub video_codec: Option<String>,
+    /// Audio codec
     pub audio_codec: Option<String>,
+    /// Video width in pixels
     pub width: Option<i32>,
+    /// Video height in pixels
     pub height: Option<i32>,
+    /// Duration in ticks (100ns units)
     pub duration_ticks: Option<i64>,
+    /// Whether the file is HDR
     pub is_hdr: bool,
+    /// Whether this file serves as universal fallback
     pub serves_as_universal: bool,
 }
 
@@ -180,19 +233,27 @@ impl From<MediaFile> for MediaFileResponse {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
 pub struct ItemsQuery {
+    /// Filter by library ID
     pub library_id: Option<String>,
+    /// Filter by parent item ID
     pub parent_id: Option<String>,
+    /// Filter by item kinds (comma-separated)
     #[serde(default)]
-    pub item_kinds: Option<String>, // Comma-separated
+    pub item_kinds: Option<String>,
+    /// Search term
     pub search: Option<String>,
+    /// Number of results to skip
     #[serde(default = "default_offset")]
     pub offset: u32,
+    /// Maximum number of results to return
     #[serde(default = "default_limit")]
     pub limit: u32,
+    /// Sort field
     #[serde(default)]
     pub sort_by: Option<String>,
+    /// Sort in descending order
     #[serde(default)]
     pub sort_desc: bool,
 }
@@ -205,9 +266,11 @@ fn default_limit() -> u32 {
     100
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
 pub struct SearchQuery {
+    /// Search term
     pub q: String,
+    /// Maximum number of results to return
     #[serde(default = "default_search_limit")]
     pub limit: u32,
 }
@@ -216,11 +279,16 @@ fn default_search_limit() -> u32 {
     20
 }
 
-#[derive(Debug, Serialize)]
+/// Paginated list of items.
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ItemsListResponse {
+    /// Items in this page
     pub items: Vec<ItemResponse>,
+    /// Total number of items matching the filter
     pub total_count: u32,
+    /// Offset used
     pub offset: u32,
+    /// Limit used
     pub limit: u32,
 }
 
@@ -229,7 +297,16 @@ pub struct ItemsListResponse {
 // ============================================================================
 
 /// List all libraries.
-async fn list_libraries(State(ctx): State<AppContext>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/api/libraries",
+    tag = "libraries",
+    responses(
+        (status = 200, description = "List of libraries", body = Vec<LibraryResponse>),
+        (status = 503, description = "Database not available")
+    )
+)]
+pub async fn list_libraries(State(ctx): State<AppContext>) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
         return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
     };
@@ -259,7 +336,18 @@ async fn list_libraries(State(ctx): State<AppContext>) -> impl IntoResponse {
 }
 
 /// Create a new library.
-async fn create_library(
+#[utoipa::path(
+    post,
+    path = "/api/libraries",
+    tag = "libraries",
+    request_body = CreateLibraryRequest,
+    responses(
+        (status = 201, description = "Library created", body = LibraryResponse),
+        (status = 500, description = "Internal server error"),
+        (status = 503, description = "Database not available")
+    )
+)]
+pub async fn create_library(
     State(ctx): State<AppContext>,
     Json(req): Json<CreateLibraryRequest>,
 ) -> impl IntoResponse {
@@ -289,7 +377,21 @@ async fn create_library(
 }
 
 /// Get a library by ID.
-async fn get_library(
+#[utoipa::path(
+    get,
+    path = "/api/libraries/{library_id}",
+    tag = "libraries",
+    params(
+        ("library_id" = String, Path, description = "Library ID")
+    ),
+    responses(
+        (status = 200, description = "Library details", body = LibraryResponse),
+        (status = 400, description = "Invalid library ID"),
+        (status = 404, description = "Library not found"),
+        (status = 503, description = "Database not available")
+    )
+)]
+pub async fn get_library(
     State(ctx): State<AppContext>,
     Path(library_id): Path<String>,
 ) -> impl IntoResponse {
@@ -335,7 +437,21 @@ async fn get_library(
 }
 
 /// Delete a library.
-async fn delete_library(
+#[utoipa::path(
+    delete,
+    path = "/api/libraries/{library_id}",
+    tag = "libraries",
+    params(
+        ("library_id" = String, Path, description = "Library ID")
+    ),
+    responses(
+        (status = 204, description = "Library deleted"),
+        (status = 400, description = "Invalid library ID"),
+        (status = 404, description = "Library not found"),
+        (status = 503, description = "Database not available")
+    )
+)]
+pub async fn delete_library(
     State(ctx): State<AppContext>,
     Path(library_id): Path<String>,
 ) -> impl IntoResponse {
@@ -381,7 +497,21 @@ async fn delete_library(
 }
 
 /// Scan a library for new media files.
-async fn scan_library(
+#[utoipa::path(
+    post,
+    path = "/api/libraries/{library_id}/scan",
+    tag = "libraries",
+    params(
+        ("library_id" = String, Path, description = "Library ID")
+    ),
+    responses(
+        (status = 200, description = "Scan completed"),
+        (status = 400, description = "Invalid library ID"),
+        (status = 500, description = "Scan failed"),
+        (status = 503, description = "Database not available")
+    )
+)]
+pub async fn scan_library(
     State(ctx): State<AppContext>,
     Path(library_id): Path<String>,
 ) -> impl IntoResponse {
@@ -418,7 +548,21 @@ async fn scan_library(
 }
 
 /// Get items in a library.
-async fn get_library_items(
+#[utoipa::path(
+    get,
+    path = "/api/libraries/{library_id}/items",
+    tag = "libraries",
+    params(
+        ("library_id" = String, Path, description = "Library ID"),
+        ItemsQuery
+    ),
+    responses(
+        (status = 200, description = "List of items", body = ItemsListResponse),
+        (status = 400, description = "Invalid library ID"),
+        (status = 503, description = "Database not available")
+    )
+)]
+pub async fn get_library_items(
     State(ctx): State<AppContext>,
     Path(library_id): Path<String>,
     Query(query): Query<ItemsQuery>,
@@ -499,7 +643,21 @@ async fn get_library_items(
 }
 
 /// Get recently added items in a library.
-async fn get_recent_items(
+#[utoipa::path(
+    get,
+    path = "/api/libraries/{library_id}/recent",
+    tag = "libraries",
+    params(
+        ("library_id" = String, Path, description = "Library ID"),
+        ItemsQuery
+    ),
+    responses(
+        (status = 200, description = "List of recent items", body = Vec<ItemResponse>),
+        (status = 400, description = "Invalid library ID"),
+        (status = 503, description = "Database not available")
+    )
+)]
+pub async fn get_recent_items(
     State(ctx): State<AppContext>,
     Path(library_id): Path<String>,
     Query(query): Query<ItemsQuery>,
@@ -544,7 +702,17 @@ async fn get_recent_items(
 }
 
 /// List all items with filtering.
-async fn list_items_handler(
+#[utoipa::path(
+    get,
+    path = "/api/items",
+    tag = "items",
+    params(ItemsQuery),
+    responses(
+        (status = 200, description = "List of items", body = ItemsListResponse),
+        (status = 503, description = "Database not available")
+    )
+)]
+pub async fn list_items_handler(
     State(ctx): State<AppContext>,
     Query(query): Query<ItemsQuery>,
 ) -> impl IntoResponse {
@@ -617,7 +785,21 @@ async fn list_items_handler(
 }
 
 /// Get an item by ID.
-async fn get_item(
+#[utoipa::path(
+    get,
+    path = "/api/items/{item_id}",
+    tag = "items",
+    params(
+        ("item_id" = String, Path, description = "Item ID")
+    ),
+    responses(
+        (status = 200, description = "Item details", body = ItemResponse),
+        (status = 400, description = "Invalid item ID"),
+        (status = 404, description = "Item not found"),
+        (status = 503, description = "Database not available")
+    )
+)]
+pub async fn get_item(
     State(ctx): State<AppContext>,
     Path(item_id): Path<String>,
 ) -> impl IntoResponse {
@@ -663,7 +845,20 @@ async fn get_item(
 }
 
 /// Get children of an item.
-async fn get_children(
+#[utoipa::path(
+    get,
+    path = "/api/items/{item_id}/children",
+    tag = "items",
+    params(
+        ("item_id" = String, Path, description = "Item ID")
+    ),
+    responses(
+        (status = 200, description = "List of child items", body = Vec<ItemResponse>),
+        (status = 400, description = "Invalid item ID"),
+        (status = 503, description = "Database not available")
+    )
+)]
+pub async fn get_children(
     State(ctx): State<AppContext>,
     Path(item_id): Path<String>,
 ) -> impl IntoResponse {
@@ -707,7 +902,20 @@ async fn get_children(
 }
 
 /// Get media files for an item.
-async fn get_item_files(
+#[utoipa::path(
+    get,
+    path = "/api/items/{item_id}/files",
+    tag = "items",
+    params(
+        ("item_id" = String, Path, description = "Item ID")
+    ),
+    responses(
+        (status = 200, description = "List of media files", body = Vec<MediaFileResponse>),
+        (status = 400, description = "Invalid item ID"),
+        (status = 503, description = "Database not available")
+    )
+)]
+pub async fn get_item_files(
     State(ctx): State<AppContext>,
     Path(item_id): Path<String>,
 ) -> impl IntoResponse {
@@ -751,7 +959,21 @@ async fn get_item_files(
 }
 
 /// Get similar items (placeholder - returns items from same genre/library).
-async fn get_similar_items(
+#[utoipa::path(
+    get,
+    path = "/api/items/{item_id}/similar",
+    tag = "items",
+    params(
+        ("item_id" = String, Path, description = "Item ID")
+    ),
+    responses(
+        (status = 200, description = "List of similar items", body = Vec<ItemResponse>),
+        (status = 400, description = "Invalid item ID"),
+        (status = 404, description = "Item not found"),
+        (status = 503, description = "Database not available")
+    )
+)]
+pub async fn get_similar_items(
     State(ctx): State<AppContext>,
     Path(item_id): Path<String>,
 ) -> impl IntoResponse {
@@ -834,7 +1056,17 @@ async fn get_similar_items(
 }
 
 /// Search items.
-async fn search_items(
+#[utoipa::path(
+    get,
+    path = "/api/search",
+    tag = "items",
+    params(SearchQuery),
+    responses(
+        (status = 200, description = "Search results", body = Vec<ItemResponse>),
+        (status = 503, description = "Database not available")
+    )
+)]
+pub async fn search_items(
     State(ctx): State<AppContext>,
     Query(query): Query<SearchQuery>,
 ) -> impl IntoResponse {
