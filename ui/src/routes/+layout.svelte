@@ -1,6 +1,7 @@
 <script lang="ts">
   import '../app.css';
   import favicon from '$lib/assets/favicon.svg';
+  import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { Button } from '$lib/components/ui/button';
@@ -19,7 +20,9 @@
     LogOut,
     User,
     LayoutDashboard,
-    FolderX
+    FolderX,
+    Home,
+    Loader2
   } from 'lucide-svelte';
   import { cn } from '$lib/utils';
   import { connect, disconnect } from '$lib/services/events.svelte';
@@ -31,9 +34,10 @@
   let sidebarOpen = $state(true);
   let mobileMenuOpen = $state(false);
   let libraries = $state<Library[]>([]);
+  let librariesLoading = $state(true);
 
-  // Connect to events and fetch libraries on mount, disconnect on destroy
-  $effect(() => {
+  // Connect to events and fetch libraries on mount
+  onMount(() => {
     connect();
 
     // Fetch libraries
@@ -41,14 +45,17 @@
       libraries = libs;
     }).catch((err) => {
       console.error('Failed to fetch libraries:', err);
+    }).finally(() => {
+      librariesLoading = false;
     });
 
     // Check auth status
     authStore.checkStatus();
+  });
 
-    return () => {
-      disconnect();
-    };
+  // Disconnect on destroy
+  onDestroy(() => {
+    disconnect();
   });
 
   // Redirect to login if auth required but not authenticated
@@ -120,8 +127,31 @@
 
     <!-- Navigation -->
     <nav class="flex-1 space-y-1 p-2">
+      <!-- Home Link -->
+      <a
+        href="/"
+        class={cn(
+          "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+          isActive('/', $page.url.pathname)
+            ? "bg-primary text-primary-foreground"
+            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        )}
+      >
+        <Home class="h-5 w-5 flex-shrink-0" />
+        {#if sidebarOpen}
+          <span>Home</span>
+        {/if}
+      </a>
+
       <!-- Libraries Section -->
-      {#if libraryNav.length > 0}
+      {#if librariesLoading}
+        <div class="flex items-center gap-3 px-3 py-2 text-sm text-muted-foreground">
+          <Loader2 class="h-5 w-5 flex-shrink-0 animate-spin" />
+          {#if sidebarOpen}
+            <span>Loading...</span>
+          {/if}
+        </div>
+      {:else if libraryNav.length > 0}
         {#each libraryNav as item}
           {@const active = isActive(item.href, $page.url.pathname)}
           <a
@@ -247,8 +277,27 @@
 
     {#if mobileMenuOpen}
       <nav class="border-b bg-card p-4 shadow-lg">
+        <!-- Home Link -->
+        <a
+          href="/"
+          class={cn(
+            "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+            isActive('/', $page.url.pathname)
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          )}
+        >
+          <Home class="h-5 w-5" />
+          <span>Home</span>
+        </a>
+
         <!-- Libraries Section -->
-        {#if libraryNav.length > 0}
+        {#if librariesLoading}
+          <div class="flex items-center gap-3 px-3 py-2 text-sm text-muted-foreground">
+            <Loader2 class="h-5 w-5 animate-spin" />
+            <span>Loading...</span>
+          </div>
+        {:else if libraryNav.length > 0}
           {#each libraryNav as item}
             {@const active = isActive(item.href, $page.url.pathname)}
             <a

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { getItems } from '$lib/api';
   import MediaRow from '$lib/components/MediaRow.svelte';
   import type { Item } from '$lib/types';
@@ -31,7 +32,7 @@
     }
   }
 
-  $effect(() => {
+  onMount(() => {
     loadData();
   });
 

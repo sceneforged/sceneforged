@@ -3,12 +3,12 @@ import { test, expect, Page } from '@playwright/test';
 // Mock API responses
 const mockData = {
   stats: {
-    total_processed: 10,
-    successful: 8,
-    failed: 2,
-    total_bytes_processed: 1024000000,
-    rules_matched: { test_rule: 5 },
+    total_items: 100,
+    storage_bytes: 1024000000,
+    items_by_profile: { profile_a: 50, profile_b: 30, profile_c: 20 },
   },
+  queue: { queued: 0, running: 0 },
+  streams: [],
   jobs: [],
   history: [],
   rules: [
@@ -37,8 +37,20 @@ const mockData = {
   arrs: [],
   jellyfins: [],
   authStatus: { auth_enabled: false, authenticated: true, username: null },
-  libraries: [],
+  libraries: [
+    { id: 'lib-1', name: 'Movies', media_type: 'movies', paths: ['/media/movies'] },
+    { id: 'lib-2', name: 'TV Shows', media_type: 'tvshows', paths: ['/media/tv'] },
+  ],
   items: { items: [], total_count: 0, offset: 0, limit: 50 },
+  dashboard: {
+    stats: {
+      total_items: 100,
+      storage_bytes: 1024000000,
+      items_by_profile: { profile_a: 50, profile_b: 30, profile_c: 20 },
+    },
+    queue: { queued: 0, running: 0 },
+    streams: [],
+  },
 };
 
 // Setup API mocks for all tests
@@ -48,6 +60,9 @@ async function setupMocks(page: Page) {
     const url = route.request().url();
 
     // Match specific endpoints
+    if (url.includes('/api/admin/dashboard')) {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockData.dashboard) });
+    }
     if (url.includes('/api/stats')) {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockData.stats) });
     }
@@ -87,9 +102,6 @@ async function setupMocks(page: Page) {
         body: 'data: {}\n\n'
       });
     }
-    if (url.includes('/api/queue')) {
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
-    }
     if (url.includes('/api/health') || url.includes('/health')) {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'healthy', version: '0.1.0', stats: { total_processed: 0, success_rate: 0 } }) });
     }
@@ -124,16 +136,16 @@ test.describe('Sceneforged UI - Page Loading', () => {
     await setupMocks(page);
   });
 
-  test('Dashboard loads without JS errors', async ({ page }) => {
+  test('Home page loads without JS errors', async ({ page }) => {
     const errors = await gotoWithErrorCheck(page, '/');
     expect(errors).toHaveLength(0);
-    await expectPageHeading(page, 'Dashboard');
+    await expectPageHeading(page, 'Welcome to Sceneforged');
   });
 
-  test('Queue page loads without JS errors', async ({ page }) => {
-    const errors = await gotoWithErrorCheck(page, '/queue');
+  test('Admin dashboard loads without JS errors', async ({ page }) => {
+    const errors = await gotoWithErrorCheck(page, '/admin');
     expect(errors).toHaveLength(0);
-    await expectPageHeading(page, 'Queue');
+    await expectPageHeading(page, 'Admin Dashboard');
   });
 
   test('History page loads without JS errors', async ({ page }) => {
@@ -153,12 +165,6 @@ test.describe('Sceneforged UI - Page Loading', () => {
     expect(errors).toHaveLength(0);
     await expectPageHeading(page, 'Settings');
   });
-
-  test('Library page loads without JS errors', async ({ page }) => {
-    const errors = await gotoWithErrorCheck(page, '/library');
-    expect(errors).toHaveLength(0);
-    await expectPageHeading(page, 'Library');
-  });
 });
 
 test.describe('Sceneforged UI - Content Rendering', () => {
@@ -166,17 +172,17 @@ test.describe('Sceneforged UI - Content Rendering', () => {
     await setupMocks(page);
   });
 
-  test('Dashboard shows stats cards', async ({ page }) => {
+  test('Home page shows welcome message', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
-    await expect(page.getByText('Total Processed')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText('Success Rate')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Your personal media library')).toBeVisible({ timeout: 10000 });
   });
 
-  test('Queue shows empty state', async ({ page }) => {
-    await page.goto('/queue');
+  test('Admin dashboard shows stats cards', async ({ page }) => {
+    await page.goto('/admin');
     await page.waitForLoadState('domcontentloaded');
-    await expect(page.getByText(/no jobs/i).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Library Items')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Storage Used')).toBeVisible({ timeout: 10000 });
   });
 
   test('History shows table', async ({ page }) => {
@@ -210,31 +216,38 @@ test.describe('Sceneforged UI - Navigation', () => {
     await setupMocks(page);
   });
 
-  test('Navigate from dashboard to all pages', async ({ page }) => {
+  test('Navigate from home to admin pages', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (err) => errors.push(err.message));
 
     await page.goto('/');
-    await expectPageHeading(page, 'Dashboard');
+    await expectPageHeading(page, 'Welcome to Sceneforged');
 
-    // Navigate to Queue
-    await page.getByRole('link', { name: /queue/i }).click();
-    await expectPageHeading(page, 'Queue');
+    // Navigate to Admin Dashboard
+    await page.getByRole('link', { name: /dashboard/i }).click();
+    await expectPageHeading(page, 'Admin Dashboard');
 
     // Navigate to History
     await page.getByRole('link', { name: /history/i }).click();
     await expectPageHeading(page, 'History');
 
-    // Navigate to Rules
-    await page.getByRole('link', { name: /rules/i }).click();
-    await expectPageHeading(page, 'Rules');
-
     // Navigate to Settings
     await page.getByRole('link', { name: /settings/i }).click();
     await expectPageHeading(page, 'Settings');
 
+    // Navigate to Home
+    await page.getByRole('link', { name: /home/i }).click();
+    await expectPageHeading(page, 'Welcome to Sceneforged');
+
     // Check no JS errors occurred
     expect(errors).toHaveLength(0);
+  });
+
+  test('Sidebar shows libraries when loaded', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByRole('link', { name: /movies/i })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('link', { name: /tv shows/i })).toBeVisible({ timeout: 10000 });
   });
 });
 
@@ -243,10 +256,10 @@ test.describe('Sceneforged UI - Direct URL Access (SPA)', () => {
     await setupMocks(page);
   });
 
-  test('Direct access to /queue works', async ({ page }) => {
-    const errors = await gotoWithErrorCheck(page, '/queue');
+  test('Direct access to /admin works', async ({ page }) => {
+    const errors = await gotoWithErrorCheck(page, '/admin');
     expect(errors).toHaveLength(0);
-    await expectPageHeading(page, 'Queue');
+    await expectPageHeading(page, 'Admin Dashboard');
   });
 
   test('Direct access to /history works', async ({ page }) => {
@@ -266,12 +279,6 @@ test.describe('Sceneforged UI - Direct URL Access (SPA)', () => {
     expect(errors).toHaveLength(0);
     await expectPageHeading(page, 'Settings');
   });
-
-  test('Direct access to /library works', async ({ page }) => {
-    const errors = await gotoWithErrorCheck(page, '/library');
-    expect(errors).toHaveLength(0);
-    await expectPageHeading(page, 'Library');
-  });
 });
 
 test.describe('Sceneforged UI - Edge Cases', () => {
@@ -280,6 +287,20 @@ test.describe('Sceneforged UI - Edge Cases', () => {
       const url = route.request().url();
       if (url.includes('/api/config/rules')) {
         return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+      }
+      if (url.includes('/api/auth/status')) {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockData.authStatus) });
+      }
+      if (url.includes('/api/libraries')) {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockData.libraries) });
+      }
+      if (url.includes('/api/events')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'text/event-stream',
+          headers: { 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' },
+          body: 'data: {}\n\n'
+        });
       }
       return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
     });
@@ -311,6 +332,20 @@ test.describe('Sceneforged UI - Edge Cases', () => {
       if (url.includes('/api/config/rules')) {
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([minimalRule]) });
       }
+      if (url.includes('/api/auth/status')) {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockData.authStatus) });
+      }
+      if (url.includes('/api/libraries')) {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockData.libraries) });
+      }
+      if (url.includes('/api/events')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'text/event-stream',
+          headers: { 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' },
+          body: 'data: {}\n\n'
+        });
+      }
       return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
     });
 
@@ -318,16 +353,44 @@ test.describe('Sceneforged UI - Edge Cases', () => {
     expect(errors).toHaveLength(0);
     await expect(page.getByText('minimal_rule')).toBeVisible();
   });
+
+  test('No libraries shows info message', async ({ page }) => {
+    await page.route('**/api/**', async (route) => {
+      const url = route.request().url();
+      if (url.includes('/api/auth/status')) {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockData.authStatus) });
+      }
+      if (url.includes('/api/libraries')) {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+      }
+      if (url.includes('/api/items')) {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockData.items) });
+      }
+      if (url.includes('/api/events')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'text/event-stream',
+          headers: { 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' },
+          body: 'data: {}\n\n'
+        });
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    });
+
+    await page.goto('/');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByText(/no libraries/i)).toBeVisible({ timeout: 10000 });
+  });
 });
 
 test.describe('Sceneforged UI - Error Handling', () => {
-  test('Dashboard handles API failure gracefully', async ({ page }) => {
+  test('Admin dashboard handles API failure gracefully', async ({ page }) => {
     await page.route('**/api/**', (route) => route.abort());
 
     const errors: string[] = [];
     page.on('pageerror', (err) => errors.push(err.message));
 
-    await page.goto('/');
+    await page.goto('/admin');
     await page.waitForLoadState('domcontentloaded');
 
     // Page should render (even with errors shown)
