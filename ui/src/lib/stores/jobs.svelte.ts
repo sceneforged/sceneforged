@@ -50,10 +50,9 @@ function handleJobEvent(event: AppEvent): void {
 subscribeToEvents('admin', handleJobEvent);
 
 /**
- * Create a store-like interface that works with Svelte's $ syntax
- * This provides compatibility with both Svelte 4 and Svelte 5 patterns
+ * Create a readable store-like interface
  */
-function createStoreInterface<T>(getValue: () => T, setValue?: (v: T) => void) {
+function createReadableStore<T>(getValue: () => T) {
   return {
     subscribe(callback: (value: T) => void) {
       // Immediately call with current value
@@ -68,10 +67,17 @@ function createStoreInterface<T>(getValue: () => T, setValue?: (v: T) => void) {
 
       return cleanup;
     },
-    ...(setValue && {
-      set: setValue,
-      update: (fn: (v: T) => T) => setValue(fn(getValue())),
-    }),
+  };
+}
+
+/**
+ * Create a writable store-like interface
+ */
+function createWritableStore<T>(getValue: () => T, setValue: (v: T) => void) {
+  return {
+    ...createReadableStore(getValue),
+    set: setValue,
+    update: (fn: (v: T) => T) => setValue(fn(getValue())),
   };
 }
 
@@ -79,7 +85,7 @@ function createStoreInterface<T>(getValue: () => T, setValue?: (v: T) => void) {
  * Active jobs store - provides Svelte store interface
  */
 export const activeJobs = {
-  ...createStoreInterface(
+  ...createWritableStore(
     () => jobs,
     (v: Job[]) => {
       jobs = v;
@@ -97,7 +103,7 @@ export const activeJobs = {
  * Job history store - provides Svelte store interface
  */
 export const jobHistory = {
-  ...createStoreInterface(
+  ...createWritableStore(
     () => history,
     (v: Job[]) => {
       history = v;
@@ -120,9 +126,9 @@ export const jobHistory = {
 /**
  * Derived store for running jobs
  */
-export const runningJobs = createStoreInterface(() => jobs.filter((j) => j.status === 'running'));
+export const runningJobs = createReadableStore(() => jobs.filter((j) => j.status === 'running'));
 
 /**
  * Derived store for queued jobs
  */
-export const queuedJobs = createStoreInterface(() => jobs.filter((j) => j.status === 'queued'));
+export const queuedJobs = createReadableStore(() => jobs.filter((j) => j.status === 'queued'));

@@ -1,16 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
-import type { Job, JobEvent } from '$lib/types';
+import type { Job, AppEvent } from '$lib/types';
 
 // Mock the API module before importing stores
 vi.mock('$lib/api', () => ({
   getJobs: vi.fn(),
   getHistory: vi.fn(),
-  subscribeToEvents: vi.fn(() => () => {}),
+}));
+
+// Mock the event service
+vi.mock('$lib/services/events.svelte', () => ({
+  subscribe: vi.fn(() => () => {}),
 }));
 
 // Import after mocking
-import { activeJobs, jobHistory, queuedJobs, runningJobs } from '$lib/stores/jobs';
+import { activeJobs, jobHistory, queuedJobs, runningJobs } from '$lib/stores/jobs.svelte';
 import { getJobs, getHistory } from '$lib/api';
 
 // Create a mock job factory
@@ -63,7 +67,7 @@ describe('activeJobs store', () => {
   describe('handleEvent', () => {
     it('handles queued event', () => {
       const newJob = createMockJob({ id: 'new-job' });
-      const event: JobEvent = { type: 'queued', job: newJob };
+      const event: AppEvent = { category: 'admin', type: 'job:queued', job: newJob };
 
       activeJobs.handleEvent(event);
 
@@ -74,7 +78,7 @@ describe('activeJobs store', () => {
       const job = createMockJob({ id: 'job-1', status: 'queued' });
       activeJobs.set([job]);
 
-      const event: JobEvent = { type: 'started', id: 'job-1', rule_name: 'Test Rule' };
+      const event: AppEvent = { category: 'admin', type: 'job:started', id: 'job-1', rule_name: 'Test Rule' };
       activeJobs.handleEvent(event);
 
       const updated = get(activeJobs)[0];
@@ -86,7 +90,7 @@ describe('activeJobs store', () => {
       const job = createMockJob({ id: 'job-1', status: 'running', progress: 0 });
       activeJobs.set([job]);
 
-      const event: JobEvent = { type: 'progress', id: 'job-1', progress: 50, step: 'Processing' };
+      const event: AppEvent = { category: 'admin', type: 'job:progress', id: 'job-1', progress: 50, step: 'Processing' };
       activeJobs.handleEvent(event);
 
       const updated = get(activeJobs)[0];
@@ -99,7 +103,7 @@ describe('activeJobs store', () => {
       activeJobs.set([job]);
 
       const completedJob = { ...job, status: 'completed' as const, progress: 100 };
-      const event: JobEvent = { type: 'completed', job: completedJob };
+      const event: AppEvent = { category: 'admin', type: 'job:completed', job: completedJob };
       activeJobs.handleEvent(event);
 
       expect(get(activeJobs)).toEqual([]);
@@ -109,7 +113,7 @@ describe('activeJobs store', () => {
       const job = createMockJob({ id: 'job-1', status: 'running' });
       activeJobs.set([job]);
 
-      const event: JobEvent = { type: 'failed', id: 'job-1', error: 'Test error' };
+      const event: AppEvent = { category: 'admin', type: 'job:failed', id: 'job-1', error: 'Test error' };
       activeJobs.handleEvent(event);
 
       const updated = get(activeJobs)[0];
@@ -122,7 +126,7 @@ describe('activeJobs store', () => {
       const job2 = createMockJob({ id: 'job-2', status: 'queued' });
       activeJobs.set([job1, job2]);
 
-      const event: JobEvent = { type: 'started', id: 'job-1', rule_name: 'Test' };
+      const event: AppEvent = { category: 'admin', type: 'job:started', id: 'job-1', rule_name: 'Test' };
       activeJobs.handleEvent(event);
 
       const jobs = get(activeJobs);
