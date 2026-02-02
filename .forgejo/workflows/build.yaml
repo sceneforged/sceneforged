@@ -17,7 +17,9 @@ jobs:
         run: apk add --no-cache git
 
       - name: Checkout
-        uses: actions/checkout@v4
+        run: |
+          git clone --depth 1 http://forgejo:3000/${{ github.repository }}.git .
+          git checkout ${{ github.sha }}
 
       - name: Build Docker Image
         run: |
