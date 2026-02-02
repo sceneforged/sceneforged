@@ -23,13 +23,13 @@ jobs:
 
       - name: Build Docker Image
         run: |
-          docker build -t localhost:5000/sceneforged:latest .
-          docker tag localhost:5000/sceneforged:latest localhost:5000/sceneforged:${{ github.sha }}
+          docker build -t forgejo:3000/dallas/sceneforged:latest .
+          docker tag forgejo:3000/dallas/sceneforged:latest forgejo:3000/dallas/sceneforged:${{ github.sha }}
 
       - name: Push to Registry
         run: |
-          docker push localhost:5000/sceneforged:latest
-          docker push localhost:5000/sceneforged:${{ github.sha }}
+          docker push forgejo:3000/dallas/sceneforged:latest
+          docker push forgejo:3000/dallas/sceneforged:${{ github.sha }}
 
       - name: Deploy
         run: |
@@ -50,4 +50,4 @@ jobs:
             -v /mnt/data/Public/Media/Movies/Re-Cuts:/media/recuts:rw \
             -v /mnt/data/Public/Media/TV:/media/tv:rw \
             -v /mnt/data/downloads/synced:/downloads:rw \
-            localhost:5000/sceneforged:latest
+            forgejo:3000/dallas/sceneforged:latest
