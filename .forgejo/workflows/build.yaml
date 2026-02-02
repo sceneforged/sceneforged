@@ -23,7 +23,7 @@ jobs:
 
       - name: Build Docker Image
         run: |
-          docker build -t ike:3002/dallas/sceneforged:latest .
+          DOCKER_BUILDKIT=1 docker build -t ike:3002/dallas/sceneforged:latest .
           docker tag ike:3002/dallas/sceneforged:latest ike:3002/dallas/sceneforged:${{ github.sha }}
 
       - name: Login to Registry

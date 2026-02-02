@@ -1,7 +1,8 @@
+# syntax=docker/dockerfile:1.4
 # Sceneforged Docker Build
 #
-# Build from workspace root:
-#   docker build -t sceneforged .
+# Build from workspace root with BuildKit:
+#   DOCKER_BUILDKIT=1 docker build -t sceneforged .
 
 # Stage 1: Build the SvelteKit UI
 FROM node:20-alpine AS ui-builder
@@ -14,8 +15,9 @@ WORKDIR /app/ui
 # Copy package files
 COPY ui/package.json ui/pnpm-lock.yaml ./
 
-# Install dependencies
-RUN pnpm install --frozen-lockfile
+# Install dependencies with cache mount
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
 
 # Copy source and build
 COPY ui/ ./
@@ -40,42 +42,20 @@ RUN apt-get update && apt-get install -y \
     clang \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy workspace Cargo files first for dependency caching
+# Copy all source files
 COPY Cargo.toml Cargo.lock ./
-COPY crates/sceneforged-av/Cargo.toml crates/sceneforged-av/
-COPY crates/sceneforged-common/Cargo.toml crates/sceneforged-common/
-COPY crates/sceneforged-db/Cargo.toml crates/sceneforged-db/
-COPY crates/sceneforged-media/Cargo.toml crates/sceneforged-media/
-COPY crates/sceneforged-parser/Cargo.toml crates/sceneforged-parser/
-COPY crates/sceneforged-probe/Cargo.toml crates/sceneforged-probe/
-
-# Create dummy sources to build dependencies
-RUN mkdir -p src \
-    crates/sceneforged-av/src \
-    crates/sceneforged-common/src \
-    crates/sceneforged-db/src \
-    crates/sceneforged-media/src \
-    crates/sceneforged-parser/src \
-    crates/sceneforged-probe/src && \
-    echo "fn main() {}" > src/main.rs && \
-    echo "pub fn dummy() {}" > src/lib.rs && \
-    echo "pub fn dummy() {}" > crates/sceneforged-av/src/lib.rs && \
-    echo "pub fn dummy() {}" > crates/sceneforged-common/src/lib.rs && \
-    echo "pub fn dummy() {}" > crates/sceneforged-db/src/lib.rs && \
-    echo "pub fn dummy() {}" > crates/sceneforged-media/src/lib.rs && \
-    echo "pub fn dummy() {}" > crates/sceneforged-parser/src/lib.rs && \
-    echo "pub fn dummy() {}" > crates/sceneforged-probe/src/lib.rs
-RUN cargo build --release -p sceneforged || true
-RUN rm -rf src crates/*/src
-
-# Copy actual source
 COPY src/ ./src/
 COPY crates/ ./crates/
 COPY benches/ ./benches/
 COPY tests/ ./tests/
 
-# Build the binary
-RUN cargo build --release -p sceneforged
+# Build with cache mounts for cargo registry and target directory
+# This provides true incremental builds across Docker builds
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo build --release -p sceneforged && \
+    cp target/release/sceneforged /tmp/sceneforged
 
 # Stage 3: Runtime image
 FROM debian:bookworm-slim AS runtime
@@ -111,8 +91,8 @@ RUN mkdir -p /app/static /config /data && \
 
 WORKDIR /app
 
-# Copy the binary from rust builder
-COPY --from=rust-builder /app/target/release/sceneforged /app/sceneforged
+# Copy the binary from rust builder (copied to /tmp to survive cache mount)
+COPY --from=rust-builder /tmp/sceneforged /app/sceneforged
 
 # Copy the UI build from ui builder
 COPY --from=ui-builder /app/ui/build /app/static
