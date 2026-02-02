@@ -2,6 +2,7 @@
 //!
 //! Processes queued conversion jobs, transcoding source files to Profile B format.
 
+use crate::probe::MediaInfo;
 use crate::state::AppEvent;
 use anyhow::{Context, Result};
 use sceneforged_common::{FileRole, Profile};
@@ -17,6 +18,37 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info};
 
+/// Calculate adaptive CRF based on source resolution.
+///
+/// Lower resolution sources get lower CRF (higher quality) because:
+/// - They contain less detail to begin with
+/// - Quality loss is more noticeable at lower resolutions
+/// - File size impact is minimal for smaller resolutions
+pub fn adaptive_crf(source_info: &MediaInfo) -> u32 {
+    let video = source_info.video_tracks.first();
+    match video {
+        Some(v) if v.height <= 480 => 12,  // SD content - preserve everything
+        Some(v) if v.height <= 720 => 14,  // 720p - near lossless
+        Some(v) if v.height <= 1080 => 15, // 1080p - high quality
+        _ => 18,                            // 4K+ - can afford more compression
+    }
+}
+
+/// Calculate adaptive CRF based on resolution dimensions.
+///
+/// This is a convenience function when you only have width/height, not full MediaInfo.
+pub fn adaptive_crf_from_resolution(_width: u32, height: u32) -> u32 {
+    if height <= 480 {
+        12 // SD content - preserve everything
+    } else if height <= 720 {
+        14 // 720p - near lossless
+    } else if height <= 1080 {
+        15 // 1080p - high quality
+    } else {
+        18 // 4K+ - can afford more compression
+    }
+}
+
 /// Profile B transcoding settings.
 #[derive(Debug, Clone)]
 pub struct ProfileBSettings {
@@ -26,13 +58,13 @@ pub struct ProfileBSettings {
     pub max_height: u32,
     /// Video codec (default: h264).
     pub video_codec: String,
-    /// Video CRF (default: 20).
+    /// Base video CRF (default: 15). Used when adaptive_crf is disabled.
     pub video_crf: u32,
-    /// Video preset (default: medium).
+    /// Video preset (default: slow).
     pub video_preset: String,
     /// Audio codec (default: aac).
     pub audio_codec: String,
-    /// Audio bitrate (default: 192k).
+    /// Audio bitrate (default: 256k).
     pub audio_bitrate: String,
     /// Keyframe interval in seconds (default: 2).
     pub keyframe_interval: f64,
@@ -40,6 +72,8 @@ pub struct ProfileBSettings {
     pub hw_accel: Option<String>,
     /// Output directory for converted files.
     pub output_dir: PathBuf,
+    /// Use adaptive CRF based on source resolution (default: true).
+    pub adaptive_crf: bool,
 }
 
 impl Default for ProfileBSettings {
@@ -48,13 +82,14 @@ impl Default for ProfileBSettings {
             max_width: 1920,
             max_height: 1080,
             video_codec: "h264".to_string(),
-            video_crf: 20,
-            video_preset: "medium".to_string(),
+            video_crf: 15,              // Near-lossless quality
+            video_preset: "slow".to_string(), // Better compression efficiency
             audio_codec: "aac".to_string(),
-            audio_bitrate: "192k".to_string(),
+            audio_bitrate: "256k".to_string(), // Higher fidelity audio
             keyframe_interval: 2.0,
             hw_accel: None,
             output_dir: PathBuf::from("/tmp/sceneforged/converted"),
+            adaptive_crf: true, // Use resolution-based CRF by default
         }
     }
 }
@@ -159,8 +194,9 @@ impl ConversionExecutor {
                 .output_dir
                 .join(format!("{}_{}.mp4", file_stem, job.source_file_id));
 
-            // Run transcode
-            match self.transcode(&source_file.file_path, &output_path, &job.id) {
+            // Run transcode with source height for adaptive CRF
+            let source_height = source_file.height.map(|h| h as u32);
+            match self.transcode(&source_file.file_path, &output_path, &job.id, source_height) {
                 Ok(()) => {
                     info!("Conversion completed: {}", job.id);
 
@@ -196,7 +232,19 @@ impl ConversionExecutor {
     }
 
     /// Transcode a single file to Profile B format.
-    fn transcode(&self, input: &str, output: &Path, _job_id: &str) -> Result<()> {
+    ///
+    /// # Arguments
+    /// * `input` - Source file path
+    /// * `output` - Output file path
+    /// * `_job_id` - Job identifier (for future progress tracking)
+    /// * `source_height` - Source video height for adaptive CRF calculation
+    fn transcode(
+        &self,
+        input: &str,
+        output: &Path,
+        _job_id: &str,
+        source_height: Option<u32>,
+    ) -> Result<()> {
         let mut args = vec![
             "-i".to_string(),
             input.to_string(),
@@ -213,11 +261,27 @@ impl ConversionExecutor {
         };
         args.push(video_encoder.to_string());
 
+        // Calculate CRF - use adaptive if enabled and we have source info
+        let crf = if self.settings.adaptive_crf {
+            if let Some(height) = source_height {
+                let adaptive = adaptive_crf_from_resolution(0, height);
+                debug!(
+                    "Using adaptive CRF {} for source height {} (base CRF: {})",
+                    adaptive, height, self.settings.video_crf
+                );
+                adaptive
+            } else {
+                self.settings.video_crf
+            }
+        } else {
+            self.settings.video_crf
+        };
+
         // Video quality settings
         if video_encoder == "libx264" {
             args.extend([
                 "-crf".to_string(),
-                self.settings.video_crf.to_string(),
+                crf.to_string(),
                 "-preset".to_string(),
                 self.settings.video_preset.clone(),
             ]);
@@ -353,8 +417,9 @@ impl ConversionExecutor {
             .output_dir
             .join(format!("{}_{}.mp4", file_stem, job.source_file_id));
 
-        // Run transcode
-        match self.transcode(&source_file.file_path, &output_path, job_id) {
+        // Run transcode with source height for adaptive CRF
+        let source_height = source_file.height.map(|h| h as u32);
+        match self.transcode(&source_file.file_path, &output_path, job_id, source_height) {
             Ok(()) => {
                 conversion_jobs::complete_job(&conn, job_id, &output_path.to_string_lossy())?;
                 self.register_universal_file(&conn, job.item_id, &output_path)?;
@@ -378,6 +443,44 @@ mod tests {
         assert_eq!(settings.max_width, 1920);
         assert_eq!(settings.max_height, 1080);
         assert_eq!(settings.video_codec, "h264");
+        assert_eq!(settings.video_crf, 15); // Near-lossless
+        assert_eq!(settings.video_preset, "slow");
+        assert_eq!(settings.audio_bitrate, "256k");
         assert_eq!(settings.keyframe_interval, 2.0);
+        assert!(settings.adaptive_crf);
+    }
+
+    #[test]
+    fn test_adaptive_crf_sd() {
+        // 480p SD content gets CRF 12 (preserve everything)
+        assert_eq!(adaptive_crf_from_resolution(640, 480), 12);
+        assert_eq!(adaptive_crf_from_resolution(720, 480), 12);
+        // Even smaller
+        assert_eq!(adaptive_crf_from_resolution(320, 240), 12);
+    }
+
+    #[test]
+    fn test_adaptive_crf_720p() {
+        // 720p gets CRF 14
+        assert_eq!(adaptive_crf_from_resolution(1280, 720), 14);
+        // Just above SD
+        assert_eq!(adaptive_crf_from_resolution(960, 540), 14);
+    }
+
+    #[test]
+    fn test_adaptive_crf_1080p() {
+        // 1080p gets CRF 15
+        assert_eq!(adaptive_crf_from_resolution(1920, 1080), 15);
+        // Just above 720p
+        assert_eq!(adaptive_crf_from_resolution(1280, 800), 15);
+    }
+
+    #[test]
+    fn test_adaptive_crf_4k() {
+        // 4K and above gets CRF 18 (more compression is acceptable)
+        assert_eq!(adaptive_crf_from_resolution(3840, 2160), 18);
+        assert_eq!(adaptive_crf_from_resolution(4096, 2160), 18);
+        // Just above 1080p
+        assert_eq!(adaptive_crf_from_resolution(2560, 1440), 18);
     }
 }

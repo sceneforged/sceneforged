@@ -248,7 +248,7 @@ impl Scanner {
         items::upsert_item(&conn, &item)?;
 
         // Check if source qualifies as universal (Profile B compatible)
-        let qualification = self.qualifier.check(&media_info);
+        let qualification = self.qualifier.check(path, &media_info);
 
         // Classify the media file into a profile
         let classification = self.classifier.classify(&media_info);

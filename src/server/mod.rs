@@ -73,11 +73,12 @@ pub fn create_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
         .nest("/webhook", webhook_routes(&ctx));
 
     // Add streaming routes if database pool is available
+    // These are nested under /api for consistency with other API routes
     if ctx.db_pool.is_some() {
         app = app
-            .nest("/stream", streaming::hls_router())
-            .nest("/direct", streaming::direct_router())
-            .nest("/play", streaming::play_router());
+            .nest("/api/stream", streaming::hls_router())
+            .nest("/api/direct", streaming::direct_router())
+            .nest("/api/play", streaming::play_router());
         tracing::info!("Streaming routes enabled");
     }
 

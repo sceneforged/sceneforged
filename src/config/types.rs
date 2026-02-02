@@ -299,11 +299,55 @@ pub enum Action {
     },
 }
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ConversionConfig {
     /// Auto-convert DV Profile 7 files to Profile 8 on import
     #[serde(default)]
     pub auto_convert_dv_p7_to_p8: bool,
+
+    /// Video CRF for Profile B conversion (lower = higher quality, default: 15)
+    #[serde(default = "default_video_crf")]
+    pub video_crf: u32,
+
+    /// Video encoding preset (default: "slow")
+    #[serde(default = "default_video_preset")]
+    pub video_preset: String,
+
+    /// Audio bitrate for Profile B conversion (default: "256k")
+    #[serde(default = "default_audio_bitrate")]
+    pub audio_bitrate: String,
+
+    /// Whether to use adaptive CRF based on source resolution (default: true)
+    #[serde(default = "default_adaptive_crf")]
+    pub adaptive_crf: bool,
+}
+
+fn default_video_crf() -> u32 {
+    15
+}
+
+fn default_video_preset() -> String {
+    "slow".to_string()
+}
+
+fn default_audio_bitrate() -> String {
+    "256k".to_string()
+}
+
+fn default_adaptive_crf() -> bool {
+    true
+}
+
+impl Default for ConversionConfig {
+    fn default() -> Self {
+        Self {
+            auto_convert_dv_p7_to_p8: false,
+            video_crf: default_video_crf(),
+            video_preset: default_video_preset(),
+            audio_bitrate: default_audio_bitrate(),
+            adaptive_crf: default_adaptive_crf(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]

@@ -19,5 +19,5 @@
 mod executor;
 mod manager;
 
-pub use executor::{ConversionExecutor, ProfileBSettings};
+pub use executor::{adaptive_crf, adaptive_crf_from_resolution, ConversionExecutor, ProfileBSettings};
 pub use manager::{ConversionManager, ConversionOptions};
