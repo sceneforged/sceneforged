@@ -107,10 +107,7 @@ impl SourceQualifier {
             // Bit depth - must be 8-bit (SDR)
             if let Some(bit_depth) = video.bit_depth {
                 if bit_depth > 8 {
-                    reasons.push(format!(
-                        "Bit depth must be 8-bit, found: {}-bit",
-                        bit_depth
-                    ));
+                    reasons.push(format!("Bit depth must be 8-bit, found: {}-bit", bit_depth));
                     qualifies = false;
                 }
             }
@@ -174,7 +171,7 @@ impl Default for SourceQualifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::probe::{AudioTrack, VideoTrack, HdrFormat, DolbyVisionInfo};
+    use crate::probe::{AudioTrack, DolbyVisionInfo, HdrFormat, VideoTrack};
     use std::path::PathBuf;
     use std::time::Duration;
 
@@ -214,7 +211,11 @@ mod tests {
         let info = make_base_info();
 
         let result = qualifier.check(&info);
-        assert!(result.serves_as_universal, "Should qualify: {:?}", result.disqualification_reasons);
+        assert!(
+            result.serves_as_universal,
+            "Should qualify: {:?}",
+            result.disqualification_reasons
+        );
     }
 
     #[test]
@@ -225,7 +226,10 @@ mod tests {
 
         let result = qualifier.check(&info);
         assert!(!result.serves_as_universal);
-        assert!(result.disqualification_reasons.iter().any(|r| r.contains("Container")));
+        assert!(result
+            .disqualification_reasons
+            .iter()
+            .any(|r| r.contains("Container")));
     }
 
     #[test]
@@ -236,7 +240,10 @@ mod tests {
 
         let result = qualifier.check(&info);
         assert!(!result.serves_as_universal);
-        assert!(result.disqualification_reasons.iter().any(|r| r.contains("H.264")));
+        assert!(result
+            .disqualification_reasons
+            .iter()
+            .any(|r| r.contains("H.264")));
     }
 
     #[test]
@@ -248,7 +255,10 @@ mod tests {
 
         let result = qualifier.check(&info);
         assert!(!result.serves_as_universal);
-        assert!(result.disqualification_reasons.iter().any(|r| r.contains("Resolution")));
+        assert!(result
+            .disqualification_reasons
+            .iter()
+            .any(|r| r.contains("Resolution")));
     }
 
     #[test]
@@ -259,7 +269,10 @@ mod tests {
 
         let result = qualifier.check(&info);
         assert!(!result.serves_as_universal);
-        assert!(result.disqualification_reasons.iter().any(|r| r.contains("HDR")));
+        assert!(result
+            .disqualification_reasons
+            .iter()
+            .any(|r| r.contains("HDR")));
     }
 
     #[test]
@@ -277,7 +290,10 @@ mod tests {
 
         let result = qualifier.check(&info);
         assert!(!result.serves_as_universal);
-        assert!(result.disqualification_reasons.iter().any(|r| r.contains("Dolby Vision")));
+        assert!(result
+            .disqualification_reasons
+            .iter()
+            .any(|r| r.contains("Dolby Vision")));
     }
 
     #[test]
@@ -288,7 +304,10 @@ mod tests {
 
         let result = qualifier.check(&info);
         assert!(!result.serves_as_universal);
-        assert!(result.disqualification_reasons.iter().any(|r| r.contains("stereo")));
+        assert!(result
+            .disqualification_reasons
+            .iter()
+            .any(|r| r.contains("stereo")));
     }
 
     #[test]
@@ -299,7 +318,10 @@ mod tests {
 
         let result = qualifier.check(&info);
         assert!(!result.serves_as_universal);
-        assert!(result.disqualification_reasons.iter().any(|r| r.contains("AAC")));
+        assert!(result
+            .disqualification_reasons
+            .iter()
+            .any(|r| r.contains("AAC")));
     }
 
     #[test]
@@ -310,6 +332,9 @@ mod tests {
 
         let result = qualifier.check(&info);
         assert!(!result.serves_as_universal);
-        assert!(result.disqualification_reasons.iter().any(|r| r.contains("Multiple video")));
+        assert!(result
+            .disqualification_reasons
+            .iter()
+            .any(|r| r.contains("Multiple video")));
     }
 }

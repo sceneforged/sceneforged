@@ -57,6 +57,8 @@ fn create_full_context() -> AppContext {
         config: Arc::new(config),
         config_path: None,
         db_pool: None,
+        session_manager: None,
+        conversion_manager: None,
     }
 }
 

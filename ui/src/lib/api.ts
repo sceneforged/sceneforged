@@ -12,6 +12,9 @@ import type {
   MediaFile,
   PlaybackInfo,
   UserItemData,
+  DashboardResponse,
+  StreamSession,
+  LibraryStats,
 } from './types';
 
 const API_BASE = '/api';
@@ -557,6 +560,61 @@ export async function browsePaths(path: string = '/', search?: string): Promise<
   const params = new URLSearchParams({ path });
   if (search) params.set('search', search);
   return fetchApi(`/config/browse?${params}`);
+}
+
+// Admin API
+export async function getAdminDashboard(): Promise<DashboardResponse> {
+  return fetchApi('/admin/dashboard');
+}
+
+export async function getAdminStreams(): Promise<StreamSession[]> {
+  return fetchApi('/admin/streams');
+}
+
+export async function getAdminStats(): Promise<LibraryStats> {
+  return fetchApi('/admin/stats');
+}
+
+// Conversion API
+
+export interface ConversionOptionsResponse {
+  current_profiles: string[];
+  viable_targets: string[];
+}
+
+export async function getConversionOptions(itemId: string): Promise<ConversionOptionsResponse> {
+  return fetchApi(`/items/${itemId}/conversion`);
+}
+
+export interface ConvertItemRequest {
+  target_profiles: string[];
+}
+
+export interface ConvertItemResponse {
+  job_ids: string[];
+}
+
+export async function convertItem(itemId: string, targetProfiles: string[]): Promise<ConvertItemResponse> {
+  return fetchApi(`/items/${itemId}/convert`, {
+    method: 'POST',
+    body: JSON.stringify({ target_profiles: targetProfiles }),
+  });
+}
+
+export interface BatchConvertRequest {
+  item_ids: string[];
+  target_profile: string;
+}
+
+export interface BatchConvertResponse {
+  job_ids: string[];
+}
+
+export async function batchConvert(itemIds: string[], targetProfile: 'A' | 'B' | 'C'): Promise<BatchConvertResponse> {
+  return fetchApi('/conversions/batch', {
+    method: 'POST',
+    body: JSON.stringify({ item_ids: itemIds, target_profile: targetProfile }),
+  });
 }
 
 export { ApiError };

@@ -2,10 +2,12 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import { toast } from 'svelte-sonner';
   import * as api from '$lib/api';
   import type { Item, MediaFile, UserItemData } from '$lib/types';
   import Button from '$lib/components/ui/button/button.svelte';
   import Badge from '$lib/components/ui/badge/badge.svelte';
+  import ProfileBadge from '$lib/components/ProfileBadge.svelte';
   import {
     ArrowLeft,
     Heart,
@@ -17,6 +19,7 @@
     Tv,
     HardDrive,
     Loader2,
+    AlertTriangle,
   } from 'lucide-svelte';
 
   const itemId = $derived($page.params.itemId!);
@@ -26,9 +29,13 @@
   let userItemData = $state<UserItemData | null>(null);
   let loading = $state(true);
   let error = $state<string | null>(null);
+  let conversionOptions = $state<api.ConversionOptionsResponse | null>(null);
+  let loadingConversion = $state(false);
+  let converting = $state(false);
 
   onMount(async () => {
     await loadItem();
+    await loadConversionOptions();
   });
 
   async function loadItem() {
@@ -47,6 +54,20 @@
       error = e instanceof Error ? e.message : 'Failed to load item';
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadConversionOptions() {
+    if (!itemId) return;
+    loadingConversion = true;
+
+    try {
+      conversionOptions = await api.getConversionOptions(itemId);
+    } catch (e) {
+      console.error('Failed to load conversion options:', e);
+      conversionOptions = null;
+    } finally {
+      loadingConversion = false;
     }
   }
 
@@ -83,6 +104,24 @@
     }
   }
 
+  async function handleConvert(targetProfiles: string[]) {
+    if (!item || converting) return;
+    converting = true;
+
+    try {
+      const response = await api.convertItem(item.id, targetProfiles);
+      toast.success(`Conversion started (${response.job_ids.length} job${response.job_ids.length > 1 ? 's' : ''} created)`);
+
+      // Reload conversion options after starting conversion
+      await loadConversionOptions();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to start conversion';
+      toast.error(message);
+    } finally {
+      converting = false;
+    }
+  }
+
   // Icon based on item kind
   const ItemIcon = $derived.by(() => {
     if (!item) return Film;
@@ -96,6 +135,89 @@
       default:
         return Film;
     }
+  });
+
+  // Determine current profile from media files
+  const currentProfile = $derived.by(() => {
+    if (!mediaFiles.length) return null;
+
+    const hasA = mediaFiles.some(f => f.profile === 'A');
+    const hasB = mediaFiles.some(f => f.profile === 'B');
+
+    if (hasA && hasB) return 'AB';
+    if (hasA) return 'A';
+    if (hasB) return 'B';
+    return 'C';
+  });
+
+  // Check if item needs conversion
+  const needsConversion = $derived.by(() => {
+    if (!conversionOptions) return false;
+    return conversionOptions.viable_targets.length > 0;
+  });
+
+  // Generate conversion button options
+  const conversionActions = $derived.by(() => {
+    if (!conversionOptions) return [];
+
+    const actions: { label: string; profiles: string[] }[] = [];
+    const viable = conversionOptions.viable_targets;
+    const current = conversionOptions.current_profiles;
+
+    // Check if we can create both A and B
+    const canCreateA = viable.includes('A') && !current.includes('A');
+    const canCreateB = viable.includes('B') && !current.includes('B');
+
+    if (canCreateA && canCreateB) {
+      actions.push({ label: 'Convert to A+B', profiles: ['A', 'B'] });
+    }
+
+    if (canCreateB && !canCreateA) {
+      actions.push({ label: 'Convert to B only', profiles: ['B'] });
+    }
+
+    if (canCreateA && !canCreateB) {
+      actions.push({ label: 'Convert to A only', profiles: ['A'] });
+    }
+
+    return actions;
+  });
+
+  // Generate source analysis text
+  const sourceAnalysis = $derived.by(() => {
+    if (!mediaFiles.length || !conversionOptions) return null;
+
+    const sourceFile = mediaFiles.find(f => f.role === 'source') || mediaFiles[0];
+    const parts: string[] = [];
+
+    if (sourceFile.width && sourceFile.height) {
+      const resolution = sourceFile.height >= 2160 ? '4K' : sourceFile.height >= 1080 ? '1080p' : `${sourceFile.height}p`;
+      parts.push(resolution);
+    }
+
+    if (sourceFile.is_hdr) {
+      parts.push('DV HDR10');
+    }
+
+    if (sourceFile.video_codec) {
+      parts.push(sourceFile.video_codec.toUpperCase());
+    }
+
+    const viable = conversionOptions.viable_targets;
+    const qualifies: string[] = [];
+
+    if (viable.includes('A')) {
+      qualifies.push('qualifies for Profile A');
+    }
+
+    if (viable.includes('B')) {
+      qualifies.push('can generate Profile B (universal)');
+    }
+
+    return {
+      specs: parts.join(' '),
+      capabilities: qualifies,
+    };
   });
 
 </script>
@@ -208,6 +330,60 @@
             <Badge variant="default">Dolby Vision</Badge>
           {/if}
         </div>
+
+        <!-- Conversion section -->
+        {#if currentProfile}
+          <div class="mb-6 p-4 border rounded-lg bg-card">
+            <div class="flex items-center gap-2 mb-3">
+              <h2 class="text-lg font-semibold">Profile:</h2>
+              <ProfileBadge profile={currentProfile} />
+              {#if needsConversion}
+                <Badge variant="outline" class="ml-2">
+                  <AlertTriangle class="w-3 h-3 mr-1" />
+                  Needs Conversion
+                </Badge>
+              {/if}
+            </div>
+
+            {#if loadingConversion}
+              <div class="flex items-center text-sm text-muted-foreground">
+                <Loader2 class="w-4 h-4 mr-2 animate-spin" />
+                Loading conversion options...
+              </div>
+            {:else if sourceAnalysis && conversionOptions}
+              {#if sourceAnalysis.capabilities.length > 0}
+                <div class="mb-4">
+                  <h3 class="text-sm font-medium mb-2">Source Analysis:</h3>
+                  <ul class="text-sm text-muted-foreground space-y-1">
+                    <li>{sourceAnalysis.specs} - {sourceAnalysis.capabilities.join(', ')}</li>
+                  </ul>
+                </div>
+              {/if}
+
+              {#if conversionActions.length > 0}
+                <div class="flex flex-wrap gap-2">
+                  {#each conversionActions as action}
+                    <Button
+                      variant="default"
+                      disabled={converting}
+                      onclick={() => handleConvert(action.profiles)}
+                    >
+                      {#if converting}
+                        <Loader2 class="w-4 h-4 mr-2 animate-spin" />
+                      {/if}
+                      {action.label}
+                    </Button>
+                  {/each}
+                  <Button variant="outline" disabled={converting}>Keep as-is</Button>
+                </div>
+              {:else if conversionOptions.current_profiles.length > 0}
+                <p class="text-sm text-muted-foreground">
+                  All viable profiles already exist for this item.
+                </p>
+              {/if}
+            {/if}
+          </div>
+        {/if}
 
         <!-- Overview -->
         {#if item.overview}

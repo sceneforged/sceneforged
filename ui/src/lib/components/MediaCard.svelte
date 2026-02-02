@@ -1,8 +1,9 @@
 <script lang="ts">
-  import type { Item, MediaFile } from '$lib/types';
+  import type { Item, MediaFile, Profile } from '$lib/types';
   import { formatRuntime, formatBytes } from '$lib/api';
   import { Film, Tv, Music, FolderOpen, Star, Play, Check, Clock } from 'lucide-svelte';
   import Badge from './ui/badge/badge.svelte';
+  import ProfileBadge from './ProfileBadge.svelte';
 
   interface Props {
     item: Item;
@@ -14,17 +15,17 @@
 
   let { item, onclick, playbackPosition, played, mediaFiles }: Props = $props();
 
-  function getItemProfiles(files: MediaFile[] | undefined): string {
-    if (!files || files.length === 0) return '';
+  function getItemProfile(files: MediaFile[] | undefined): Profile | 'AB' | null {
+    if (!files || files.length === 0) return null;
     const hasA = files.some(f => !f.serves_as_universal);
     const hasB = files.some(f => f.serves_as_universal);
-    if (hasA && hasB) return 'A+B';
+    if (hasA && hasB) return 'AB';
     if (hasB) return 'B';
     if (hasA) return 'A';
-    return '';
+    return null;
   }
 
-  const profiles = $derived(getItemProfiles(mediaFiles));
+  const profile = $derived(getItemProfile(mediaFiles));
 
   // Get appropriate icon based on item kind
   const Icon = $derived.by(() => {
@@ -68,13 +69,6 @@
       </div>
     </div>
 
-    <!-- Played indicator -->
-    {#if played}
-      <div class="absolute top-2 right-2 bg-green-600 rounded-full p-1">
-        <Check class="w-4 h-4 text-white" />
-      </div>
-    {/if}
-
     <!-- HDR/DV badges -->
     <div class="absolute bottom-2 left-2 flex gap-1">
       {#if item.hdr_type}
@@ -87,10 +81,17 @@
           DV
         </Badge>
       {/if}
-      {#if profiles}
-        <Badge variant="default" class="text-xs px-1.5 py-0.5 bg-blue-600">
-          {profiles}
-        </Badge>
+    </div>
+
+    <!-- Profile badge and played indicator in top-right corner -->
+    <div class="absolute top-2 right-2 flex items-center gap-1">
+      {#if profile}
+        <ProfileBadge {profile} />
+      {/if}
+      {#if played}
+        <div class="bg-green-600 rounded-full p-1">
+          <Check class="w-4 h-4 text-white" />
+        </div>
       {/if}
     </div>
 

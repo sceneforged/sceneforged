@@ -5,16 +5,17 @@
 
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
-use sceneforged_common::{Error, FileRole, ItemId, MediaFileId, Result};
+use sceneforged_common::{Error, FileRole, ItemId, MediaFileId, Profile, Result};
 use uuid::Uuid;
 
 use crate::models::MediaFile;
 
-/// Create a new media file for an item.
-pub fn create_media_file(
+/// Create a new media file for an item with a specific profile.
+pub fn create_media_file_with_profile(
     conn: &Connection,
     item_id: ItemId,
     role: FileRole,
+    profile: Profile,
     file_path: &str,
     file_size: i64,
     container: &str,
@@ -23,12 +24,15 @@ pub fn create_media_file(
     let now = Utc::now();
 
     conn.execute(
-        "INSERT INTO media_files (id, item_id, role, file_path, file_size, container, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO media_files (id, item_id, role, profile, can_be_profile_a, can_be_profile_b, file_path, file_size, container, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         params![
             id.to_string(),
             item_id.to_string(),
             role.to_string(),
+            profile.to_string(),
+            0, // can_be_profile_a
+            0, // can_be_profile_b
             file_path,
             file_size,
             container,
@@ -41,6 +45,64 @@ pub fn create_media_file(
         id,
         item_id,
         role,
+        profile,
+        can_be_profile_a: false,
+        can_be_profile_b: false,
+        file_path: file_path.to_string(),
+        file_size,
+        container: container.to_string(),
+        video_codec: None,
+        audio_codec: None,
+        width: None,
+        height: None,
+        duration_ticks: None,
+        bit_rate: None,
+        is_hdr: false,
+        serves_as_universal: false,
+        has_faststart: false,
+        keyframe_interval_secs: None,
+        created_at: now,
+    })
+}
+
+/// Create a new media file for an item (defaults to Profile C).
+pub fn create_media_file(
+    conn: &Connection,
+    item_id: ItemId,
+    role: FileRole,
+    file_path: &str,
+    file_size: i64,
+    container: &str,
+) -> Result<MediaFile> {
+    let id = MediaFileId::new();
+    let now = Utc::now();
+    let profile = Profile::default(); // Default to Profile C
+
+    conn.execute(
+        "INSERT INTO media_files (id, item_id, role, profile, can_be_profile_a, can_be_profile_b, file_path, file_size, container, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        params![
+            id.to_string(),
+            item_id.to_string(),
+            role.to_string(),
+            profile.to_string(),
+            0, // can_be_profile_a
+            0, // can_be_profile_b
+            file_path,
+            file_size,
+            container,
+            now.to_rfc3339(),
+        ],
+    )
+    .map_err(|e| Error::database(e.to_string()))?;
+
+    Ok(MediaFile {
+        id,
+        item_id,
+        role,
+        profile,
+        can_be_profile_a: false,
+        can_be_profile_b: false,
         file_path: file_path.to_string(),
         file_size,
         container: container.to_string(),
@@ -61,7 +123,8 @@ pub fn create_media_file(
 /// Get a media file by ID.
 pub fn get_media_file(conn: &Connection, id: MediaFileId) -> Result<MediaFile> {
     conn.query_row(
-        "SELECT id, item_id, role, file_path, file_size, container, video_codec, audio_codec,
+        "SELECT id, item_id, role, profile, can_be_profile_a, can_be_profile_b,
+                file_path, file_size, container, video_codec, audio_codec,
                 width, height, duration_ticks, bit_rate, is_hdr, serves_as_universal,
                 has_faststart, keyframe_interval_secs, created_at
          FROM media_files WHERE id = ?",
@@ -71,20 +134,23 @@ pub fn get_media_file(conn: &Connection, id: MediaFileId) -> Result<MediaFile> {
                 id: MediaFileId::from(Uuid::parse_str(&row.get::<_, String>(0)?).unwrap()),
                 item_id: ItemId::from(Uuid::parse_str(&row.get::<_, String>(1)?).unwrap()),
                 role: row.get::<_, String>(2)?.parse().unwrap_or(FileRole::Source),
-                file_path: row.get(3)?,
-                file_size: row.get(4)?,
-                container: row.get(5)?,
-                video_codec: row.get(6)?,
-                audio_codec: row.get(7)?,
-                width: row.get(8)?,
-                height: row.get(9)?,
-                duration_ticks: row.get(10)?,
-                bit_rate: row.get(11)?,
-                is_hdr: row.get::<_, i32>(12)? != 0,
-                serves_as_universal: row.get::<_, i32>(13)? != 0,
-                has_faststart: row.get::<_, i32>(14)? != 0,
-                keyframe_interval_secs: row.get(15)?,
-                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(16)?)
+                profile: row.get::<_, String>(3)?.parse().unwrap_or(Profile::C),
+                can_be_profile_a: row.get::<_, i32>(4)? != 0,
+                can_be_profile_b: row.get::<_, i32>(5)? != 0,
+                file_path: row.get(6)?,
+                file_size: row.get(7)?,
+                container: row.get(8)?,
+                video_codec: row.get(9)?,
+                audio_codec: row.get(10)?,
+                width: row.get(11)?,
+                height: row.get(12)?,
+                duration_ticks: row.get(13)?,
+                bit_rate: row.get(14)?,
+                is_hdr: row.get::<_, i32>(15)? != 0,
+                serves_as_universal: row.get::<_, i32>(16)? != 0,
+                has_faststart: row.get::<_, i32>(17)? != 0,
+                keyframe_interval_secs: row.get(18)?,
+                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(19)?)
                     .map(|dt| dt.with_timezone(&Utc))
                     .unwrap_or_else(|_| Utc::now()),
             })
@@ -103,7 +169,8 @@ pub fn get_media_file_by_role(
     role: FileRole,
 ) -> Result<Option<MediaFile>> {
     match conn.query_row(
-        "SELECT id, item_id, role, file_path, file_size, container, video_codec, audio_codec,
+        "SELECT id, item_id, role, profile, can_be_profile_a, can_be_profile_b,
+                file_path, file_size, container, video_codec, audio_codec,
                 width, height, duration_ticks, bit_rate, is_hdr, serves_as_universal,
                 has_faststart, keyframe_interval_secs, created_at
          FROM media_files WHERE item_id = ? AND role = ?",
@@ -113,20 +180,23 @@ pub fn get_media_file_by_role(
                 id: MediaFileId::from(Uuid::parse_str(&row.get::<_, String>(0)?).unwrap()),
                 item_id: ItemId::from(Uuid::parse_str(&row.get::<_, String>(1)?).unwrap()),
                 role: row.get::<_, String>(2)?.parse().unwrap_or(FileRole::Source),
-                file_path: row.get(3)?,
-                file_size: row.get(4)?,
-                container: row.get(5)?,
-                video_codec: row.get(6)?,
-                audio_codec: row.get(7)?,
-                width: row.get(8)?,
-                height: row.get(9)?,
-                duration_ticks: row.get(10)?,
-                bit_rate: row.get(11)?,
-                is_hdr: row.get::<_, i32>(12)? != 0,
-                serves_as_universal: row.get::<_, i32>(13)? != 0,
-                has_faststart: row.get::<_, i32>(14)? != 0,
-                keyframe_interval_secs: row.get(15)?,
-                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(16)?)
+                profile: row.get::<_, String>(3)?.parse().unwrap_or(Profile::C),
+                can_be_profile_a: row.get::<_, i32>(4)? != 0,
+                can_be_profile_b: row.get::<_, i32>(5)? != 0,
+                file_path: row.get(6)?,
+                file_size: row.get(7)?,
+                container: row.get(8)?,
+                video_codec: row.get(9)?,
+                audio_codec: row.get(10)?,
+                width: row.get(11)?,
+                height: row.get(12)?,
+                duration_ticks: row.get(13)?,
+                bit_rate: row.get(14)?,
+                is_hdr: row.get::<_, i32>(15)? != 0,
+                serves_as_universal: row.get::<_, i32>(16)? != 0,
+                has_faststart: row.get::<_, i32>(17)? != 0,
+                keyframe_interval_secs: row.get(18)?,
+                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(19)?)
                     .map(|dt| dt.with_timezone(&Utc))
                     .unwrap_or_else(|_| Utc::now()),
             })
@@ -142,7 +212,8 @@ pub fn get_media_file_by_role(
 pub fn list_media_files_for_item(conn: &Connection, item_id: ItemId) -> Result<Vec<MediaFile>> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, item_id, role, file_path, file_size, container, video_codec, audio_codec,
+            "SELECT id, item_id, role, profile, can_be_profile_a, can_be_profile_b,
+                    file_path, file_size, container, video_codec, audio_codec,
                     width, height, duration_ticks, bit_rate, is_hdr, serves_as_universal,
                     has_faststart, keyframe_interval_secs, created_at
              FROM media_files WHERE item_id = ? ORDER BY role",
@@ -155,20 +226,23 @@ pub fn list_media_files_for_item(conn: &Connection, item_id: ItemId) -> Result<V
                 id: MediaFileId::from(Uuid::parse_str(&row.get::<_, String>(0)?).unwrap()),
                 item_id: ItemId::from(Uuid::parse_str(&row.get::<_, String>(1)?).unwrap()),
                 role: row.get::<_, String>(2)?.parse().unwrap_or(FileRole::Source),
-                file_path: row.get(3)?,
-                file_size: row.get(4)?,
-                container: row.get(5)?,
-                video_codec: row.get(6)?,
-                audio_codec: row.get(7)?,
-                width: row.get(8)?,
-                height: row.get(9)?,
-                duration_ticks: row.get(10)?,
-                bit_rate: row.get(11)?,
-                is_hdr: row.get::<_, i32>(12)? != 0,
-                serves_as_universal: row.get::<_, i32>(13)? != 0,
-                has_faststart: row.get::<_, i32>(14)? != 0,
-                keyframe_interval_secs: row.get(15)?,
-                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(16)?)
+                profile: row.get::<_, String>(3)?.parse().unwrap_or(Profile::C),
+                can_be_profile_a: row.get::<_, i32>(4)? != 0,
+                can_be_profile_b: row.get::<_, i32>(5)? != 0,
+                file_path: row.get(6)?,
+                file_size: row.get(7)?,
+                container: row.get(8)?,
+                video_codec: row.get(9)?,
+                audio_codec: row.get(10)?,
+                width: row.get(11)?,
+                height: row.get(12)?,
+                duration_ticks: row.get(13)?,
+                bit_rate: row.get(14)?,
+                is_hdr: row.get::<_, i32>(15)? != 0,
+                serves_as_universal: row.get::<_, i32>(16)? != 0,
+                has_faststart: row.get::<_, i32>(17)? != 0,
+                keyframe_interval_secs: row.get(18)?,
+                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(19)?)
                     .map(|dt| dt.with_timezone(&Utc))
                     .unwrap_or_else(|_| Utc::now()),
             })
@@ -178,6 +252,34 @@ pub fn list_media_files_for_item(conn: &Connection, item_id: ItemId) -> Result<V
         .map_err(|e| Error::database(e.to_string()))?;
 
     Ok(files)
+}
+
+/// Update media file profile and conversion eligibility.
+pub fn update_media_file_profile(
+    conn: &Connection,
+    id: MediaFileId,
+    profile: Profile,
+    can_be_profile_a: bool,
+    can_be_profile_b: bool,
+) -> Result<()> {
+    let affected = conn
+        .execute(
+            "UPDATE media_files SET profile = ?, can_be_profile_a = ?, can_be_profile_b = ?
+             WHERE id = ?",
+            params![
+                profile.to_string(),
+                can_be_profile_a as i32,
+                can_be_profile_b as i32,
+                id.to_string(),
+            ],
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    if affected == 0 {
+        return Err(Error::not_found("media_file"));
+    }
+
+    Ok(())
 }
 
 /// Update media file metadata after probing.
@@ -366,19 +468,22 @@ mod tests {
         let conn = setup_test_db();
         let item_id = create_test_item(&conn);
 
-        create_media_file(
+        // Use different profiles to satisfy UNIQUE(item_id, profile) constraint
+        create_media_file_with_profile(
             &conn,
             item_id,
             FileRole::Source,
+            Profile::A,
             "/media/movie.mkv",
             1024,
             "mkv",
         )
         .unwrap();
-        create_media_file(
+        create_media_file_with_profile(
             &conn,
             item_id,
             FileRole::Universal,
+            Profile::B,
             "/cache/movie.mp4",
             512,
             "mp4",
@@ -467,10 +572,12 @@ mod tests {
         assert_eq!(resolved.unwrap().role, FileRole::Source);
 
         // Add universal file - should prefer it
-        create_media_file(
+        // Use Profile::B to avoid UNIQUE(item_id, profile) constraint violation
+        create_media_file_with_profile(
             &conn,
             item_id,
             FileRole::Universal,
+            Profile::B,
             "/cache/movie.mp4",
             512,
             "mp4",

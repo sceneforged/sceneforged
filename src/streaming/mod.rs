@@ -22,10 +22,12 @@
 mod direct;
 mod hls;
 mod segment_cache;
+mod sessions;
 
 pub use direct::{stream_file, stream_item};
 pub use hls::{init_segment, master_playlist, media_playlist, media_segment};
 pub use segment_cache::SegmentCache;
+pub use sessions::{start_cleanup_task, SessionManager, StreamSession};
 
 use axum::{routing::get, Router};
 

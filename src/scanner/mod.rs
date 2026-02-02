@@ -3,12 +3,15 @@
 //! This module provides functionality for scanning directories to discover,
 //! identify, and import media files into the library database.
 
+pub mod classifier;
 pub mod identifier;
 pub mod prober;
 pub mod qualifier;
 
 use anyhow::Result;
-use sceneforged_common::{paths::is_video_file, FileRole, ItemId, ItemKind, LibraryId, MediaFileId, MediaType};
+use sceneforged_common::{
+    paths::is_video_file, FileRole, ItemId, ItemKind, LibraryId, MediaFileId, MediaType,
+};
 use sceneforged_db::{
     models::Item,
     pool::DbPool,
@@ -18,6 +21,7 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 use walkdir::WalkDir;
 
+pub use classifier::ProfileClassifier;
 pub use identifier::MediaIdentifier;
 pub use prober::FileProber;
 pub use qualifier::SourceQualifier;
@@ -27,6 +31,7 @@ pub struct Scanner {
     pool: DbPool,
     prober: FileProber,
     qualifier: SourceQualifier,
+    classifier: ProfileClassifier,
     identifier: MediaIdentifier,
 }
 
@@ -59,6 +64,7 @@ impl Scanner {
             pool,
             prober: FileProber::new(),
             qualifier: SourceQualifier::new(),
+            classifier: ProfileClassifier::new(),
             identifier: MediaIdentifier::new(),
         }
     }
@@ -188,17 +194,12 @@ impl Scanner {
             original_title: None,
             file_path: Some(path.to_string_lossy().to_string()),
             container: Some(media_info.container.clone()),
-            video_codec: media_info
+            video_codec: media_info.video_tracks.first().map(|v| v.codec.clone()),
+            audio_codec: media_info.audio_tracks.first().map(|a| a.codec.clone()),
+            resolution: media_info
                 .video_tracks
                 .first()
-                .map(|v| v.codec.clone()),
-            audio_codec: media_info
-                .audio_tracks
-                .first()
-                .map(|a| a.codec.clone()),
-            resolution: media_info.video_tracks.first().map(|v| {
-                format!("{}x{}", v.width, v.height)
-            }),
+                .map(|v| format!("{}x{}", v.width, v.height)),
             runtime_ticks: media_info.duration.map(|d| {
                 (d.as_secs_f64() * 10_000_000.0) as i64 // Ticks are 100-nanosecond intervals
             }),
@@ -226,9 +227,10 @@ impl Scanner {
             etag: None,
             date_created: chrono::Utc::now(),
             date_modified: chrono::Utc::now(),
-            hdr_type: media_info.video_tracks.first().and_then(|v| {
-                v.hdr_format.as_ref().map(|h| format!("{:?}", h))
-            }),
+            hdr_type: media_info
+                .video_tracks
+                .first()
+                .and_then(|v| v.hdr_format.as_ref().map(|h| format!("{:?}", h))),
             dolby_vision_profile: media_info
                 .video_tracks
                 .first()
@@ -242,6 +244,9 @@ impl Scanner {
         // Check if source qualifies as universal (Profile B compatible)
         let qualification = self.qualifier.check(&media_info);
 
+        // Classify the media file into a profile
+        let classification = self.classifier.classify(&media_info);
+
         // Create media file entry
         let media_file = media_files::create_media_file(
             &conn,
@@ -250,6 +255,15 @@ impl Scanner {
             &path.to_string_lossy(),
             file_size,
             &media_info.container,
+        )?;
+
+        // Update media file with profile classification
+        media_files::update_media_file_profile(
+            &conn,
+            media_file.id,
+            classification.profile,
+            classification.can_be_profile_a,
+            classification.can_be_profile_b,
         )?;
 
         // Update media file with probe metadata
@@ -263,7 +277,9 @@ impl Scanner {
             audio.map(|a| a.codec.as_str()),
             video.map(|v| v.width as i32),
             video.map(|v| v.height as i32),
-            media_info.duration.map(|d| (d.as_secs_f64() * 10_000_000.0) as i64),
+            media_info
+                .duration
+                .map(|d| (d.as_secs_f64() * 10_000_000.0) as i64),
             None, // bit_rate
             video.and_then(|v| v.hdr_format.as_ref()).is_some(),
             qualification.serves_as_universal,

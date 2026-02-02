@@ -1,6 +1,7 @@
 use crate::config::{ArrConfig, Config, JellyfinConfig, Rule};
+use crate::conversion::ConversionManager;
 use crate::state::AppState;
-use crate::streaming;
+use crate::streaming::{self, start_cleanup_task, SessionManager};
 use anyhow::{Context, Result};
 use axum::{
     http::{header, Method, StatusCode},
@@ -23,6 +24,7 @@ use tower_http::{
 
 pub mod auth;
 pub mod openapi;
+pub mod routes_admin;
 pub mod routes_api;
 pub mod routes_config;
 pub mod routes_library;
@@ -45,6 +47,10 @@ pub struct AppContext {
     pub jellyfins: Arc<RwLock<Vec<JellyfinConfig>>>,
     /// Database connection pool (optional for backwards compatibility)
     pub db_pool: Option<DbPool>,
+    /// Session manager for tracking active streams
+    pub session_manager: Option<Arc<SessionManager>>,
+    /// Conversion manager for profile conversions
+    pub conversion_manager: Option<Arc<ConversionManager>>,
 }
 
 /// Create the Axum router with all routes
@@ -107,7 +113,8 @@ fn api_routes(ctx: &AppContext) -> Router<AppContext> {
         .merge(routes_sse::sse_routes())
         .merge(routes_config::config_routes())
         .merge(routes_library::library_routes())
-        .merge(routes_playback::playback_routes());
+        .merge(routes_playback::playback_routes())
+        .merge(routes_admin::admin_routes());
 
     // Apply auth middleware to protected routes only if enabled
     let protected_routes = if ctx.config.server.auth.enabled {
@@ -156,6 +163,19 @@ pub async fn start_server_with_options(
         .parse()
         .context("Invalid server address")?;
 
+    // Initialize session manager if database is available
+    let session_manager = db_pool.as_ref().map(|_| {
+        let manager = SessionManager::default();
+        // Start cleanup task
+        start_cleanup_task(manager.clone(), 30);
+        Arc::new(manager)
+    });
+
+    // Initialize conversion manager if database is available
+    let conversion_manager = db_pool
+        .as_ref()
+        .map(|pool| Arc::new(ConversionManager::new(pool.clone())));
+
     let ctx = AppContext {
         state,
         rules: Arc::new(RwLock::new(config.rules.clone())),
@@ -164,6 +184,8 @@ pub async fn start_server_with_options(
         config: Arc::new(config.clone()),
         config_path,
         db_pool,
+        session_manager,
+        conversion_manager,
     };
 
     let app = create_router(ctx, config.server.static_dir.clone());

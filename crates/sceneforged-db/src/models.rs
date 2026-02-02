@@ -6,7 +6,7 @@
 use chrono::{DateTime, Utc};
 use sceneforged_common::{
     CheckpointId, FileRole, ImageId, ImageType, ItemId, ItemKind, LibraryId, MediaFileId,
-    MediaType, StreamType, UserId,
+    MediaType, Profile, StreamType, UserId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -97,6 +97,9 @@ pub struct MediaFile {
     pub id: MediaFileId,
     pub item_id: ItemId,
     pub role: FileRole,
+    pub profile: Profile,
+    pub can_be_profile_a: bool,
+    pub can_be_profile_b: bool,
     pub file_path: String,
     pub file_size: i64,
     pub container: String,
@@ -420,6 +423,9 @@ mod tests {
             id: MediaFileId::new(),
             item_id: ItemId::new(),
             role: FileRole::Source,
+            profile: Profile::A,
+            can_be_profile_a: true,
+            can_be_profile_b: true,
             file_path: "/media/movie.mkv".to_string(),
             file_size: 1024 * 1024 * 1024,
             container: "mkv".to_string(),

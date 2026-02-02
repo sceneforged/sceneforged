@@ -51,6 +51,8 @@ fn create_radarr_context() -> AppContext {
         config: Arc::new(config),
         config_path: None,
         db_pool: None,
+        session_manager: None,
+        conversion_manager: None,
     }
 }
 
@@ -82,6 +84,8 @@ fn create_sonarr_context() -> AppContext {
         config: Arc::new(config),
         config_path: None,
         db_pool: None,
+        session_manager: None,
+        conversion_manager: None,
     }
 }
 
@@ -244,6 +248,8 @@ async fn test_webhook_disabled_arr() {
         config: Arc::new(config),
         config_path: None,
         db_pool: None,
+        session_manager: None,
+        conversion_manager: None,
     };
 
     let app = create_router(ctx, None);

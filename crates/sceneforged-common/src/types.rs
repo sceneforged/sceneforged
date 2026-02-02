@@ -157,6 +157,45 @@ impl std::str::FromStr for FileRole {
     }
 }
 
+/// Media file profile classification.
+///
+/// Profile A: High-quality source (HDR/DV/4K)
+/// Profile B: Universal playback (MP4, H.264, ≤1080p, SDR, AAC stereo)
+/// Profile C: Unsupported/Pending (needs conversion)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
+pub enum Profile {
+    /// Profile A: High-quality source (HDR/DV/4K).
+    A,
+    /// Profile B: Universal playback (MP4, H.264, ≤1080p, SDR, AAC stereo).
+    B,
+    /// Profile C: Unsupported/Pending (needs conversion).
+    #[default]
+    C,
+}
+
+impl fmt::Display for Profile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::A => write!(f, "A"),
+            Self::B => write!(f, "B"),
+            Self::C => write!(f, "C"),
+        }
+    }
+}
+
+impl std::str::FromStr for Profile {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "A" => Ok(Self::A),
+            "B" => Ok(Self::B),
+            "C" => Ok(Self::C),
+            _ => Err(format!("Invalid profile: {}", s)),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -40,6 +40,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "streams_refactor",
         sql: include_str!("003_streams_refactor.sql"),
     },
+    Migration {
+        version: 4,
+        name: "profile_system",
+        sql: include_str!("004_profile_system.sql"),
+    },
 ];
 
 /// Initialize the migrations table if it doesn't exist

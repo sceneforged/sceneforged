@@ -6,6 +6,7 @@
 //! - Job queue management
 //! - FFmpeg-based transcoding with hardware acceleration support
 //! - Profile B compliance verification
+//! - Conversion management and batch operations
 //!
 //! # Profile B Specification
 //!
@@ -16,5 +17,7 @@
 //! - Keyframes: Every 2 seconds for HLS segment alignment
 
 mod executor;
+mod manager;
 
 pub use executor::{ConversionExecutor, ProfileBSettings};
+pub use manager::{ConversionManager, ConversionOptions};

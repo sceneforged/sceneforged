@@ -165,6 +165,9 @@ export interface MediaFile {
   id: string;
   item_id: string;
   role: FileRole;
+  profile: Profile;
+  can_be_profile_a: boolean;
+  can_be_profile_b: boolean;
   file_path: string;
   file_size: number;
   container: string;
@@ -182,6 +185,7 @@ export interface MediaFile {
 }
 
 export type FileRole = 'source' | 'universal' | 'extra';
+export type Profile = 'A' | 'B' | 'C';
 
 export interface PlaybackInfo {
   item: Item;
@@ -209,4 +213,38 @@ export interface ItemsPage {
   total_count: number;
   offset: number;
   limit: number;
+}
+
+// Admin types
+export interface DashboardResponse {
+  stats: LibraryStats;
+  streams: StreamSession[];
+  queue: QueueSummary;
+}
+
+export interface LibraryStats {
+  total_items: number;
+  total_files: number;
+  storage_bytes: number;
+  items_by_profile: ProfileCounts;
+}
+
+export interface ProfileCounts {
+  profile_a: number;
+  profile_b: number;
+  profile_c: number;
+}
+
+export interface StreamSession {
+  id: string;
+  client_ip: string;
+  item_id: number;
+  profile: string;
+  started_at: string;
+  duration_seconds: number;
+}
+
+export interface QueueSummary {
+  queued: number;
+  running: number;
 }

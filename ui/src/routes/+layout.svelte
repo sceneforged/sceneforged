@@ -10,9 +10,7 @@
   import { Toaster } from 'svelte-sonner';
   import {
     Home,
-    ListOrdered,
     History,
-    BookOpen,
     Settings,
     Moon,
     Sun,
@@ -21,7 +19,8 @@
     Film,
     LogOut,
     User,
-    Library
+    Library,
+    LayoutDashboard
   } from 'lucide-svelte';
   import { cn } from '$lib/utils';
 
@@ -48,12 +47,14 @@
     goto('/login');
   }
 
-  const navItems = [
-    { href: '/', icon: Home, label: 'Dashboard' },
+  const userNav = [
+    { href: '/', icon: Home, label: 'Home' },
     { href: '/library', icon: Library, label: 'Library' },
-    { href: '/queue', icon: ListOrdered, label: 'Queue' },
+  ];
+
+  const adminNav = [
+    { href: '/admin', icon: LayoutDashboard, label: 'Dashboard' },
     { href: '/history', icon: History, label: 'History' },
-    { href: '/rules', icon: BookOpen, label: 'Rules' },
     { href: '/settings', icon: Settings, label: 'Settings' },
   ];
 
@@ -98,7 +99,32 @@
 
     <!-- Navigation -->
     <nav class="flex-1 space-y-1 p-2">
-      {#each navItems as item}
+      <!-- User Section -->
+      {#each userNav as item}
+        {@const active = isActive(item.href, $page.url.pathname)}
+        <a
+          href={item.href}
+          class={cn(
+            "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+            active
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          )}
+        >
+          <item.icon class="h-5 w-5 flex-shrink-0" />
+          {#if sidebarOpen}
+            <span>{item.label}</span>
+          {/if}
+        </a>
+      {/each}
+
+      <!-- Separator -->
+      <div class="py-2">
+        <div class="border-t border-border"></div>
+      </div>
+
+      <!-- Admin Section -->
+      {#each adminNav as item}
         {@const active = isActive(item.href, $page.url.pathname)}
         <a
           href={item.href}
@@ -185,7 +211,30 @@
 
     {#if mobileMenuOpen}
       <nav class="border-b bg-card p-4 shadow-lg">
-        {#each navItems as item}
+        <!-- User Section -->
+        {#each userNav as item}
+          {@const active = isActive(item.href, $page.url.pathname)}
+          <a
+            href={item.href}
+            class={cn(
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              active
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            )}
+          >
+            <item.icon class="h-5 w-5" />
+            <span>{item.label}</span>
+          </a>
+        {/each}
+
+        <!-- Separator -->
+        <div class="py-2">
+          <div class="border-t border-border"></div>
+        </div>
+
+        <!-- Admin Section -->
+        {#each adminNav as item}
           {@const active = isActive(item.href, $page.url.pathname)}
           <a
             href={item.href}

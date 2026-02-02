@@ -1,20 +1,28 @@
+mod hardcoded;
 mod matcher;
 
 #[cfg(test)]
 mod test_fixtures;
 
+pub use hardcoded::{get_all_rules, get_applicable_rules, get_rule_by_id, HardcodedRule};
 pub use matcher::*;
 
 use crate::config::Rule;
 use crate::probe::MediaInfo;
 
-/// Find the first matching rule for the given media info
+/// Find the first matching rule for the given media info (legacy TOML-based rules).
+///
+/// This function is maintained for backwards compatibility with the old TOML-based
+/// rule system and is still used by benchmarks and tests.
 pub fn find_matching_rule<'a>(info: &MediaInfo, rules: &'a [Rule]) -> Option<&'a Rule> {
     // Rules are pre-sorted by priority at config load time
     rules.iter().find(|rule| matches_rule(info, rule))
 }
 
-/// Find all matching rules for the given media info
+/// Find all matching rules for the given media info (legacy TOML-based rules).
+///
+/// This function is maintained for backwards compatibility with the old TOML-based
+/// rule system and is still used by benchmarks and tests.
 pub fn find_all_matching_rules<'a>(info: &MediaInfo, rules: &'a [Rule]) -> Vec<&'a Rule> {
     // Rules are pre-sorted by priority at config load time
     rules

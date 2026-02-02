@@ -49,6 +49,13 @@ use super::AppContext;
         super::routes_library::get_item_files,
         super::routes_library::get_similar_items,
         super::routes_library::search_items,
+        // Admin routes (routes_admin.rs)
+        super::routes_admin::get_dashboard,
+        super::routes_admin::get_streams,
+        super::routes_admin::get_library_stats,
+        super::routes_admin::get_item_conversion,
+        super::routes_admin::convert_item,
+        super::routes_admin::batch_convert,
     ),
     components(
         schemas(
@@ -67,6 +74,17 @@ use super::AppContext;
             super::routes_library::MediaFileResponse,
             super::routes_library::ItemsListResponse,
             super::routes_library::ProviderIdsResponse,
+            // Admin types
+            super::routes_admin::DashboardResponse,
+            super::routes_admin::LibraryStatsResponse,
+            super::routes_admin::ProfileCountsResponse,
+            super::routes_admin::StreamSessionResponse,
+            super::routes_admin::QueueSummaryResponse,
+            super::routes_admin::ConversionOptionsResponse,
+            super::routes_admin::ConvertItemRequest,
+            super::routes_admin::ConvertItemResponse,
+            super::routes_admin::BatchConvertRequest,
+            super::routes_admin::BatchConvertResponse,
             // State types (re-exported via schemas)
             JobSchema,
             JobStatusSchema,
@@ -87,6 +105,7 @@ use super::AppContext;
         (name = "items", description = "Media item endpoints"),
         (name = "config", description = "Configuration endpoints"),
         (name = "tools", description = "External tools status"),
+        (name = "admin", description = "Admin dashboard and management endpoints"),
     )
 )]
 pub struct ApiDoc;
@@ -224,11 +243,20 @@ pub enum ActionSchema {
     /// Convert Dolby Vision profile
     DvConvert { target_profile: u8 },
     /// Remux to different container
-    Remux { container: String, keep_original: bool },
+    Remux {
+        container: String,
+        keep_original: bool,
+    },
     /// Add compatibility audio track
-    AddCompatAudio { source_codec: String, target_codec: String },
+    AddCompatAudio {
+        source_codec: String,
+        target_codec: String,
+    },
     /// Strip tracks by type or language
-    StripTracks { track_types: Vec<String>, languages: Vec<String> },
+    StripTracks {
+        track_types: Vec<String>,
+        languages: Vec<String>,
+    },
     /// Execute external command
     Exec { command: String, args: Vec<String> },
 }

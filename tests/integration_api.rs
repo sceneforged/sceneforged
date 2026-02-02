@@ -28,6 +28,8 @@ fn create_test_context() -> AppContext {
         config: Arc::new(config),
         config_path: None,
         db_pool: None,
+        session_manager: None,
+        conversion_manager: None,
     }
 }
 
@@ -44,6 +46,8 @@ fn create_test_context_with_config(config: Config) -> AppContext {
         config: Arc::new(config),
         config_path: None,
         db_pool: None,
+        session_manager: None,
+        conversion_manager: None,
     }
 }
 
