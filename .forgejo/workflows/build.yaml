@@ -45,7 +45,6 @@ jobs:
             -e TZ=Europe/London \
             -e RUST_LOG=info \
             -v /opt/docker-config/sceneforged:/config:rw \
-            -v /home/dallas/sceneforged/ui:/app/static:ro \
             -v /mnt/data/Public/Media/Movies/Movies:/media/movies:rw \
             -v /mnt/data/Public/Media/Movies/Movies-Theater:/media/movies-theater:rw \
             -v /mnt/data/Public/Media/Movies/Re-Cuts:/media/recuts:rw \
