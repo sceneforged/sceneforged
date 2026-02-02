@@ -32,14 +32,20 @@ async fn start_server(
         config.server.port
     );
 
+    // Determine data directory from config path or current directory
+    let data_dir = config_path
+        .and_then(|p| p.parent())
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+
     // Initialize database
-    let db_path = std::env::current_dir()?.join("sceneforged.db");
+    let db_path = data_dir.join("sceneforged.db");
     let db_path_str = db_path.to_string_lossy();
     tracing::info!("Initializing database at {}", db_path_str);
     let db_pool = init_pool(&db_path_str)?;
 
     // Create state
-    let state_path = std::env::current_dir()?.join("sceneforged-state.json");
+    let state_path = data_dir.join("sceneforged-state.json");
     let state = state::AppState::new(Some(state_path));
 
     // Create shutdown channel for job processor

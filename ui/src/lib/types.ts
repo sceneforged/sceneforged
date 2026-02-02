@@ -187,16 +187,30 @@ export interface MediaFile {
 export type FileRole = 'source' | 'universal' | 'extra';
 export type Profile = 'A' | 'B' | 'C';
 
+// Backend response format for playback info
 export interface PlaybackInfo {
-  item: Item;
-  media_file: MediaFile;
-  stream_type: StreamType;
-  direct_stream_url: string | null;
-  hls_master_url: string | null;
-  user_data: UserItemData | null;
+  item_id: string;
+  media_sources: MediaSourceInfo[];
 }
 
-export type StreamType = 'direct' | 'hls';
+export interface MediaSourceInfo {
+  id: string;
+  file_path: string;
+  container: string;
+  size: number;
+  duration_ticks: number | null;
+  supports_direct_play: boolean;
+  supports_direct_stream: boolean;
+  supports_transcoding: boolean;
+  video_codec: string | null;
+  audio_codec: string | null;
+  width: number | null;
+  height: number | null;
+  is_hdr: boolean;
+  serves_as_universal: boolean;
+  direct_stream_url: string | null;
+  hls_url: string | null;
+}
 
 export interface UserItemData {
   item_id: string;

@@ -18,6 +18,7 @@
   let { item, onclick, playbackPosition, played, mediaFiles, libraryId }: Props = $props();
 
   // Determine if item is playable - has a universal/serves_as_universal media file
+  // If we don't have mediaFiles data, assume playable (will error on play attempt if not)
   const isPlayable = $derived(
     mediaFiles ? mediaFiles.some(f => f.serves_as_universal || f.role === 'universal') : true
   );
@@ -25,12 +26,10 @@
   // Resolve library ID from prop or item
   const resolvedLibraryId = $derived(libraryId ?? item.library_id);
 
-  // Handle poster click - navigate to play page if playable
+  // Handle poster click - navigate to play page
   function handlePosterClick(e: MouseEvent) {
     e.stopPropagation();
-    if (isPlayable) {
-      goto(`/play/${item.id}`);
-    }
+    goto(`/play/${item.id}`);
   }
 
   // Handle title click - navigate to browse/details page
@@ -50,6 +49,18 @@
   }
 
   const profile = $derived(getItemProfile(mediaFiles));
+
+  // Determine resolution tier from item resolution string or compute from width
+  const resolutionTier = $derived.by(() => {
+    const res = item.resolution?.toLowerCase();
+    if (res) {
+      if (res.includes('4k') || res.includes('2160') || res.includes('uhd')) return 'UHD';
+      if (res.includes('1080') || res.includes('fhd')) return 'FHD';
+      if (res.includes('720') || res.includes('hd')) return 'HD';
+      return null;
+    }
+    return null;
+  });
 
   // Get appropriate icon based on item kind
   const Icon = $derived.by(() => {
@@ -83,36 +94,33 @@
   <!-- Poster/Thumbnail area -->
   <button
     type="button"
-    class="relative aspect-[2/3] bg-muted flex items-center justify-center overflow-hidden w-full {isPlayable ? 'cursor-pointer' : 'cursor-default'}"
+    class="relative aspect-[2/3] bg-muted flex items-center justify-center overflow-hidden w-full cursor-pointer"
     onclick={handlePosterClick}
-    disabled={!isPlayable}
   >
     <!-- Placeholder icon -->
     <Icon class="w-16 h-16 text-muted-foreground/30" />
 
-    <!-- Play overlay on hover (only if playable) -->
-    {#if isPlayable}
-      <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-        <div class="bg-primary rounded-full p-3">
-          <Play class="w-8 h-8 text-primary-foreground" />
-        </div>
+    <!-- Play overlay on hover -->
+    <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+      <div class="bg-primary rounded-full p-3">
+        <Play class="w-8 h-8 text-primary-foreground" />
       </div>
-    {:else}
-      <!-- Needs Conversion overlay (not playable) -->
-      <div class="absolute inset-0 bg-black/50 opacity-50 pointer-events-none flex items-center justify-center">
-        <span class="text-white text-sm font-medium px-2 py-1 bg-black/60 rounded">Needs Conversion</span>
-      </div>
-    {/if}
+    </div>
 
-    <!-- HDR/DV badges -->
+    <!-- Resolution and HDR/DV badges -->
     <div class="absolute bottom-2 left-2 flex gap-1">
+      {#if resolutionTier}
+        <Badge variant="secondary" class="text-xs px-1.5 py-0.5 {resolutionTier === 'UHD' ? 'bg-purple-600 text-white' : ''}">
+          {resolutionTier}
+        </Badge>
+      {/if}
       {#if item.hdr_type}
-        <Badge variant="secondary" class="text-xs px-1.5 py-0.5">
+        <Badge variant="secondary" class="text-xs px-1.5 py-0.5 bg-amber-600 text-white">
           {item.hdr_type}
         </Badge>
       {/if}
       {#if item.dolby_vision_profile}
-        <Badge variant="secondary" class="text-xs px-1.5 py-0.5">
+        <Badge variant="secondary" class="text-xs px-1.5 py-0.5 bg-black text-white">
           DV
         </Badge>
       {/if}
@@ -174,15 +182,10 @@
       {/if}
     </div>
 
-    <!-- Resolution/Codec info -->
-    {#if item.resolution || item.video_codec}
+    <!-- Codec info (only show if no resolution tier badge displayed) -->
+    {#if !resolutionTier && item.video_codec}
       <div class="flex items-center gap-1 text-xs text-muted-foreground">
-        {#if item.resolution}
-          <span>{item.resolution}</span>
-        {/if}
-        {#if item.video_codec}
-          <span class="uppercase">{item.video_codec}</span>
-        {/if}
+        <span class="uppercase">{item.video_codec}</span>
       </div>
     {/if}
 

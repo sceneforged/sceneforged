@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import * as api from '$lib/api';
-  import type { Item, PlaybackInfo } from '$lib/types';
+  import type { Item, PlaybackInfo, MediaSourceInfo } from '$lib/types';
   import VideoPlayer from '$lib/components/VideoPlayer.svelte';
   import Button from '$lib/components/ui/button/button.svelte';
   import { ArrowLeft, Loader2, AlertCircle, ExternalLink } from 'lucide-svelte';
@@ -13,6 +13,7 @@
 
   let item = $state<Item | null>(null);
   let playbackInfo = $state<PlaybackInfo | null>(null);
+  let selectedSource = $state<MediaSourceInfo | null>(null);
   let loading = $state(true);
   let error = $state<string | null>(null);
 
@@ -22,6 +23,26 @@
   onMount(async () => {
     await loadPlaybackInfo();
   });
+
+  // Pick the best media source - prefer HLS/universal over direct
+  function selectBestSource(sources: MediaSourceInfo[]): MediaSourceInfo | null {
+    if (sources.length === 0) return null;
+
+    // First, look for a source with HLS (serves_as_universal)
+    const hlsSource = sources.find(s => s.hls_url && s.serves_as_universal);
+    if (hlsSource) return hlsSource;
+
+    // Then any source with HLS
+    const anyHls = sources.find(s => s.hls_url);
+    if (anyHls) return anyHls;
+
+    // Fall back to first source with direct stream
+    const direct = sources.find(s => s.direct_stream_url);
+    if (direct) return direct;
+
+    // Last resort - first source
+    return sources[0];
+  }
 
   async function loadPlaybackInfo() {
     if (!itemId) return;
@@ -34,25 +55,32 @@
         api.getPlaybackInfo(itemId),
       ]);
 
-      if (!playbackInfo) {
-        error = 'No playback information available';
+      if (!playbackInfo || !playbackInfo.media_sources || playbackInfo.media_sources.length === 0) {
+        error = 'No playback sources available';
         return;
       }
 
-      // Determine stream URL based on stream type
-      if (playbackInfo.stream_type === 'hls' && playbackInfo.hls_master_url) {
-        streamUrl = playbackInfo.hls_master_url;
-      } else if (playbackInfo.direct_stream_url) {
-        streamUrl = playbackInfo.direct_stream_url;
+      // Select the best source
+      selectedSource = selectBestSource(playbackInfo.media_sources);
+
+      if (!selectedSource) {
+        error = 'No playable source found';
+        return;
+      }
+
+      // Determine stream URL - prefer HLS over direct
+      if (selectedSource.hls_url) {
+        streamUrl = selectedSource.hls_url;
+      } else if (selectedSource.direct_stream_url) {
+        streamUrl = selectedSource.direct_stream_url;
       } else {
         error = 'No stream URL available';
         return;
       }
 
-      // Set start position from user data (unless starting from beginning)
-      if (!startFromBeginning && playbackInfo.user_data?.playback_position_ticks) {
-        startPosition = playbackInfo.user_data.playback_position_ticks;
-      }
+      // TODO: Get user data for start position when user system is implemented
+      // For now, always start from beginning
+      startPosition = 0;
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load playback info';
     } finally {
@@ -135,9 +163,9 @@
           </Button>
         </div>
 
-        {#if playbackInfo?.direct_stream_url}
+        {#if selectedSource?.direct_stream_url}
           <a
-            href={playbackInfo.direct_stream_url}
+            href={selectedSource.direct_stream_url}
             target="_blank"
             rel="noopener noreferrer"
             class="text-sm text-white/50 hover:text-white flex items-center gap-1 mt-4"

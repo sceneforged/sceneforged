@@ -118,9 +118,6 @@
     }
   }
 
-  function handleItemClick(item: Item) {
-    goto(`/browse/${libraryId}/${item.id}`);
-  }
 </script>
 
 <svelte:head>
@@ -191,7 +188,7 @@
       {#each items as item (item.id)}
         <MediaCard
           {item}
-          onclick={() => handleItemClick(item)}
+          {libraryId}
         />
       {/each}
     </div>

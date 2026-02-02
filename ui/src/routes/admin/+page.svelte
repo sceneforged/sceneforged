@@ -105,16 +105,16 @@
   // Handle admin events for real-time updates
   function handleAdminEvent(event: AppEvent): void {
     // Refresh dashboard stats when jobs complete
-    if (event.type === 'job:completed' || event.type === 'job:failed') {
+    if (event.event_type === 'job_completed' || event.event_type === 'job_failed') {
       // Update recent jobs list
-      if (event.type === 'job:completed') {
+      if (event.event_type === 'job_completed') {
         recentJobs = [event.job, ...recentJobs].slice(0, 10);
       }
       // Refresh stats (debounced via interval)
     }
 
     // Refresh on library changes
-    if (event.type.startsWith('library:') || event.type.startsWith('item:')) {
+    if (event.event_type.startsWith('library_') || event.event_type.startsWith('item_')) {
       loadData();
     }
   }
@@ -462,7 +462,11 @@
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Button variant="outline" class="h-auto py-4 flex-col gap-2" href="/settings#libraries">
+            <Library class="h-6 w-6" />
+            <span>Libraries</span>
+          </Button>
           <Button variant="outline" class="h-auto py-4 flex-col gap-2" href="/history">
             <History class="h-6 w-6" />
             <span>Job History</span>
