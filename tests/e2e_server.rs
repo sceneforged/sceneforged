@@ -117,11 +117,11 @@ async fn test_full_webhook_to_job_flow() {
         .expect("Event should not be error");
 
     match event {
-        sceneforged::state::JobEvent::Queued(job) => {
+        sceneforged::state::AppEvent::JobQueued { job, .. } => {
             assert_eq!(job.id.to_string(), job_id);
             assert_eq!(job.file_name, "movie.mkv");
         }
-        _ => panic!("Expected Queued event"),
+        _ => panic!("Expected JobQueued event"),
     }
 }
 
@@ -152,11 +152,11 @@ async fn test_job_progress_events() {
         .expect("Event should not be error");
 
     match event {
-        sceneforged::state::JobEvent::Started { id, rule_name } => {
+        sceneforged::state::AppEvent::JobStarted { id, rule_name, .. } => {
             assert_eq!(id, job.id);
             assert_eq!(rule_name, "Test Rule");
         }
-        _ => panic!("Expected Started event, got {:?}", event),
+        _ => panic!("Expected JobStarted event, got {:?}", event),
     }
 
     // Update progress
@@ -168,12 +168,12 @@ async fn test_job_progress_events() {
         .expect("Event should not be error");
 
     match event {
-        sceneforged::state::JobEvent::Progress { id, progress, step } => {
+        sceneforged::state::AppEvent::JobProgress { id, progress, step, .. } => {
             assert_eq!(id, job.id);
             assert_eq!(progress, 50.0);
             assert_eq!(step, "Processing video");
         }
-        _ => panic!("Expected Progress event"),
+        _ => panic!("Expected JobProgress event"),
     }
 
     // Complete the job
@@ -185,10 +185,10 @@ async fn test_job_progress_events() {
         .expect("Event should not be error");
 
     match event {
-        sceneforged::state::JobEvent::Completed(completed_job) => {
+        sceneforged::state::AppEvent::JobCompleted { job: completed_job, .. } => {
             assert_eq!(completed_job.id, job.id);
         }
-        _ => panic!("Expected Completed event"),
+        _ => panic!("Expected JobCompleted event"),
     }
 }
 
@@ -220,11 +220,11 @@ async fn test_job_failure_events() {
         .expect("Event should not be error");
 
     match event {
-        sceneforged::state::JobEvent::Failed { id, error } => {
+        sceneforged::state::AppEvent::JobFailed { id, error, .. } => {
             assert_eq!(id, job.id);
             assert_eq!(error, "ffmpeg error: invalid input");
         }
-        _ => panic!("Expected Failed event"),
+        _ => panic!("Expected JobFailed event"),
     }
 
     // Verify stats reflect failure

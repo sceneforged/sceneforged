@@ -168,8 +168,7 @@ impl SampleTableBuilder {
         let cts_offsets = self.resolve_cts_offsets(sample_count);
 
         // Create sync sample lookup
-        let sync_set: std::collections::HashSet<u32> =
-            self.sync_samples.iter().copied().collect();
+        let sync_set: std::collections::HashSet<u32> = self.sync_samples.iter().copied().collect();
 
         for i in 0..sample_count {
             let size = if self.uniform_size > 0 {
@@ -202,7 +201,10 @@ impl SampleTableBuilder {
     }
 
     fn total_stts_samples(&self) -> usize {
-        self.stts_entries.iter().map(|(count, _)| *count as usize).sum()
+        self.stts_entries
+            .iter()
+            .map(|(count, _)| *count as usize)
+            .sum()
     }
 
     fn resolve_sample_chunks(&self, sample_count: u32) -> Vec<u32> {

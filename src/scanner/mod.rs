@@ -10,7 +10,7 @@ pub mod qualifier;
 
 use anyhow::Result;
 use sceneforged_common::{
-    paths::is_video_file, FileRole, ItemId, ItemKind, LibraryId, MediaFileId, MediaType,
+    paths::is_video_file, FileRole, ItemId, ItemKind, LibraryId, MediaFileId, MediaType, Profile,
 };
 use sceneforged_db::{
     models::Item,
@@ -290,8 +290,10 @@ impl Scanner {
         )?;
 
         // Queue conversion job if file doesn't qualify as universal
+        // Only auto-convert Profile C content (not Profile A which is 4K/HDR)
+        // Profile A content should only be converted manually through the UI
         let needs_conversion = !qualification.serves_as_universal;
-        if needs_conversion {
+        if needs_conversion && classification.profile != Profile::A {
             // Check if there's already an active job for this item
             if conversion_jobs::get_active_job_for_item(&conn, item.id)?.is_none() {
                 let job = conversion_jobs::create_conversion_job(&conn, item.id, media_file.id)?;
@@ -362,6 +364,11 @@ impl Scanner {
             {
                 // Check if source serves as universal
                 if source.serves_as_universal {
+                    continue;
+                }
+
+                // Skip Profile A content (4K/HDR) - only convert manually through UI
+                if source.profile == Profile::A {
                     continue;
                 }
 

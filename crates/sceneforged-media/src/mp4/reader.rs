@@ -152,8 +152,7 @@ impl<R: Read + Seek> Mp4Reader<R> {
             if data.len() >= 28 {
                 mp4.timescale = u32::from_be_bytes([data[20], data[21], data[22], data[23]]);
                 mp4.duration = u64::from_be_bytes([
-                    data[24], data[25], data[26], data[27],
-                    data[28], data[29], data[30], data[31],
+                    data[24], data[25], data[26], data[27], data[28], data[29], data[30], data[31],
                 ]);
             }
         }
@@ -259,7 +258,8 @@ impl<R: Read + Seek> Mp4Reader<R> {
         if version == 0 {
             if data.len() >= 20 {
                 track.timescale = u32::from_be_bytes([data[12], data[13], data[14], data[15]]);
-                track.duration = u32::from_be_bytes([data[16], data[17], data[18], data[19]]) as u64;
+                track.duration =
+                    u32::from_be_bytes([data[16], data[17], data[18], data[19]]) as u64;
             }
         } else {
             if data.len() >= 28 {
@@ -267,8 +267,7 @@ impl<R: Read + Seek> Mp4Reader<R> {
             }
             if data.len() >= 32 {
                 track.duration = u64::from_be_bytes([
-                    data[24], data[25], data[26], data[27],
-                    data[28], data[29], data[30], data[31],
+                    data[24], data[25], data[26], data[27], data[28], data[29], data[30], data[31],
                 ]);
             }
         }
@@ -284,8 +283,7 @@ impl<R: Read + Seek> Mp4Reader<R> {
         self.reader.read_exact(&mut data)?;
 
         if data.len() >= 12 {
-            track.handler_type =
-                HandlerType::from_bytes([data[8], data[9], data[10], data[11]]);
+            track.handler_type = HandlerType::from_bytes([data[8], data[9], data[10], data[11]]);
         }
 
         Ok(())
@@ -364,10 +362,16 @@ impl<R: Read + Seek> Mp4Reader<R> {
                 break;
             }
             let count = u32::from_be_bytes([
-                data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
             ]);
             let delta = u32::from_be_bytes([
-                data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7],
+                data[offset + 4],
+                data[offset + 5],
+                data[offset + 6],
+                data[offset + 7],
             ]);
             entries.push((count, delta));
         }
@@ -396,7 +400,10 @@ impl<R: Read + Seek> Mp4Reader<R> {
                 break;
             }
             let sample = u32::from_be_bytes([
-                data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
             ]);
             sync_samples.push(sample);
         }
@@ -425,13 +432,22 @@ impl<R: Read + Seek> Mp4Reader<R> {
                 break;
             }
             let first_chunk = u32::from_be_bytes([
-                data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
             ]);
             let samples_per_chunk = u32::from_be_bytes([
-                data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7],
+                data[offset + 4],
+                data[offset + 5],
+                data[offset + 6],
+                data[offset + 7],
             ]);
             let description_idx = u32::from_be_bytes([
-                data[offset + 8], data[offset + 9], data[offset + 10], data[offset + 11],
+                data[offset + 8],
+                data[offset + 9],
+                data[offset + 10],
+                data[offset + 11],
             ]);
             entries.push((first_chunk, samples_per_chunk, description_idx));
         }
@@ -462,7 +478,10 @@ impl<R: Read + Seek> Mp4Reader<R> {
                     break;
                 }
                 let size = u32::from_be_bytes([
-                    data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
+                    data[offset],
+                    data[offset + 1],
+                    data[offset + 2],
+                    data[offset + 3],
                 ]);
                 sizes.push(size);
             }
@@ -495,7 +514,10 @@ impl<R: Read + Seek> Mp4Reader<R> {
                 break;
             }
             let chunk_offset = u32::from_be_bytes([
-                data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
             ]) as u64;
             offsets.push(chunk_offset);
         }
@@ -524,8 +546,14 @@ impl<R: Read + Seek> Mp4Reader<R> {
                 break;
             }
             let chunk_offset = u64::from_be_bytes([
-                data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
-                data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7],
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+                data[offset + 4],
+                data[offset + 5],
+                data[offset + 6],
+                data[offset + 7],
             ]);
             offsets.push(chunk_offset);
         }
@@ -555,15 +583,24 @@ impl<R: Read + Seek> Mp4Reader<R> {
                 break;
             }
             let count = u32::from_be_bytes([
-                data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
             ]);
             let cts_offset = if version == 0 {
                 u32::from_be_bytes([
-                    data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7],
+                    data[offset + 4],
+                    data[offset + 5],
+                    data[offset + 6],
+                    data[offset + 7],
                 ]) as i32
             } else {
                 i32::from_be_bytes([
-                    data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7],
+                    data[offset + 4],
+                    data[offset + 5],
+                    data[offset + 6],
+                    data[offset + 7],
                 ])
             };
             entries.push((count, cts_offset));

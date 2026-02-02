@@ -33,7 +33,13 @@ fn main() {
         println!("Input:  {}", input);
         let result = parse(input);
         println!("Title:    {}", result.title.value);
-        println!("Seasons:  {:?}", result.seasons.iter().map(|s| s.value).collect::<Vec<_>>());
-        println!("Episodes: {:?}", result.episodes.iter().map(|e| e.value).collect::<Vec<_>>());
+        println!(
+            "Seasons:  {:?}",
+            result.seasons.iter().map(|s| s.value).collect::<Vec<_>>()
+        );
+        println!(
+            "Episodes: {:?}",
+            result.episodes.iter().map(|e| e.value).collect::<Vec<_>>()
+        );
     }
 }

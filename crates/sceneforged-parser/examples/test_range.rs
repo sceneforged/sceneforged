@@ -7,11 +7,14 @@ fn main() {
         "Series.S05E01-02.720p.5.1Ch.BluRay",
         "Series.S05E01-E02.720p.5.1Ch.BluRay",
     ];
-    
+
     for input in inputs {
         let result = parse(input);
         println!("Input: {}", input);
-        println!("  Episodes: {:?}", result.episodes.iter().map(|e| e.value).collect::<Vec<_>>());
+        println!(
+            "  Episodes: {:?}",
+            result.episodes.iter().map(|e| e.value).collect::<Vec<_>>()
+        );
         println!("");
     }
 }

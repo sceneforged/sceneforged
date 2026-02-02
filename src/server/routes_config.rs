@@ -9,8 +9,8 @@ use axum::{
     routing::{delete, get, post, put},
     Json, Router,
 };
-use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 pub fn config_routes() -> Router<AppContext> {
     Router::new()

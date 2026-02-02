@@ -67,7 +67,7 @@ describe('activeJobs store', () => {
   describe('handleEvent', () => {
     it('handles queued event', () => {
       const newJob = createMockJob({ id: 'new-job' });
-      const event: AppEvent = { category: 'admin', type: 'job:queued', job: newJob };
+      const event: AppEvent = { category: 'admin', event_type: 'job_queued', job: newJob };
 
       activeJobs.handleEvent(event);
 
@@ -78,7 +78,7 @@ describe('activeJobs store', () => {
       const job = createMockJob({ id: 'job-1', status: 'queued' });
       activeJobs.set([job]);
 
-      const event: AppEvent = { category: 'admin', type: 'job:started', id: 'job-1', rule_name: 'Test Rule' };
+      const event: AppEvent = { category: 'admin', event_type: 'job_started', id: 'job-1', rule_name: 'Test Rule' };
       activeJobs.handleEvent(event);
 
       const updated = get(activeJobs)[0];
@@ -90,7 +90,7 @@ describe('activeJobs store', () => {
       const job = createMockJob({ id: 'job-1', status: 'running', progress: 0 });
       activeJobs.set([job]);
 
-      const event: AppEvent = { category: 'admin', type: 'job:progress', id: 'job-1', progress: 50, step: 'Processing' };
+      const event: AppEvent = { category: 'admin', event_type: 'job_progress', id: 'job-1', progress: 50, step: 'Processing' };
       activeJobs.handleEvent(event);
 
       const updated = get(activeJobs)[0];
@@ -103,7 +103,7 @@ describe('activeJobs store', () => {
       activeJobs.set([job]);
 
       const completedJob = { ...job, status: 'completed' as const, progress: 100 };
-      const event: AppEvent = { category: 'admin', type: 'job:completed', job: completedJob };
+      const event: AppEvent = { category: 'admin', event_type: 'job_completed', job: completedJob };
       activeJobs.handleEvent(event);
 
       expect(get(activeJobs)).toEqual([]);
@@ -113,7 +113,7 @@ describe('activeJobs store', () => {
       const job = createMockJob({ id: 'job-1', status: 'running' });
       activeJobs.set([job]);
 
-      const event: AppEvent = { category: 'admin', type: 'job:failed', id: 'job-1', error: 'Test error' };
+      const event: AppEvent = { category: 'admin', event_type: 'job_failed', id: 'job-1', error: 'Test error' };
       activeJobs.handleEvent(event);
 
       const updated = get(activeJobs)[0];
@@ -126,7 +126,7 @@ describe('activeJobs store', () => {
       const job2 = createMockJob({ id: 'job-2', status: 'queued' });
       activeJobs.set([job1, job2]);
 
-      const event: AppEvent = { category: 'admin', type: 'job:started', id: 'job-1', rule_name: 'Test' };
+      const event: AppEvent = { category: 'admin', event_type: 'job_started', id: 'job-1', rule_name: 'Test' };
       activeJobs.handleEvent(event);
 
       const jobs = get(activeJobs);

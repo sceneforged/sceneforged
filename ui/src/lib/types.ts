@@ -146,6 +146,9 @@ export interface Item {
   parent_index_number: number | null;
   hdr_type: string | null;
   dolby_vision_profile: string | null;
+  has_profile_a: boolean;
+  has_profile_b: boolean;
+  has_profile_c: boolean;
   date_created: string;
   date_modified: string;
 }

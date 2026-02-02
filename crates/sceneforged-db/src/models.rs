@@ -269,6 +269,24 @@ pub struct SyncCheckpoint {
 /// Media stream ID (UUID).
 pub type MediaStreamId = String;
 
+/// Library item with computed profile availability flags.
+///
+/// This struct wraps an `Item` with additional computed fields that indicate
+/// which media file profiles are available for the item. These flags are
+/// computed from the media_files table at query time.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ItemWithProfiles {
+    /// The underlying item data.
+    #[serde(flatten)]
+    pub item: Item,
+    /// Has a Profile A file (4K/HDR source).
+    pub has_profile_a: bool,
+    /// Has a Profile B file (universal/web-playable).
+    pub has_profile_b: bool,
+    /// Has a Profile C file (needs conversion).
+    pub has_profile_c: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

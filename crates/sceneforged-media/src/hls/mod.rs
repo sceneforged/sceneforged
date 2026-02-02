@@ -4,4 +4,4 @@
 
 mod playlist;
 
-pub use playlist::{HlsPlaylist, MediaPlaylist, MasterPlaylist, StreamInfo};
+pub use playlist::{HlsPlaylist, MasterPlaylist, MediaPlaylist, StreamInfo};

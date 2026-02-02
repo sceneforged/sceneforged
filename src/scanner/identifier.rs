@@ -43,10 +43,7 @@ impl MediaIdentifier {
 
     /// Parse a filename to extract media information.
     pub fn identify_from_filename(&self, path: &Path) -> IdentificationResult {
-        let filename = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("");
+        let filename = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
 
         let parsed = parse(filename);
 
@@ -113,6 +110,9 @@ mod tests {
         let path = PathBuf::from("Movie.2020.1080p.BluRay.x264-GROUP.mkv");
 
         let result = identifier.identify_from_filename(&path);
-        assert_eq!(result.scene_release_name, "Movie.2020.1080p.BluRay.x264-GROUP");
+        assert_eq!(
+            result.scene_release_name,
+            "Movie.2020.1080p.BluRay.x264-GROUP"
+        );
     }
 }

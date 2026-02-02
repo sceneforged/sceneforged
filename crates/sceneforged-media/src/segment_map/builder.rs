@@ -68,10 +68,7 @@ impl SegmentMapBuilder {
             };
 
             // Get time at this keyframe
-            let keyframe_time = sample_table
-                .get(keyframe_idx)
-                .map(|s| s.dts)
-                .unwrap_or(0);
+            let keyframe_time = sample_table.get(keyframe_idx).map(|s| s.dts).unwrap_or(0);
 
             let segment_duration = keyframe_time.saturating_sub(segment_start_time);
 
@@ -110,10 +107,7 @@ impl SegmentMapBuilder {
             segments.push(segment);
         }
 
-        let max_duration = segments
-            .iter()
-            .map(|s| s.duration_secs)
-            .fold(0.0, f64::max);
+        let max_duration = segments.iter().map(|s| s.duration_secs).fold(0.0, f64::max);
 
         let total_duration = segments.iter().map(|s| s.duration_secs).sum();
 
@@ -129,13 +123,7 @@ impl SegmentMapBuilder {
     }
 
     fn build_single_segment(&self, sample_table: &SampleTable) -> SegmentMap {
-        let segment = self.create_segment(
-            0,
-            0,
-            sample_table.sample_count,
-            sample_table,
-            0,
-        );
+        let segment = self.create_segment(0, 0, sample_table.sample_count, sample_table, 0);
 
         let duration = segment.duration_secs;
 

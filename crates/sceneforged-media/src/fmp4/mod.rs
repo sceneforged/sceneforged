@@ -163,7 +163,7 @@ impl InitSegmentBuilder {
         buf.put_u16(0x0100); // volume = 1.0
         buf.put_u16(0); // reserved
         buf.put_u64(0); // reserved
-        // Matrix (identity)
+                        // Matrix (identity)
         buf.put_u32(0x00010000);
         buf.put_u32(0);
         buf.put_u32(0);
@@ -228,7 +228,7 @@ impl InitSegmentBuilder {
         buf.put_u16(0); // alternate group
         buf.put_u16(if is_video { 0 } else { 0x0100 }); // volume
         buf.put_u16(0); // reserved
-        // Matrix (identity)
+                        // Matrix (identity)
         buf.put_u32(0x00010000);
         buf.put_u32(0);
         buf.put_u32(0);

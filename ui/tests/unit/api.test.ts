@@ -226,7 +226,7 @@ describe('API client functions', () => {
 
   describe('deleteJob', () => {
     it('succeeds on valid deletion', async () => {
-      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         ok: true,
         json: async () => ({}),
       });

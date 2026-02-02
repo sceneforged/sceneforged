@@ -23,7 +23,10 @@ pub async fn stream_file(
     Path(media_file_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-    let pool = ctx.db_pool.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let pool = ctx
+        .db_pool
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     let conn = pool.get().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
     // Parse ID
@@ -176,7 +179,10 @@ pub async fn stream_item(
     Path(item_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-    let pool = ctx.db_pool.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let pool = ctx
+        .db_pool
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     let conn = pool.get().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
     // Parse ID
@@ -296,6 +302,9 @@ mod tests {
         assert_eq!(determine_content_type("mp4"), "video/mp4");
         assert_eq!(determine_content_type("mkv"), "video/x-matroska");
         assert_eq!(determine_content_type("webm"), "video/webm");
-        assert_eq!(determine_content_type("unknown"), "application/octet-stream");
+        assert_eq!(
+            determine_content_type("unknown"),
+            "application/octet-stream"
+        );
     }
 }

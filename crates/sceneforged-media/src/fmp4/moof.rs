@@ -1,7 +1,7 @@
 //! Movie fragment (moof) box builder.
 
-use bytes::{BufMut, BytesMut};
 use crate::mp4::SampleEntry;
+use bytes::{BufMut, BytesMut};
 
 /// Builder for creating moof boxes for HLS segments.
 pub struct MoofBuilder {
@@ -202,7 +202,10 @@ mod tests {
         assert!(moof_data.len() > 8);
         // mdat header should be at the end (after moof box)
         let mdat_header_start = moof_data.len() - 8;
-        assert_eq!(&moof_data[mdat_header_start + 4..mdat_header_start + 8], b"mdat");
+        assert_eq!(
+            &moof_data[mdat_header_start + 4..mdat_header_start + 8],
+            b"mdat"
+        );
     }
 
     #[test]

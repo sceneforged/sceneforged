@@ -22,12 +22,17 @@
     LayoutDashboard,
     FolderX,
     Home,
-    Loader2
+    Loader2,
+    Library as LibraryIcon
   } from 'lucide-svelte';
   import { cn } from '$lib/utils';
-  import { connect, disconnect } from '$lib/services/events.svelte';
+  import { connect, disconnect, subscribe } from '$lib/services/events.svelte';
   import { getLibraries } from '$lib/api';
-  import type { Library } from '$lib/types';
+  import type { Library, AppEvent } from '$lib/types';
+
+  // Commit hash injected at build time
+  declare const __COMMIT_SHA__: string;
+  const commitSha = __COMMIT_SHA__;
 
   let { children } = $props();
 
@@ -35,10 +40,23 @@
   let mobileMenuOpen = $state(false);
   let libraries = $state<Library[]>([]);
   let librariesLoading = $state(true);
+  let unsubscribeEvents: (() => void) | null = null;
+
+  // Handle library events to update sidebar
+  function handleLibraryEvent(event: AppEvent) {
+    if (event.event_type === 'library_created') {
+      libraries = [...libraries, event.library];
+    } else if (event.event_type === 'library_deleted') {
+      libraries = libraries.filter(l => l.id !== event.library_id);
+    }
+  }
 
   // Connect to events and fetch libraries on mount
   onMount(() => {
     connect();
+
+    // Subscribe to library events
+    unsubscribeEvents = subscribe('admin', handleLibraryEvent);
 
     // Fetch libraries
     getLibraries().then((libs) => {
@@ -56,6 +74,7 @@
   // Disconnect on destroy
   onDestroy(() => {
     disconnect();
+    unsubscribeEvents?.();
   });
 
   // Redirect to login if auth required but not authenticated
@@ -82,6 +101,7 @@
 
   const adminNav = [
     { href: '/admin', icon: LayoutDashboard, label: 'Dashboard' },
+    { href: '/admin/libraries', icon: LibraryIcon, label: 'Libraries' },
     { href: '/history', icon: History, label: 'History' },
     { href: '/settings', icon: Settings, label: 'Settings' },
   ];
@@ -242,6 +262,11 @@
           <Menu class="h-5 w-5" />
         </Button>
       </div>
+      {#if sidebarOpen}
+        <div class="px-3 py-1 text-xs text-muted-foreground/50 font-mono">
+          {commitSha.slice(0, 7)}
+        </div>
+      {/if}
     </div>
   </aside>
 

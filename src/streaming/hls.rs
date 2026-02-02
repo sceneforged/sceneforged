@@ -46,7 +46,10 @@ pub async fn master_playlist(
     State(ctx): State<AppContext>,
     Path(media_file_id): Path<String>,
 ) -> Result<Response, StatusCode> {
-    let pool = ctx.db_pool.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let pool = ctx
+        .db_pool
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     let conn = pool.get().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
     // Parse ID
@@ -58,7 +61,10 @@ pub async fn master_playlist(
     // Get media file info
     let media_file = media_files::get_media_file(&conn, id).map_err(|_| StatusCode::NOT_FOUND)?;
 
-    let base_url = format!("http://{}:{}", ctx.config.server.host, ctx.config.server.port);
+    let base_url = format!(
+        "http://{}:{}",
+        ctx.config.server.host, ctx.config.server.port
+    );
 
     // For now, generate a simple single-stream playlist
     let stream = StreamInfo {
@@ -88,7 +94,10 @@ pub async fn media_playlist(
     State(ctx): State<AppContext>,
     Path(media_file_id): Path<String>,
 ) -> Result<Response, StatusCode> {
-    let pool = ctx.db_pool.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let pool = ctx
+        .db_pool
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     let conn = pool.get().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
     // Parse ID
@@ -101,7 +110,10 @@ pub async fn media_playlist(
     let media_file = media_files::get_media_file(&conn, id).map_err(|_| StatusCode::NOT_FOUND)?;
 
     let file_path = std::path::Path::new(&media_file.file_path);
-    let base_url = format!("http://{}:{}", ctx.config.server.host, ctx.config.server.port);
+    let base_url = format!(
+        "http://{}:{}",
+        ctx.config.server.host, ctx.config.server.port
+    );
 
     let segment_cache = get_segment_cache();
 
@@ -136,7 +148,10 @@ pub async fn init_segment(
     State(ctx): State<AppContext>,
     Path(media_file_id): Path<String>,
 ) -> Result<Response, StatusCode> {
-    let pool = ctx.db_pool.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let pool = ctx
+        .db_pool
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     let conn = pool.get().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
     // Parse ID
@@ -183,7 +198,10 @@ pub async fn media_segment(
     State(ctx): State<AppContext>,
     Path((media_file_id, segment_index_str)): Path<(String, String)>,
 ) -> Result<Response, StatusCode> {
-    let pool = ctx.db_pool.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let pool = ctx
+        .db_pool
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     let conn = pool.get().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
     // Parse segment index, stripping .m4s extension if present

@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 #[cfg(test)]
 use crate::models::ProviderIds;
-use crate::models::{Image, Item, MediaStream};
+use crate::models::{Image, Item, ItemWithProfiles, MediaStream};
 
 /// Filter options for querying items.
 #[derive(Debug, Clone, Default)]
@@ -1139,6 +1139,368 @@ pub fn search_items(conn: &Connection, query: &str, limit: u32) -> Result<Vec<It
     Ok(items)
 }
 
+/// SQL columns for item profile flags using EXISTS subqueries.
+const PROFILE_FLAG_COLUMNS: &str = "
+    EXISTS(SELECT 1 FROM media_files mf WHERE mf.item_id = i.id AND mf.profile = 'A') as has_profile_a,
+    EXISTS(SELECT 1 FROM media_files mf WHERE mf.item_id = i.id AND (mf.profile = 'B' OR mf.serves_as_universal = 1)) as has_profile_b,
+    EXISTS(SELECT 1 FROM media_files mf WHERE mf.item_id = i.id AND mf.profile = 'C') as has_profile_c";
+
+/// Parse an item with profile flags from a database row.
+/// Expects the standard item columns (0-35) followed by profile flags (36-38).
+fn parse_item_with_profiles_row(row: &rusqlite::Row) -> rusqlite::Result<ItemWithProfiles> {
+    let item = parse_item_row(row)?;
+
+    Ok(ItemWithProfiles {
+        item,
+        has_profile_a: row.get::<_, i32>(36)? != 0,
+        has_profile_b: row.get::<_, i32>(37)? != 0,
+        has_profile_c: row.get::<_, i32>(38)? != 0,
+    })
+}
+
+/// Get an item by ID with profile availability flags.
+///
+/// # Arguments
+///
+/// * `conn` - Database connection
+/// * `id` - Item ID
+///
+/// # Returns
+///
+/// * `Ok(Some(ItemWithProfiles))` - The item with profile flags if found
+/// * `Ok(None)` - If the item does not exist
+/// * `Err(Error)` - If a database error occurs
+pub fn get_item_with_profiles(conn: &Connection, id: ItemId) -> Result<Option<ItemWithProfiles>> {
+    let query = format!(
+        "SELECT i.id, i.library_id, i.parent_id, i.item_kind, i.name, i.sort_name, i.original_title,
+                i.file_path, i.container, i.video_codec, i.audio_codec, i.resolution, i.runtime_ticks,
+                i.size_bytes, i.overview, i.tagline, i.genres, i.tags, i.studios, i.people,
+                i.community_rating, i.critic_rating, i.production_year, i.premiere_date, i.end_date,
+                i.official_rating, i.provider_ids, i.scene_release_name, i.scene_group,
+                i.index_number, i.parent_index_number, i.etag, i.date_created, i.date_modified,
+                i.hdr_type, i.dolby_vision_profile,
+                {}
+         FROM items i WHERE i.id = :id",
+        PROFILE_FLAG_COLUMNS
+    );
+
+    let result = conn.query_row(
+        &query,
+        rusqlite::named_params! { ":id": id.to_string() },
+        parse_item_with_profiles_row,
+    );
+
+    match result {
+        Ok(item) => Ok(Some(item)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(Error::database(e.to_string())),
+    }
+}
+
+/// List items with profile flags, filtering, sorting, and pagination.
+///
+/// # Arguments
+///
+/// * `conn` - Database connection
+/// * `filter` - Filter options
+/// * `sort` - Sort options
+/// * `pagination` - Pagination options
+///
+/// # Returns
+///
+/// * `Ok(Vec<ItemWithProfiles>)` - List of items with profile flags matching the criteria
+/// * `Err(Error)` - If a database error occurs
+pub fn list_items_with_profiles(
+    conn: &Connection,
+    filter: &ItemFilter,
+    sort: &SortOptions,
+    pagination: &Pagination,
+) -> Result<Vec<ItemWithProfiles>> {
+    let mut query = format!(
+        "SELECT DISTINCT i.id, i.library_id, i.parent_id, i.item_kind, i.name, i.sort_name, i.original_title,
+                i.file_path, i.container, i.video_codec, i.audio_codec, i.resolution, i.runtime_ticks,
+                i.size_bytes, i.overview, i.tagline, i.genres, i.tags, i.studios, i.people,
+                i.community_rating, i.critic_rating, i.production_year, i.premiere_date, i.end_date,
+                i.official_rating, i.provider_ids, i.scene_release_name, i.scene_group,
+                i.index_number, i.parent_index_number, i.etag, i.date_created, i.date_modified,
+                i.hdr_type, i.dolby_vision_profile,
+                {}
+         FROM items i",
+        PROFILE_FLAG_COLUMNS
+    );
+
+    // Join with user_item_data if filtering by favorites
+    if filter.is_favorite.is_some() && filter.user_id.is_some() {
+        query.push_str(" LEFT JOIN user_item_data uid ON i.id = uid.item_id");
+    }
+
+    query.push_str(" WHERE 1=1");
+
+    // Build WHERE clause
+    if filter.library_id.is_some() {
+        query.push_str(" AND i.library_id = :library_id");
+    }
+
+    if filter.parent_id.is_some() {
+        query.push_str(" AND i.parent_id = :parent_id");
+    }
+
+    if let Some(ref kinds) = filter.item_kinds {
+        if !kinds.is_empty() {
+            let placeholders: Vec<_> = kinds.iter().map(|_| "?").collect();
+            query.push_str(&format!(
+                " AND i.item_kind IN ({})",
+                placeholders.join(", ")
+            ));
+        }
+    }
+
+    if filter.search_term.is_some() {
+        query.push_str(" AND (i.name LIKE :search OR i.original_title LIKE :search)");
+    }
+
+    if filter.is_favorite == Some(true) && filter.user_id.is_some() {
+        query.push_str(" AND uid.user_id = :user_id AND uid.is_favorite = 1");
+    }
+
+    // Add ORDER BY clause
+    query.push_str(" ORDER BY ");
+    match sort.field {
+        SortField::Name => query.push_str("COALESCE(i.sort_name, i.name)"),
+        SortField::DateCreated => query.push_str("i.date_created"),
+        SortField::DateModified => query.push_str("i.date_modified"),
+        SortField::PremiereDate => query.push_str("i.premiere_date"),
+        SortField::ProductionYear => query.push_str("i.production_year"),
+        SortField::CommunityRating => query.push_str("i.community_rating"),
+        SortField::Random => query.push_str("RANDOM()"),
+    }
+
+    if sort.descending {
+        query.push_str(" DESC");
+    } else {
+        query.push_str(" ASC");
+    }
+
+    // Add LIMIT and OFFSET
+    query.push_str(" LIMIT :limit OFFSET :offset");
+
+    let mut stmt = conn
+        .prepare(&query)
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    // Bind parameters
+    let mut params: Vec<(&str, &dyn rusqlite::ToSql)> = vec![
+        (":limit", &pagination.limit),
+        (":offset", &pagination.offset),
+    ];
+
+    let library_id_str = filter.library_id.map(|id| id.to_string());
+    if let Some(ref id) = library_id_str {
+        params.push((":library_id", id));
+    }
+
+    let parent_id_str = filter.parent_id.map(|id| id.to_string());
+    if let Some(ref id) = parent_id_str {
+        params.push((":parent_id", id));
+    }
+
+    let search_pattern = filter.search_term.as_ref().map(|s| format!("%{}%", s));
+    if let Some(ref pattern) = search_pattern {
+        params.push((":search", pattern));
+    }
+
+    let user_id_str = filter.user_id.map(|id| id.to_string());
+    if let Some(ref id) = user_id_str {
+        params.push((":user_id", id));
+    }
+
+    let items = stmt
+        .query_map(&*params, parse_item_with_profiles_row)
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    Ok(items)
+}
+
+/// Get children of an item with profile flags.
+///
+/// # Arguments
+///
+/// * `conn` - Database connection
+/// * `parent_id` - Parent item ID
+///
+/// # Returns
+///
+/// * `Ok(Vec<ItemWithProfiles>)` - List of child items with profile flags, sorted by index_number
+/// * `Err(Error)` - If a database error occurs
+pub fn get_children_with_profiles(
+    conn: &Connection,
+    parent_id: ItemId,
+) -> Result<Vec<ItemWithProfiles>> {
+    let query = format!(
+        "SELECT i.id, i.library_id, i.parent_id, i.item_kind, i.name, i.sort_name, i.original_title,
+                i.file_path, i.container, i.video_codec, i.audio_codec, i.resolution, i.runtime_ticks,
+                i.size_bytes, i.overview, i.tagline, i.genres, i.tags, i.studios, i.people,
+                i.community_rating, i.critic_rating, i.production_year, i.premiere_date, i.end_date,
+                i.official_rating, i.provider_ids, i.scene_release_name, i.scene_group,
+                i.index_number, i.parent_index_number, i.etag, i.date_created, i.date_modified,
+                i.hdr_type, i.dolby_vision_profile,
+                {}
+         FROM items i
+         WHERE i.parent_id = :parent_id
+         ORDER BY i.index_number ASC, i.name ASC",
+        PROFILE_FLAG_COLUMNS
+    );
+
+    let mut stmt = conn
+        .prepare(&query)
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    let items = stmt
+        .query_map(
+            rusqlite::named_params! { ":parent_id": parent_id.to_string() },
+            parse_item_with_profiles_row,
+        )
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    Ok(items)
+}
+
+/// Get recently added items with profile flags.
+///
+/// # Arguments
+///
+/// * `conn` - Database connection
+/// * `library_id` - Optional library ID to filter by
+/// * `limit` - Maximum number of items to return
+///
+/// # Returns
+///
+/// * `Ok(Vec<ItemWithProfiles>)` - List of recently added items with profile flags
+/// * `Err(Error)` - If a database error occurs
+pub fn get_recent_items_with_profiles(
+    conn: &Connection,
+    library_id: Option<LibraryId>,
+    limit: u32,
+) -> Result<Vec<ItemWithProfiles>> {
+    let query = if library_id.is_some() {
+        format!(
+            "SELECT i.id, i.library_id, i.parent_id, i.item_kind, i.name, i.sort_name, i.original_title,
+                    i.file_path, i.container, i.video_codec, i.audio_codec, i.resolution, i.runtime_ticks,
+                    i.size_bytes, i.overview, i.tagline, i.genres, i.tags, i.studios, i.people,
+                    i.community_rating, i.critic_rating, i.production_year, i.premiere_date, i.end_date,
+                    i.official_rating, i.provider_ids, i.scene_release_name, i.scene_group,
+                    i.index_number, i.parent_index_number, i.etag, i.date_created, i.date_modified,
+                    i.hdr_type, i.dolby_vision_profile,
+                    {}
+             FROM items i
+             WHERE i.library_id = :library_id
+             ORDER BY i.date_created DESC
+             LIMIT :limit",
+            PROFILE_FLAG_COLUMNS
+        )
+    } else {
+        format!(
+            "SELECT i.id, i.library_id, i.parent_id, i.item_kind, i.name, i.sort_name, i.original_title,
+                    i.file_path, i.container, i.video_codec, i.audio_codec, i.resolution, i.runtime_ticks,
+                    i.size_bytes, i.overview, i.tagline, i.genres, i.tags, i.studios, i.people,
+                    i.community_rating, i.critic_rating, i.production_year, i.premiere_date, i.end_date,
+                    i.official_rating, i.provider_ids, i.scene_release_name, i.scene_group,
+                    i.index_number, i.parent_index_number, i.etag, i.date_created, i.date_modified,
+                    i.hdr_type, i.dolby_vision_profile,
+                    {}
+             FROM items i
+             ORDER BY i.date_created DESC
+             LIMIT :limit",
+            PROFILE_FLAG_COLUMNS
+        )
+    };
+
+    let mut stmt = conn
+        .prepare(&query)
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    let items = if let Some(lib_id) = library_id {
+        stmt.query_map(
+            rusqlite::named_params! {
+                ":library_id": lib_id.to_string(),
+                ":limit": limit,
+            },
+            parse_item_with_profiles_row,
+        )
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?
+    } else {
+        stmt.query_map(
+            rusqlite::named_params! { ":limit": limit },
+            parse_item_with_profiles_row,
+        )
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?
+    };
+
+    Ok(items)
+}
+
+/// Search items by name with profile flags.
+///
+/// # Arguments
+///
+/// * `conn` - Database connection
+/// * `query` - Search query
+/// * `limit` - Maximum number of results
+///
+/// # Returns
+///
+/// * `Ok(Vec<ItemWithProfiles>)` - List of matching items with profile flags
+/// * `Err(Error)` - If a database error occurs
+pub fn search_items_with_profiles(
+    conn: &Connection,
+    search_query: &str,
+    limit: u32,
+) -> Result<Vec<ItemWithProfiles>> {
+    let pattern = format!("%{}%", search_query);
+
+    let query = format!(
+        "SELECT i.id, i.library_id, i.parent_id, i.item_kind, i.name, i.sort_name, i.original_title,
+                i.file_path, i.container, i.video_codec, i.audio_codec, i.resolution, i.runtime_ticks,
+                i.size_bytes, i.overview, i.tagline, i.genres, i.tags, i.studios, i.people,
+                i.community_rating, i.critic_rating, i.production_year, i.premiere_date, i.end_date,
+                i.official_rating, i.provider_ids, i.scene_release_name, i.scene_group,
+                i.index_number, i.parent_index_number, i.etag, i.date_created, i.date_modified,
+                i.hdr_type, i.dolby_vision_profile,
+                {}
+         FROM items i
+         WHERE i.name LIKE :pattern OR i.original_title LIKE :pattern
+         ORDER BY i.name ASC
+         LIMIT :limit",
+        PROFILE_FLAG_COLUMNS
+    );
+
+    let mut stmt = conn
+        .prepare(&query)
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    let items = stmt
+        .query_map(
+            rusqlite::named_params! {
+                ":pattern": &pattern,
+                ":limit": limit,
+            },
+            parse_item_with_profiles_row,
+        )
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    Ok(items)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1393,5 +1755,202 @@ mod tests {
 
         let results = search_items(&conn, "Matrix", 10).unwrap();
         assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_get_item_with_profiles_no_media_files() {
+        let pool = init_memory_pool().unwrap();
+        let conn = pool.get().unwrap();
+        let library_id = create_test_library(&conn);
+
+        let item = create_test_item(&conn, library_id, "Test Movie");
+        let found = get_item_with_profiles(&conn, item.id).unwrap().unwrap();
+
+        // No media files, so all profile flags should be false
+        assert_eq!(found.item.name, "Test Movie");
+        assert!(!found.has_profile_a);
+        assert!(!found.has_profile_b);
+        assert!(!found.has_profile_c);
+    }
+
+    #[test]
+    fn test_get_item_with_profiles_with_media_files() {
+        use crate::queries::media_files::create_media_file_with_profile;
+        use sceneforged_common::{FileRole, Profile};
+
+        let pool = init_memory_pool().unwrap();
+        let conn = pool.get().unwrap();
+        let library_id = create_test_library(&conn);
+
+        let item = create_test_item(&conn, library_id, "Test Movie");
+
+        // Create a Profile A file (4K/HDR source)
+        create_media_file_with_profile(
+            &conn,
+            item.id,
+            FileRole::Source,
+            Profile::A,
+            "/media/movie_4k.mkv",
+            1024,
+            "mkv",
+        )
+        .unwrap();
+
+        let found = get_item_with_profiles(&conn, item.id).unwrap().unwrap();
+        assert!(found.has_profile_a);
+        assert!(!found.has_profile_b);
+        assert!(!found.has_profile_c);
+
+        // Create a Profile C file (needs conversion)
+        create_media_file_with_profile(
+            &conn,
+            item.id,
+            FileRole::Extra,
+            Profile::C,
+            "/media/movie_extra.mkv",
+            512,
+            "mkv",
+        )
+        .unwrap();
+
+        let found = get_item_with_profiles(&conn, item.id).unwrap().unwrap();
+        assert!(found.has_profile_a);
+        assert!(!found.has_profile_b);
+        assert!(found.has_profile_c);
+    }
+
+    #[test]
+    fn test_get_item_with_profiles_serves_as_universal() {
+        use crate::queries::media_files::{create_media_file_with_profile, update_media_file_metadata};
+        use sceneforged_common::{FileRole, Profile};
+
+        let pool = init_memory_pool().unwrap();
+        let conn = pool.get().unwrap();
+        let library_id = create_test_library(&conn);
+
+        let item = create_test_item(&conn, library_id, "Test Movie");
+
+        // Create a Profile C file that serves_as_universal (should be detected as Profile B)
+        let file = create_media_file_with_profile(
+            &conn,
+            item.id,
+            FileRole::Source,
+            Profile::C,
+            "/media/movie.mp4",
+            1024,
+            "mp4",
+        )
+        .unwrap();
+
+        // Mark it as serves_as_universal
+        update_media_file_metadata(
+            &conn,
+            file.id,
+            Some("h264"),
+            Some("aac"),
+            Some(1920),
+            Some(1080),
+            Some(72000000000),
+            Some(5000000),
+            false,
+            true, // serves_as_universal = true
+            true,
+            Some(2.0),
+        )
+        .unwrap();
+
+        let found = get_item_with_profiles(&conn, item.id).unwrap().unwrap();
+        assert!(!found.has_profile_a);
+        assert!(found.has_profile_b); // serves_as_universal triggers this
+        assert!(found.has_profile_c); // Profile is still C
+    }
+
+    #[test]
+    fn test_list_items_with_profiles() {
+        use crate::queries::media_files::create_media_file_with_profile;
+        use sceneforged_common::{FileRole, Profile};
+
+        let pool = init_memory_pool().unwrap();
+        let conn = pool.get().unwrap();
+        let library_id = create_test_library(&conn);
+
+        let item1 = create_test_item(&conn, library_id, "Movie A");
+        let item2 = create_test_item(&conn, library_id, "Movie B");
+
+        // Item 1 has Profile A
+        create_media_file_with_profile(
+            &conn,
+            item1.id,
+            FileRole::Source,
+            Profile::A,
+            "/media/a.mkv",
+            1024,
+            "mkv",
+        )
+        .unwrap();
+
+        // Item 2 has Profile B
+        create_media_file_with_profile(
+            &conn,
+            item2.id,
+            FileRole::Universal,
+            Profile::B,
+            "/media/b.mp4",
+            512,
+            "mp4",
+        )
+        .unwrap();
+
+        let filter = ItemFilter {
+            library_id: Some(library_id),
+            ..Default::default()
+        };
+        let sort = SortOptions::default();
+        let pagination = Pagination::default();
+
+        let items = list_items_with_profiles(&conn, &filter, &sort, &pagination).unwrap();
+        assert_eq!(items.len(), 2);
+
+        // Find item1 and item2 in results
+        let found1 = items.iter().find(|i| i.item.id == item1.id).unwrap();
+        let found2 = items.iter().find(|i| i.item.id == item2.id).unwrap();
+
+        assert!(found1.has_profile_a);
+        assert!(!found1.has_profile_b);
+        assert!(!found1.has_profile_c);
+
+        assert!(!found2.has_profile_a);
+        assert!(found2.has_profile_b);
+        assert!(!found2.has_profile_c);
+    }
+
+    #[test]
+    fn test_search_items_with_profiles() {
+        use crate::queries::media_files::create_media_file_with_profile;
+        use sceneforged_common::{FileRole, Profile};
+
+        let pool = init_memory_pool().unwrap();
+        let conn = pool.get().unwrap();
+        let library_id = create_test_library(&conn);
+
+        let matrix = create_test_item(&conn, library_id, "The Matrix");
+        create_test_item(&conn, library_id, "Inception");
+
+        // Matrix has Profile A
+        create_media_file_with_profile(
+            &conn,
+            matrix.id,
+            FileRole::Source,
+            Profile::A,
+            "/media/matrix.mkv",
+            1024,
+            "mkv",
+        )
+        .unwrap();
+
+        let results = search_items_with_profiles(&conn, "Matrix", 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].item.name, "The Matrix");
+        assert!(results[0].has_profile_a);
     }
 }

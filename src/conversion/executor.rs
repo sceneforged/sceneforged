@@ -4,7 +4,7 @@
 
 use crate::state::AppEvent;
 use anyhow::{Context, Result};
-use sceneforged_common::FileRole;
+use sceneforged_common::{FileRole, Profile};
 use sceneforged_db::{
     models::ConversionStatus,
     pool::DbPool,
@@ -291,11 +291,12 @@ impl ConversionExecutor {
     ) -> Result<()> {
         let file_size = std::fs::metadata(output_path)?.len() as i64;
 
-        // Create media file entry
-        let media_file = media_files::create_media_file(
+        // Create media file entry with Profile::B (universal playback profile)
+        let media_file = media_files::create_media_file_with_profile(
             conn,
             item_id,
             FileRole::Universal,
+            Profile::B,
             &output_path.to_string_lossy(),
             file_size,
             "mp4",
@@ -318,7 +319,7 @@ impl ConversionExecutor {
         )?;
 
         info!(
-            "Registered universal file: {} for item {}",
+            "Registered universal file: {} (Profile B) for item {}",
             media_file.id, item_id
         );
 

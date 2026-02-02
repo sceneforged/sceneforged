@@ -83,12 +83,10 @@ impl SegmentCache {
 
     /// Get a segment map if it exists in cache.
     pub fn get(&self, media_file_id: &str) -> Option<Arc<SegmentMap>> {
-        self.entries
-            .get_mut(media_file_id)
-            .map(|mut entry| {
-                entry.last_accessed = Instant::now();
-                Arc::clone(&entry.segment_map)
-            })
+        self.entries.get_mut(media_file_id).map(|mut entry| {
+            entry.last_accessed = Instant::now();
+            Arc::clone(&entry.segment_map)
+        })
     }
 
     /// Remove an entry from the cache.
@@ -194,9 +192,8 @@ mod tests {
         let temp_file = temp_dir.join("test_cache.mp4");
         std::fs::write(&temp_file, b"test").unwrap();
 
-        let result = cache.get_or_insert("test_id", &temp_file, |_| {
-            Some(create_test_segment_map())
-        });
+        let result =
+            cache.get_or_insert("test_id", &temp_file, |_| Some(create_test_segment_map()));
 
         assert!(result.is_some());
         assert_eq!(cache.len(), 1);
@@ -215,9 +212,7 @@ mod tests {
         let temp_file = temp_dir.join("test_cache_remove.mp4");
         std::fs::write(&temp_file, b"test").unwrap();
 
-        cache.get_or_insert("test_id", &temp_file, |_| {
-            Some(create_test_segment_map())
-        });
+        cache.get_or_insert("test_id", &temp_file, |_| Some(create_test_segment_map()));
 
         assert_eq!(cache.len(), 1);
         cache.remove("test_id");

@@ -7,6 +7,9 @@
 # Stage 1: Build the SvelteKit UI
 FROM node:20-alpine AS ui-builder
 
+# Build arg for commit hash
+ARG COMMIT_SHA=dev
+
 # Enable and install pnpm
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
@@ -19,8 +22,9 @@ COPY ui/package.json ui/pnpm-lock.yaml ./
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 
-# Copy source and build
+# Copy source and build with commit hash
 COPY ui/ ./
+ENV PUBLIC_COMMIT_SHA=$COMMIT_SHA
 RUN pnpm run build
 
 # Stage 2: Build the Rust binary

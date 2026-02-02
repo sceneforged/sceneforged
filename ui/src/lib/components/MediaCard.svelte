@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Item, MediaFile, Profile } from '$lib/types';
+  import type { Item, Profile } from '$lib/types';
   import { formatRuntime, formatBytes } from '$lib/api';
   import { Film, Tv, Music, FolderOpen, Star, Play, Check, Clock } from 'lucide-svelte';
   import Badge from './ui/badge/badge.svelte';
@@ -11,17 +11,13 @@
     onclick?: () => void;
     playbackPosition?: number | null;
     played?: boolean;
-    mediaFiles?: MediaFile[];
     libraryId?: string;
   }
 
-  let { item, onclick, playbackPosition, played, mediaFiles, libraryId }: Props = $props();
+  let { item, onclick, playbackPosition, played, libraryId }: Props = $props();
 
-  // Determine if item is playable - has a universal/serves_as_universal media file
-  // If we don't have mediaFiles data, assume playable (will error on play attempt if not)
-  const isPlayable = $derived(
-    mediaFiles ? mediaFiles.some(f => f.serves_as_universal || f.role === 'universal') : true
-  );
+  // Determine if item is web-playable using profile_b flag
+  const isWebPlayable = $derived(item.has_profile_b);
 
   // Resolve library ID from prop or item
   const resolvedLibraryId = $derived(libraryId ?? item.library_id);
@@ -38,17 +34,14 @@
     goto(`/browse/${resolvedLibraryId}/${item.id}`);
   }
 
-  function getItemProfile(files: MediaFile[] | undefined): Profile | 'AB' | null {
-    if (!files || files.length === 0) return null;
-    const hasA = files.some(f => !f.serves_as_universal);
-    const hasB = files.some(f => f.serves_as_universal);
-    if (hasA && hasB) return 'AB';
-    if (hasB) return 'B';
-    if (hasA) return 'A';
+  // Derive profile badge from item flags
+  const profile = $derived.by(() => {
+    if (item.has_profile_a && item.has_profile_b) return 'AB';
+    if (item.has_profile_b) return 'B';
+    if (item.has_profile_a) return 'A';
+    if (item.has_profile_c) return 'C';
     return null;
-  }
-
-  const profile = $derived(getItemProfile(mediaFiles));
+  });
 
   // Determine resolution tier from item resolution string or compute from width
   const resolutionTier = $derived.by(() => {
@@ -100,12 +93,21 @@
     <!-- Placeholder icon -->
     <Icon class="w-16 h-16 text-muted-foreground/30" />
 
-    <!-- Play overlay on hover -->
-    <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-      <div class="bg-primary rounded-full p-3">
-        <Play class="w-8 h-8 text-primary-foreground" />
+    <!-- Play overlay on hover (only show if web-playable) -->
+    {#if isWebPlayable}
+      <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+        <div class="bg-primary rounded-full p-3">
+          <Play class="w-8 h-8 text-primary-foreground" />
+        </div>
       </div>
-    </div>
+    {/if}
+
+    <!-- No Web Version overlay (shown when not web-playable) -->
+    {#if !isWebPlayable}
+      <div class="absolute inset-0 bg-black/60 flex items-center justify-center">
+        <span class="text-white text-sm font-medium px-2 py-1 text-center">No Web Version</span>
+      </div>
+    {/if}
 
     <!-- Resolution and HDR/DV badges -->
     <div class="absolute bottom-2 left-2 flex gap-1">

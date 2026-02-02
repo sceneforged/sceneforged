@@ -4,8 +4,8 @@
 //! the sceneforged-probe crate for container parsing.
 
 use super::types::{
-    AudioTrack as AvAudioTrack, DolbyVisionInfo, HdrFormat as AvHdrFormat, MediaInfo as AvMediaInfo,
-    SubtitleTrack as AvSubtitleTrack, VideoTrack as AvVideoTrack,
+    AudioTrack as AvAudioTrack, DolbyVisionInfo, HdrFormat as AvHdrFormat,
+    MediaInfo as AvMediaInfo, SubtitleTrack as AvSubtitleTrack, VideoTrack as AvVideoTrack,
 };
 use crate::{Error, Result};
 use std::path::Path;
@@ -85,7 +85,9 @@ fn convert_hdr_format(
             }),
         ),
         Some(sceneforged_probe::HdrFormat::Hdr10 { .. }) => (Some(AvHdrFormat::Hdr10), None),
-        Some(sceneforged_probe::HdrFormat::Hdr10Plus { .. }) => (Some(AvHdrFormat::Hdr10Plus), None),
+        Some(sceneforged_probe::HdrFormat::Hdr10Plus { .. }) => {
+            (Some(AvHdrFormat::Hdr10Plus), None)
+        }
         Some(sceneforged_probe::HdrFormat::Hlg) => (Some(AvHdrFormat::Hlg), None),
         // SDR is returned as None to match CLI-based probing behavior
         Some(sceneforged_probe::HdrFormat::Sdr) | None => (None, None),

@@ -1,8 +1,9 @@
 /// <reference types="@testing-library/jest-dom" />
 import '@testing-library/jest-dom/vitest';
+import { vi, beforeEach } from 'vitest';
 
 // Mock fetch for API tests
-global.fetch = vi.fn();
+globalThis.fetch = vi.fn() as typeof fetch;
 
 // Mock EventSource for SSE tests
 class MockEventSource {
@@ -24,7 +25,7 @@ class MockEventSource {
   }
 }
 
-global.EventSource = MockEventSource as unknown as typeof EventSource;
+globalThis.EventSource = MockEventSource as unknown as typeof EventSource;
 
 // Reset mocks between tests
 beforeEach(() => {
@@ -33,7 +34,7 @@ beforeEach(() => {
 
 // Helper to mock successful fetch responses
 export function mockFetchResponse<T>(data: T): void {
-  (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+  (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
     ok: true,
     json: async () => data,
     text: async () => JSON.stringify(data),
@@ -42,7 +43,7 @@ export function mockFetchResponse<T>(data: T): void {
 
 // Helper to mock failed fetch responses
 export function mockFetchError(status: number, message: string): void {
-  (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+  (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
     ok: false,
     status,
     text: async () => message,

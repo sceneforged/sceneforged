@@ -3,10 +3,10 @@
 //! Extracts the title from remaining tokens that haven't been consumed
 //! by other parsers.
 
+use super::episode::extract_embedded_episode;
 use crate::config::{ParserConfig, YearInTitleMode};
 use crate::lexer::{Lexer, Token};
 use crate::model::{Confidence, ParsedRelease};
-use super::episode::extract_embedded_episode;
 
 /// Extract the title from the token stream using default config.
 #[allow(dead_code)]
@@ -60,9 +60,9 @@ pub fn extract_with_config(lexer: &Lexer, release: &mut ParsedRelease, config: &
                 .position(|(_, s)| s.start == span.start && s.end == span.end);
             if let Some(idx) = token_idx {
                 // Don't treat as daily format if there's an explicit S##E## token later
-                let has_explicit_episode = tokens.iter().any(|(t, _)| {
-                    matches!(t, Token::SeasonEpisode(_) | Token::SeasonEpisodeX(_))
-                });
+                let has_explicit_episode = tokens
+                    .iter()
+                    .any(|(t, _)| matches!(t, Token::SeasonEpisode(_) | Token::SeasonEpisodeX(_)));
 
                 if !has_explicit_episode && idx + 2 < tokens.len() {
                     if matches!(tokens[idx + 1].0, Token::Hyphen) {
@@ -73,7 +73,8 @@ pub fn extract_with_config(lexer: &Lexer, release: &mut ParsedRelease, config: &
                                 if let (Ok(season), Ok(episode)) =
                                     (num_text.parse::<u16>(), ep_text.parse::<u16>())
                                 {
-                                    if season >= 1 && season <= 99 && episode >= 1 && episode <= 99 {
+                                    if season >= 1 && season <= 99 && episode >= 1 && episode <= 99
+                                    {
                                         // Daily format at start - title is empty
                                         return;
                                     }
@@ -119,9 +120,9 @@ pub fn extract_with_config(lexer: &Lexer, release: &mut ParsedRelease, config: &
                     let followed_by_episode = i + 3 < tokens.len()
                         && matches!(tokens[i + 1].0, Token::BracketClose)
                         && matches!(tokens[i + 2].0, Token::BracketOpen)
-                        && tokens[i + 3..]
-                            .iter()
-                            .any(|(t, _)| matches!(t, Token::SeasonEpisode(_) | Token::SeasonEpisodeX(_)));
+                        && tokens[i + 3..].iter().any(|(t, _)| {
+                            matches!(t, Token::SeasonEpisode(_) | Token::SeasonEpisodeX(_))
+                        });
                     if followed_by_episode {
                         continue; // Don't treat as stop token - include in title
                     }
@@ -152,9 +153,9 @@ pub fn extract_with_config(lexer: &Lexer, release: &mut ParsedRelease, config: &
                     // Check if "Part X" is followed by a year - if so, it's a movie title, not episode marker
                     // e.g., "Dune.Part.Two.2024" - the 2024 indicates movie
                     // e.g., "Show.Part.Two.720p" - no year after, so it's TV episode
-                    let followed_by_year = remaining.get(1).map_or(false, |(t, _)| {
-                        matches!(t, Token::Year(_))
-                    });
+                    let followed_by_year = remaining
+                        .get(1)
+                        .map_or(false, |(t, _)| matches!(t, Token::Year(_)));
 
                     if is_episode_marker && !followed_by_year {
                         title_end_idx = Some(i);
@@ -589,9 +590,30 @@ fn is_stop_token(token: &Token, release: &ParsedRelease) -> bool {
 fn is_word_number(word: &str) -> bool {
     matches!(
         word.to_uppercase().as_str(),
-        "ONE" | "I" | "TWO" | "II" | "THREE" | "III" | "FOUR" | "IV" | "FIVE" | "V" | "SIX"
-            | "VI" | "SEVEN" | "VII" | "EIGHT" | "VIII" | "NINE" | "IX" | "TEN" | "X" | "ELEVEN"
-            | "XI" | "TWELVE" | "XII"
+        "ONE"
+            | "I"
+            | "TWO"
+            | "II"
+            | "THREE"
+            | "III"
+            | "FOUR"
+            | "IV"
+            | "FIVE"
+            | "V"
+            | "SIX"
+            | "VI"
+            | "SEVEN"
+            | "VII"
+            | "EIGHT"
+            | "VIII"
+            | "NINE"
+            | "IX"
+            | "TEN"
+            | "X"
+            | "ELEVEN"
+            | "XI"
+            | "TWELVE"
+            | "XII"
     )
 }
 
