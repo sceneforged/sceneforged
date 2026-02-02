@@ -250,17 +250,19 @@ export interface QueueSummary {
 }
 
 // Unified SSE event type with category routing
+// Backend uses serde with #[serde(tag = "event_type", rename_all = "snake_case")]
 export type AppEvent =
-  | { category: 'admin'; type: 'job:queued'; job: Job }
-  | { category: 'admin'; type: 'job:started'; id: string; rule_name: string }
-  | { category: 'admin'; type: 'job:progress'; id: string; progress: number; step: string }
-  | { category: 'admin'; type: 'job:completed'; job: Job }
-  | { category: 'admin'; type: 'job:failed'; id: string; error: string }
-  | { category: 'admin'; type: 'library:scan_started'; library_id: string }
-  | { category: 'admin'; type: 'library:scan_complete'; library_id: string; items_added: number }
-  | { category: 'admin'; type: 'library:created'; library: Library }
-  | { category: 'admin'; type: 'library:deleted'; library_id: string }
-  | { category: 'admin'; type: 'item:added'; item: Item }
-  | { category: 'admin'; type: 'item:updated'; item: Item }
-  | { category: 'admin'; type: 'item:removed'; item_id: string }
-  | { category: 'user'; type: 'playback:available'; item_id: string };
+  | { category: 'admin'; event_type: 'job_queued'; job: Job }
+  | { category: 'admin'; event_type: 'job_started'; id: string; rule_name: string }
+  | { category: 'admin'; event_type: 'job_progress'; id: string; progress: number; step: string }
+  | { category: 'admin'; event_type: 'job_completed'; job: Job }
+  | { category: 'admin'; event_type: 'job_failed'; id: string; error: string }
+  | { category: 'admin'; event_type: 'library_scan_started'; library_id: string }
+  | { category: 'admin'; event_type: 'library_scan_complete'; library_id: string; items_added: number }
+  | { category: 'admin'; event_type: 'library_created'; library: Library }
+  | { category: 'admin'; event_type: 'library_deleted'; library_id: string }
+  | { category: 'admin'; event_type: 'item_added'; item: Item }
+  | { category: 'admin'; event_type: 'item_updated'; item: Item }
+  | { category: 'admin'; event_type: 'item_removed'; item_id: string }
+  | { category: 'user'; event_type: 'playback_available'; item_id: string }
+  | { category: 'user'; event_type: 'heartbeat' };

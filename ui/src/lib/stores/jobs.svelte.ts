@@ -10,35 +10,35 @@ let history = $state<Job[]>([]);
  * Handle incoming job events from the event service
  */
 function handleJobEvent(event: AppEvent): void {
-  // Only process job:* events
-  if (!event.type.startsWith('job:')) {
+  // Only process job_* events
+  if (!event.event_type.startsWith('job_')) {
     return;
   }
 
-  switch (event.type) {
-    case 'job:queued':
+  switch (event.event_type) {
+    case 'job_queued':
       jobs = [...jobs, event.job];
       break;
 
-    case 'job:started':
+    case 'job_started':
       jobs = jobs.map((j) =>
         j.id === event.id ? { ...j, status: 'running' as const, rule_name: event.rule_name } : j
       );
       break;
 
-    case 'job:progress':
+    case 'job_progress':
       jobs = jobs.map((j) =>
         j.id === event.id ? { ...j, progress: event.progress, current_step: event.step } : j
       );
       break;
 
-    case 'job:completed':
+    case 'job_completed':
       // Remove from active jobs and add to history
       jobs = jobs.filter((j) => j.id !== event.job.id);
       history = [event.job, ...history].slice(0, 1000);
       break;
 
-    case 'job:failed':
+    case 'job_failed':
       jobs = jobs.map((j) =>
         j.id === event.id ? { ...j, status: 'failed' as const, error: event.error } : j
       );
