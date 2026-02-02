@@ -1,0 +1,31 @@
+# Git
+.git
+.gitignore
+
+# Build artifacts
+target/
+ui/node_modules/
+ui/build/
+ui/.svelte-kit/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local config
+config.toml
+sceneforged-state.json
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

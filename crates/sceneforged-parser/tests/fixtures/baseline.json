@@ -1,0 +1,2091 @@
+{
+  "version": 1,
+  "generated": "2026-02-02T01:37:18.093400+00:00",
+  "total_passing": 521,
+  "passing_tests": [
+    {
+      "fixture": "movies.json",
+      "input": "The.Shawshank.Redemption.1994.REMASTERED.1080p.BluRay.x264.DTS-HD.MA-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Inception.2010.2160p.UHD.BluRay.REMUX.HDR10.DTS-HD.MA.5.1-FGT"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Dune.Part.Two.2024.1080p.WEB-DL.DDP5.1.Atmos.H.264-FLUX"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Godfather.1972.THEATRICAL.REMASTERED.2160p.BluRay.x265.HDR10Plus.TrueHD.Atmos.7.1-FraMeSToR"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Spider-Man.No.Way.Home.2021.2160p.WEBRip.x265.10bit.HDR.DDP5.1-NOGRP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Pulp.Fiction.1994.720p.BluRay.DTS.x264-DON"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Oppenheimer.2023.IMAX.2160p.UHD.BluRay.x265.DV.HDR10.TrueHD.7.1-SURFINBIRD"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Matrix.1999.2160p.UHD.BluRay.REMUX.DV.HDR10.DTS-HD.MA.7.1-Epsilon"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Interstellar.2014.IMAX.1080p.BluRay.x264.TrueHD.7.1-SPARKS"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Avatar.The.Way.of.Water.2022.2160p.AMZN.WEB-DL.DDP5.1.Atmos.H.265-CMRG"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Blade.Runner.2049.2017.Directors.Cut.2160p.BluRay.x265.HDR10-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Gladiator.2000.EXTENDED.1080p.BluRay.x264.DTS-HD.MA.5.1-FGT"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Lord.of.the.Rings.The.Return.of.the.King.2003.EXTENDED.2160p.UHD.BluRay.REMUX.HDR.DTS-X.7.1-EPSiLON"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Joker.2019.1080p.BluRay.x264.DTS-SPARKS"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Barbie.2023.1080p.AMZN.WEB-DL.DDP5.1.H.264-NTb"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Dark.Knight.2008.2160p.UHD.BluRay.HDR10.TrueHD.Atmos.x265-IMAX"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Fight.Club.1999.1080p.BluRay.x264.AC3-ETRG"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Parasite.2019.2160p.BluRay.x265.HDR10Plus.DTS-HD.MA.7.1-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Forrest.Gump.1994.REMASTERED.720p.BluRay.x264.AAC-YIFY"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Silence.of.the.Lambs.1991.Criterion.1080p.BluRay.x264.FLAC.2.0-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Se7en.1995.2160p.DSNP.WEB-DL.DDP5.1.DV.H.265-FLUX"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Goodfellas.1990.1080p.BluRay.x264.DTS-HD.MA-SPARKS"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Schindlers.List.1993.Anniversary.2160p.BluRay.x265.HDR10.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Green.Mile.1999.1080p.HMAX.WEB-DL.DDP5.1.H.264-CMRG"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Saving.Private.Ryan.1998.2160p.UHD.BluRay.REMUX.HDR10.DTS-HD.MA.7.1-TRiToN"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Prestige.2006.1080p.BluRay.x264.TrueHD.5.1-FGT"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Whiplash.2014.1080p.BluRay.x264.DTS-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "12.Angry.Men.1957.Criterion.1080p.BluRay.x264.FLAC.1.0-DEPTH"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Departed.2006.1080p.BluRay.DTS.x264-DON"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Leon.The.Professional.1994.EXTENDED.2160p.BluRay.x265.HDR10.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Aliens.1986.Directors.Cut.2160p.UHD.BluRay.REMUX.HDR.DTS-HD.MA.5.1-EPSiLON"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Social.Network.2010.1080p.BluRay.x264.DTS-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Toy.Story.1995.REMASTERED.1080p.BluRay.x264.AC3-EVO"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Spirited.Away.2001.1080p.BluRay.x264.DTS-HD.MA.5.1-FGT"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "No.Country.for.Old.Men.2007.1080p.BluRay.x264.TrueHD.5.1-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Casino.Royale.2006.2160p.UHD.BluRay.x265.HDR10.DTS-HD.MA.5.1-DEPTH"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Mad.Max.Fury.Road.2015.2160p.UHD.BluRay.REMUX.HDR10.DTS-HD.MA.7.1-EPSiLON"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Back.to.the.Future.1985.2160p.BluRay.x265.HDR.TrueHD.7.1-SURFINBIRD"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Terminator.1984.REMASTERED.1080p.BluRay.x264.DTS-HD.MA.5.1-FGT"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Kill.Bill.Vol.1.2003.1080p.BluRay.x264.TrueHD.5.1-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Eternal.Sunshine.of.the.Spotless.Mind.2004.1080p.BluRay.x264.DTS-SPARKS"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "John.Wick.Chapter.4.2023.2160p.AMZN.WEB-DL.DDP5.1.Atmos.HDR.H.265-CMRG"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Jurassic.Park.1993.REMASTERED.2160p.UHD.BluRay.REMUX.HDR10.DTS-HD.MA.7.1-FGT"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Big.Lebowski.1998.1080p.BluRay.x264.DTS-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "E.T.The.Extra.Terrestrial.1982.REMASTERED.2160p.BluRay.x265.HDR10.TrueHD.7.1-SWTYBLZ"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Reservoir.Dogs.1992.1080p.BluRay.x264.DTS-HD.MA.5.1-FGT"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Memento.2000.1080p.BluRay.x264.TrueHD.5.1-DEPTH"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Truman.Show.1998.1080p.BluRay.x264.DTS-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "American.History.X.1998.1080p.BluRay.x264.DTS-HD.MA.5.1-FGT"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Citizen.Kane.1941.Criterion.2160p.BluRay.x265.HDR10.FLAC.1.0-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Heat.1995.Directors.Cut.2160p.UHD.BluRay.REMUX.HDR.DTS-HD.MA.5.1-EPSiLON"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Lawrence.of.Arabia.1962.REMASTERED.2160p.UHD.BluRay.REMUX.HDR10.DTS-HD.MA.7.1-FraMeSToR"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Poor.Things.2023.2160p.DSNP.WEB-DL.DDP5.1.DV.HDR10.H.265-CMRG"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Scarface.1983.UNRATED.2160p.BluRay.x265.HDR10.DTS-HD.MA.7.1-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Oldboy.2003.1080p.BluRay.x264.DTS-HD.MA.5.1-FGT"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Usual.Suspects.1995.1080p.BluRay.x264.TrueHD.5.1-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "2001.A.Space.Odyssey.1968.REMASTERED.2160p.UHD.BluRay.REMUX.HDR10.DTS-HD.MA.5.1-FraMeSToR"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "WALL-E.2008.2160p.BluRay.x265.HDR10.TrueHD.Atmos.7.1-SWTYBLZ"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "A.Beautiful.Mind.2001.1080p.BluRay.x264.DTS-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Gran.Torino.2008.1080p.BluRay.x264.TrueHD.5.1-FGT"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Requiem.for.a.Dream.2000.Directors.Cut.1080p.BluRay.x264.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Apocalypse.Now.1979.Redux.2160p.UHD.BluRay.REMUX.HDR10.DTS-HD.MA.5.1-FraMeSToR"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Wolf.of.Wall.Street.2013.1080p.BluRay.x264.DTS-SPARKS"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Sicario.2015.2160p.UHD.BluRay.REMUX.HDR10.DTS-HD.MA.7.1-TRiToN"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Drive.2011.1080p.BluRay.x264.DTS-HD.MA.5.1-FGT"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Revenant.2015.2160p.UHD.BluRay.REMUX.HDR10.DTS-HD.MA.7.1-EPSiLON"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Exorcist.1973.Directors.Cut.2160p.BluRay.x265.HDR10.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Guardians.of.the.Galaxy.Vol.3.2023.2160p.DSNP.WEB-DL.DDP5.1.Atmos.DV.H.265-CMRG"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "American.Psycho.2000.UNRATED.2160p.BluRay.x265.HDR10.DTS-HD.MA.7.1-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Mission.Impossible.Dead.Reckoning.Part.One.2023.1080p.PMTP.WEB-DL.DDP5.1.Atmos.H.264-CMRG"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Taxi.Driver.1976.Collectors.Edition.2160p.BluRay.x265.HDR10.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Avengers.2012.2160p.UHD.BluRay.REMUX.DV.HDR10.TrueHD.Atmos.7.1-EPSiLON"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Mulholland.Drive.2001.Criterion.2160p.BluRay.x265.HDR10.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Rocky.1976.REMASTERED.1080p.BluRay.x264.DTS-HD.MA.5.1-FGT"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Godfather.Part.II.1974.2160p.UHD.BluRay.REMUX.HDR10.DTS-HD.MA.5.1-FraMeSToR"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Raging.Bull.1980.Criterion.1080p.BluRay.x264.FLAC.1.0-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Terminator.2.Judgment.Day.1991.Extended.Special.Edition.2160p.BluRay.x265.HDR10.TrueHD.Atmos.7.1-FGT"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Psycho.1960.REMASTERED.1080p.BluRay.x264.DTS-HD.MA.2.0-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Vertigo.1958.Criterion.2160p.BluRay.x265.HDR10.DTS-HD.MA.5.1-FraMeSToR"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Some.Like.It.Hot.1959.1080p.BluRay.x264.FLAC.2.0-HANDJOB"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Killers.of.the.Flower.Moon.2023.2160p.ATVP.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Fabelmans.2022.2160p.PCOK.WEB-DL.DDP5.1.HDR.H.265-NTb"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Top.Gun.Maverick.2022.2160p.UHD.BluRay.REMUX.DV.HDR10Plus.TrueHD.Atmos.7.1-FraMeSToR"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Singin.in.the.Rain.1952.REMASTERED.2160p.BluRay.x265.HDR10.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Once.Upon.a.Time.in.America.1984.Extended.Directors.Cut.2160p.BluRay.x265.HDR10.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Banshees.of.Inisherin.2022.1080p.BluRay.x264.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Dr.Strangelove.1964.Criterion.2160p.BluRay.x265.HDR10.DTS-HD.MA.1.0-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Casablanca.1942.REMASTERED.1080p.BluRay.x264.FLAC.2.0-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Anatomy.of.a.Fall.2023.1080p.BluRay.x264.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Past.Lives.2023.1080p.AMZN.WEB-DL.DDP5.1.H.264-CMRG"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Cinema.Paradiso.1988.Directors.Cut.1080p.BluRay.x264.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Ran.1985.Criterion.2160p.BluRay.x265.HDR10.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.Holdovers.2023.1080p.PCOK.WEB-DL.DDP5.1.H.264-NTb"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Sunset.Blvd.1950.REMASTERED.1080p.BluRay.x264.FLAC.1.0-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "M.1931.Criterion.1080p.BluRay.x264.FLAC.1.0-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "The.400.Blows.1959.Criterion.1080p.BluRay.x264.FLAC.1.0-GROUP"
+    },
+    {
+      "fixture": "movies.json",
+      "input": "Moonlight.2016.2160p.BluRay.x265.HDR10.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Game.of.Thrones.S08E03.The.Long.Night.1080p.BluRay.x264.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Breaking.Bad.S05E16.Felina.2160p.UHD.BluRay.x265.HDR10.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "The.Sopranos.S01E01.Pilot.1080p.BluRay.x264.DTS-HD.MA.5.1-FGT"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "The.Wire.S04E13.Final.Grades.1080p.BluRay.x264.DTS-GROUP"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Chernobyl.S01E05.Vichnaya.Pamyat.2160p.BluRay.REMUX.HDR10.DTS-HD.MA.5.1-EPSiLON"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Band.of.Brothers.S01E01E02.1080p.BluRay.x264.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "The.Office.US.S09E23.Finale.720p.BluRay.x264.AC3-DON"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "True.Detective.S01.1080p.BluRay.x264.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Stranger.Things.S04E09.The.Piggyback.2160p.NF.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "The.Mandalorian.S03E08.2160p.DSNP.WEB-DL.DDP5.1.Atmos.DV.H.265-CMRG"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "House.of.the.Dragon.S01E01-E05.1080p.HMAX.WEB-DL.DDP5.1.H.264-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "The.Last.of.Us.S01E03.Long.Long.Time.2160p.HMAX.WEB-DL.DDP5.1.Atmos.DV.HDR10.H.265-CMRG"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Succession.S04E10.With.Open.Eyes.2160p.HMAX.WEB-DL.DDP5.1.Atmos.H.265-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Ted.Lasso.S03E12.So.Long.Farewell.2160p.ATVP.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Severance.S01E09.The.We.We.Are.2160p.ATVP.WEB-DL.DDP5.1.Atmos.DV.H.265-NOSiViD"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "The.Bear.S02E07.Forks.1080p.HULU.WEB-DL.DDP5.1.H.264-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Yellowjackets.S02E09.Storytelling.1080p.AMZN.WEB-DL.DDP5.1.H.264-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "The.Witcher.S03E01.Shaerrawedd.2160p.NF.WEB-DL.DDP5.1.Atmos.DV.HDR10.H.265-FLUX"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Wednesday.S01E08.A.Murder.of.Woes.2160p.NF.WEB-DL.DDP5.1.Atmos.DV.H.265-CMRG"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Shogun.2024.S01E10.A.Dream.of.a.Dream.2160p.HULU.WEB-DL.DDP5.1.Atmos.DV.H.265-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Fallout.S01E08.The.Beginning.2160p.AMZN.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "The.Boys.S04E08.Season.Finale.2160p.AMZN.WEB-DL.DDP5.1.Atmos.DV.H.265-CMRG"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "The.Daily.Show.2024.01.15.Guest.Name.720p.WEB.h264-GROUP"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Saturday.Night.Live.S49E12.Ayo.Edebiri.1080p.PCOK.WEB-DL.DDP5.1.H.264-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "The.Simpsons.S35E18.720p.DSNP.WEB-DL.DDP5.1.H.264-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Rick.and.Morty.S07E10.Fear.No.Mort.1080p.HMAX.WEB-DL.DD5.1.H.264-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Friends.S01.COMPLETE.1080p.BluRay.x264.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Seinfeld.S09.1080p.NF.WEB-DL.DDP5.1.H.264-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "The.X-Files.S01E01.Pilot.1080p.BluRay.x264.DTS-FGT"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Lost.S06E17E18.The.End.1080p.BluRay.x264.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Twin.Peaks.S03E18.Part.18.1080p.BluRay.x264.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "The.Crown.S06E10.Sleep.Dearie.Sleep.2160p.NF.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Black.Mirror.S06E05.Demon.79.2160p.NF.WEB-DL.DDP5.1.Atmos.DV.H.265-CMRG"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Peaky.Blinders.S06E06.Lock.and.Key.1080p.NF.WEB-DL.DDP5.1.H.264-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Better.Call.Saul.S06E13.Saul.Gone.2160p.AMZN.WEB-DL.DDP5.1.HDR.H.265-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Fargo.S05E10.Bisquik.2160p.HULU.WEB-DL.DDP5.1.DV.H.265-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Mr.Robot.S04E13.Hello.Elliot.1080p.BluRay.x264.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Westworld.S04E08.Que.Sera.Sera.2160p.HMAX.WEB-DL.DDP5.1.Atmos.DV.H.265-CMRG"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "The.Walking.Dead.S11E24.Rest.in.Peace.2160p.AMZN.WEB-DL.DDP5.1.H.265-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Fleabag.S02E06.1080p.AMZN.WEB-DL.DDP5.1.H.264-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Barry.S04E08.wow.2160p.HMAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Dark.S03E08.The.Paradise.1080p.NF.WEB-DL.DDP5.1.H.264-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Ozark.S04E14.A.Hard.Way.to.Go.2160p.NF.WEB-DL.DDP5.1.Atmos.DV.HDR10.H.265-CMRG"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "The.Twilight.Zone.1959.S01E01.Where.Is.Everybody.1080p.BluRay.x264.FLAC.1.0-GROUP"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Doctor.Who.2005.S14E08.Empire.of.Death.2160p.iP.WEB-DL.DDP5.1.Atmos.H.265-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Star.Trek.Strange.New.Worlds.S02E10.Hegemony.2160p.PMTP.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "For.All.Mankind.S04E10.Perestroika.2160p.ATVP.WEB-DL.DDP5.1.Atmos.DV.H.265-CMRG"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "The.Morning.Show.S03E10.The.Overview.Effect.2160p.ATVP.WEB-DL.DDP5.1.Atmos.DV.H.265-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Slow.Horses.S03E06.Cleaning.Up.2160p.ATVP.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "House.1x01.Pilot.720p.HDTV.x264-LOL"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "CSI.Las.Vegas.S15E18.720p.HDTV.x264-DIMENSION"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "How.I.Met.Your.Mother.S09E23E24.Last.Forever.1080p.BluRay.x264.DTS-GROUP"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Parks.and.Recreation.S07E12E13.One.Last.Ride.1080p.BluRay.x264.DTS-FGT"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "30.Rock.S07E12E13.Last.Lunch.720p.BluRay.x264-DEMAND"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Archer.2009.S14E08.Into.the.Cold.1080p.HULU.WEB-DL.DDP5.1.H.264-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Its.Always.Sunny.in.Philadelphia.S16E08.Dennis.Takes.a.Mental.Health.Day.1080p.HULU.WEB-DL.DDP5.1.H.264-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Curb.Your.Enthusiasm.S12E10.No.Lessons.Learned.2160p.HMAX.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Silicon.Valley.S06E07.Exit.Event.2160p.HMAX.WEB-DL.DDP5.1.H.265-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "The.Leftovers.S03E08.The.Book.of.Nora.1080p.BluRay.x264.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Deadwood.S03E12.Tell.Him.Something.Pretty.1080p.BluRay.x264.DTS-HD.MA.5.1-GROUP"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "The.Americans.S06E10.START.1080p.AMZN.WEB-DL.DDP5.1.H.264-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Mad.Men.S07E14.Person.to.Person.1080p.BluRay.x264.DTS-HD.MA.5.1-FGT"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Halt.and.Catch.Fire.S04E10.Ten.of.Swords.1080p.AMZN.WEB-DL.DDP5.1.H.264-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "The.Expanse.S06E06.Babylon.s.Ashes.2160p.AMZN.WEB-DL.DDP5.1.HDR.H.265-NTb"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Foundation.S02E10.Creation.Myths.2160p.ATVP.WEB-DL.DDP5.1.Atmos.DV.H.265-CMRG"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Reacher.S02E08.Fly.Boy.2160p.AMZN.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Invincible.S02E08.I.Thought.You.Were.Stronger.2160p.AMZN.WEB-DL.DDP5.1.Atmos.DV.H.265-CMRG"
+    },
+    {
+      "fixture": "episodes.json",
+      "input": "Arcane.S02E09.The.Dirt.Under.Your.Nails.2160p.NF.WEB-DL.DDP5.1.Atmos.DV.H.265-FLUX"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[SubsPlease] Frieren - Beyond Journey's End - 28 (1080p) [ABCD1234].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[Erai-raws] Jujutsu Kaisen - 47 [1080p][HEVC][Multiple Subtitle] [ENG][POR-BR][SPA-LA][SPA][ARA][FRE][GER][ITA][RUS].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[Judas] Chainsaw Man - S01E12.mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[SubsPlease] Demon Slayer - Kimetsu no Yaiba - 55 (1080p) [12AB34CD].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[Reaktor] Spy x Family - 25 [1080p][HEVC][10bit][Multi-Subs] [1A2B3C4D].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[Judas] Bocchi the Rock! - S01E12v2 [1080p][HEVC x265 10bit][Opus][Eng-Subs].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[Tsundere-Raws] Oshi no Ko - 11 [BD][1920x1080][HEVC 10bit FLAC][Multilang].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[CBM] My Hero Academia - 138 [1080p][HEVC][10-bit][Dual Audio].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[HorribleSubs] One Piece - 1100 [1080p].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[Erai-raws] Bleach - Sennen Kessen-hen - Ketsubetsu-tan - 26 [1080p][Multiple Subtitle].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[EMBER] Mushoku Tensei II - Isekai Ittara Honki Dasu - 25 [1080p] [HEVC WEBRip] (Mushoku Tensei - Jobless Reincarnation S2) [ECC8F920].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[ASW] Solo Leveling - 12 [1080p HEVC x265 10Bit][AAC] [A1B2C3D4].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[Golumpa] Dragon Ball DAIMA - 01 [WEB x264 1080p EAC3] [Dual Audio].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[Kametsu] Neon Genesis Evangelion - 26 [BD 1080p Hi10P FLAC Dual Audio] [CRC32123].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[Beatrice-Raws] Made in Abyss - 13 [BDRip 1920x1080 x264 FLAC].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[GJM-Mezashite] BOCCHI THE ROCK! - 12v2 [BD][1080p][HEVC x265 10bit][AAC][Dual Audio] [F9E8D7C6].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[Judas] Kaguya-sama wa Kokurasetai - Ultra Romantic - S03E13 [1080p][HEVC x265 10bit][Multi-Subs].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[MTBB] Cyberpunk Edgerunners - 10 [BD][1080p][HEVC x265 10bit][Dual Audio][5.1ch].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[SubsPlease] The Apothecary Diaries - 24 (1080p) [CAFE0123].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[Erai-raws] Sousou no Frieren - 28 [v2][1080p][HEVC][Multiple Subtitle].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[Judas] Mob Psycho 100 III - S03E12 [1080p][HEVC x265 10bit][AAC][Eng-Subs] [12345678].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[ToonsHub] Naruto Shippuuden - 500 [BD 1080p][HEVC x265 10bit][Dual Audio][AC3] [AABBCCDD].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[LostYears] Steins;Gate - 24 [BD 1080p x264 FLAC] [1234ABCD].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[Reaktor] Fullmetal Alchemist Brotherhood - 64 [1080p][HEVC][10-bit][Dual Audio][Multi-Subs] [DEADF00D].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[Kametsu] Cowboy Bebop - 26 [BD 1080p Hi10P DTS-HD MA] [BEBOP123].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[CBM] Death Note - 37 [720p][x264][AAC][Dual Audio].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[Tenrai-Sensei] Code Geass - R2 - 25 [BD][1080p][HEVC x265 10bit][Dual Audio][FLAC].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[SubsPlease] Dandadan - 12 (1080p) [7788AABB].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[Erai-raws] Blue Lock - 24 [v3][1080p][HEVC][Multiple Subtitle].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[SSA] Dungeon Meshi - 24 [HEVC 1080p] [Eng Subs] [5566CCDD].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[YuiSubs] Kaiju No. 8 - 12 [1080p x265 10bit AC3][Multi-Subs] [EEEE1111].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[Judas] Ousama Ranking - S01E23v2 [1080p][HEVC x265 10bit][AAC] [2222FFFF].mkv"
+    },
+    {
+      "fixture": "anime.json",
+      "input": "[Commie] Hunter x Hunter (2011) - 148 [BD 1080p HEVC FLAC] [ABCD5678].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.With.Title.S02E15"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.and.a.Title.103.720p.HDTV.X264-DIMENSION"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.and.a.Title.113.720p.HDTV.X264-DIMENSION"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.and.a.Title.1013.720p.HDTV.X264-DIMENSION"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.4x05.HDTV.XviD-LOL"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.S03E06.DVDRip.XviD-WiDE"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.S10E27.WS.DSR.XviD-2HD"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.2010.S02E14.HDTV.XviD-LOL"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title 0 S01E19 720p WEB DL DD5 1 H 264 NT"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The Series Title S01E14 A Message Back 720p WEB DL DD5 1 H264 SURFER"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title S01E07 WS PDTV XviD FUtV"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.S03E19.DVDRip.XviD-OSiTV"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "S03E09 WS PDTV XviD FUtV"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "5x10 WS PDTV XviD FUtV"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.2009.S01E14.HDTV.XviD-LOL"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.1995.S03E20.HDTV.XviD-LOL"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.S03E115.DVDRip.XviD-OSiTV"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - S02E21 - 94 Meetings - 720p TV.mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "24-7 Series - Title - Road to the Sonarr - S01E03 - Episode 3.mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.Inc.S03E19.DVDRip.\"XviD\"-OSiTV"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - S06E13 - 5 to 9 [DVD]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - S02E21 - 18-5-4"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.S01E07.21.0.Jump.Street.720p.WEB-DL.DD5.1.h.264-KiNGS"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.525"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - 10x12 - 24 Hour Propane People [SDTV]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title S01E06 3 Beers For Batali DVDRip XviD SPRiNTER"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "24 7 Series-Title - Road to the Sonarr Part01 720p HDTV x264 ORENJI"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "24 7 Series-Title - Road to the Sonarr Part 02 720p HDTV x264 ORENJI"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "S6E02-Unwrapped-(Playing With Food) - [DarkData]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "S06E03-Unwrapped-(Number Ones Unwrapped) - [DarkData]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title S02E21 18 5 4 720p WEB DL DD5 1 h 264 EbP"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "01x04 - Halloween, Part 1 - 720p WEB-DL"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "series.s03.e05.ws.dvdrip.xvid-m00tv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "series.2009.416.hdtv-lol"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "series.six-0.2010.217.hdtv-lol"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - S1936E18 - I Love to Singa"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series_Title!_-_7x6_-_The_Scarlett_Getter_[SDTV]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series_Title_-_1x1_-_Live_and_Learn_[HDTV-720p]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Top Series - 07x03 - 2005.11.70"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.S04E09.Swan.Song.1080p.WEB-DL.DD5.1.H.264-ECI"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "S08E20 50-50 Carla [DVD]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series S08E20 50-50 Carla [DVD]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "S02E10 6-50 to SLC [SDTV]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Developers & Coders S02E10 6-50 to SLC [SDTV]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The_Big_Series_Title_-_6x12_-_The_Code_Review_Equivalency_[HDTV-720p]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series_Title.19x06.720p_HDTV_x264-FoV"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.S03E10.Alexandra.720p.WEB-DL.AAC2.0.H.264-CROM.mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Hunters.Galatic.S05E607.720p.hdtv.x264"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Time.With.Dev1.And.Dev2.S01E20.720p.BluRay.x264-DEiMOS"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.S01E04.2-45.PM.[HDTV-720p].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "S01E04"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "1x04"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "10.Lines.You.Know.About.Code.S02E04.Prohibition.HDTV.XviD-AFG"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "30 Series - S01E01 - Pilot.avi"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "666 Series Title - S01E01"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series 13 - S01E01"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Don't Ever Trust The B---- in Code 23.S01E01"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Warehouse.13.S01E01"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Never.Trust.The.B----.in.Code.23.S01E01"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "42 S01E01"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "69.S01E01"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series - 2x12 - The Choice [HDTV-1080p].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series - 2x4 - New Car Smell [HDTV-1080p].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Top Series - 06x11 - 2005.08.07"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The_Series_US_s06e19_04.28.2014_hdtv.x264.Poke.mp4"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "the.Series.110.hdtv-lol"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "2009x09 [SDTV].avi"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "S2009E09 [SDTV].avi"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Week S2009E09 [SDTV].avi"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Impatience] Series - 0x01 [720p][34073169].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.S15.E06.City.Sushi"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - S15 E06 - City Code"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series S1-E1-WEB-DL-1080p-NZBgeek"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series S1E1-WEB-DL-1080p-NZBgeek"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.S010E16.720p.HDTV.X264-DIMENSION"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[ www.Torrenting.com ] - Series.2012.S02E17.720p.HDTV.X264-DIMENSION"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.2012.S02E18.720p.HDTV.X264-DIMENSION.mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series - Season 1 - Episode 01 (Resolution).avi"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "5x09 - 100 [720p WEB-DL].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "1x03 - 274 [1080p BluRay].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "1x03 - The 112th Congress [1080p BluRay].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.2012.S02E14.720p.HDTV.X264-DIMENSION [PublicHD].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.2009.S06E03.720p.HDTV.X264-DIMENSION [PublicHD].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series - S01E09 - Debate 109"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series - S02E02 - My Maserati Does 185"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "6x13 - The Series Show 100th Episode Special"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The Series And the Show - S41 E10478 - 2014-08-15"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The Series And the Show - S42 E10591 - 2015-01-27"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title [1x05] Episode Title"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title [S01E05] Episode Title"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title Season 01 Episode 05 720p"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The Series And the Show - S42 E10713 - 2015-07-20.mp4"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.103.hdtv-lol[ettv].mp4"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series - 01x02 - The Rooster Prince - [itz_theo]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "grp-zoo-s01e11-1080p"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series!.S2016E14.2016-01-20.avi"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "John.Smith.The.Series.Title.5of9.The.Universe.Of.Development.1990.DVDRip.x264-HANDJOB"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Judge Developer 2016 02 25 S20E142"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Judge Developer 2016 02 25 S20E143"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Red Show - S02 - E06 - Parallel Series"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The.100000.Series.Title.2016.S01E05.720p.HDTV.x264-W4F"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series S01E02 (22 October 2016) HDTV 720p [Webrip]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series - S2016E231"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series - 2016x231"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Short.Series.S26E022.HDTV.x264-FiHTV"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Super.Series.S01.Ep06.1080p.BluRay.DTS.x264-MiR"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The Series - S01E02 - Earth Skills HDTV-1080p AVC DTS [EN+FR+ES+PT+DA+FI+NB+SV]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - S01E01 - Day 100 [SDTV]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.S01.Ep01.English.AC3.DL.1080p.BluRay-Sonarr"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.S01.E01.English.AC3.DL.1080p.BluRay-Sonarr"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - S01E01 [AC3 5.1 Castellano][www.descargas2020.org]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - [02x01] - Episode 1"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.Of.S01E01.xyz"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[RlsGrp] Series Title - S01E27 - 24-Hour"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Anime Title - S2010E994 [0994] [2010-02-28] - Episode Title [x264 720p][AAC 2ch][HS][Shion+GakiDave]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title 1x1"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "1x1"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Anime Chap] Anime Title! S01E09 [WEB 1080p] {OP & ED Lyrics} - Episode 9 (The Eminence in Shadow)"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "SeriesTitle-S16E08-10426008-0.mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series-S07E12-31st_Century_Fox-[Bluray-1080p].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "TheTitle-S12E13-3_Acts_of_God.mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title [HDTV][Cap.104](website.com).avi"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title [HDTV][Cap.402](website.com).avi"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title [HDTV 720p][Cap.101](website.com).mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Titles.s06e01.1999.BDRip.1080p.Ukr.Eng.AC3.Hurtom.TNU.Tenax555"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[ReleaseGroup] SeriesTitle S01E1 Webdl 1080p"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[SubsPlus+] Series no Chill - S02E01 (NF WEB 1080p AVC AAC)"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[SubsPlus+] Series no Chill - S02E01v2 (NF WEB 1080p AVC AAC)"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series [HDTV 1080p][Cap.101](wolfmax4k.com)"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series [HDTV 1080p][Cap. 101](wolfmax4k.com).mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.S03E01-06.DUAL.BDRip.XviD.AC3.-HELLYWOOD"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.S03E01.S03E02.720p.HDTV.X264-DIMENSION"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.2x04.2x05.720p.BluRay-FUTV"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.S07E22E23.720p.HDTV.X264-DIMENSION"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - S07E22 - S07E23 - And Lots of Security.. [HDTV-720p].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "S03E01.S03E02.720p.HDTV.X264-DIMENSION"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "S02E04E05.720p.BluRay-FUTV"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Kings.S02E09-E10.HDTV.x264-ASAP"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Kings - 2x9-2x10 - Served Code [SDTV]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Kings - 2x09-2x10 - Served Code [SDTV]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Hell.on.Series.S02E09-E10.720p.HDTV.x264-EVOLVE"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.S01E91-E100"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.S29E161-E165.PDTV.x264-FQM"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "World Series of Sonarr - 2010x15 - 2010x16 - HD TV.mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The Series US S01E01-E02 720p HDTV x264"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.S01E02E03.1080p.BluRay.x264-DeBTViD"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "grp-zoo-s01e11e12-1080p"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title.S6E1-E2.Episode Name.1080p.WEB-DL"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title.S6E1-S6E2.Episode Name.1080p.WEB-DL"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title.S6E1E2.Episode Name.1080p.WEB-DL"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title.S6.E1-S6E2.Episode Name.1080p.WEB-DL"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.S05E01-E02.720p.5.1Ch.BluRay"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.S05E01-02.720p.5.1Ch.BluRay"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "S01E01-E03 - Episode Title.HDTV-720p"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[AqusiQ-TorrentS.pl]The.Name.of.the.Series.S01E05-06.PL.2160p-Ralf[shogho]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[AgusiQ-TorrentS.pl] The.Name.of.the.Series.S01E05-E06.PL.1080i.Ralf [jans12]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The.Name.of.the.Series.S01E05-6.PL.1080p.WEBRip.x264-666"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - S15E06-07 - City Sushi HDTV-720p"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[HorribleSubs]_Some_Anime_Show_-_145_[720p]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[HorribleSubs] Some Anime Show - 13 [1080p].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[K-F] Some Anime Show 214"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[K-F] Some Anime Show S10E14 214"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[K-F] Some Anime Show 10x14 214"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Some Anime Show - 031 - The Resolution to Kill [Lunar].avi"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Underwater-FFF] No Series Title No Life - 01 (720p) [27AAA0A0].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[FroZen] Series Title - 23 [DVD][7F6170E6]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Commie] Series Title - 32 [0BA19D5B]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Doki]Series Title - 07 (1280x720 Hi10P AAC) [80AF7DDE]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[HorribleSubs] Series Title - 32 [480p]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[CR] Series Title - 004 [480p][48CE2D0F]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[HorribleSubs] Series Title - 32 [1080p]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[DeadFish] Series Title - 09v2 [720p][AAC]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Underwater-FFF] Series Title - 01 (720p) [27AAA0A0]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[S-T-D] Series Title! - 06 (1280x720 10bit AAC) [59B3F2EA].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - 010 (720p) [27AAA0A0].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Initial_Series_Title - 01 DVD - Central Anime"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Initial_Series_Title - 03 DVD - Central Anime"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Initial_Series_Title - 14 DVD - Central Anime"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - 001 - Fairy Tail"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - 049 - The Day of Fated Meeting"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - 050 - Special Request Watch Out for the Guy You Like!"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - 099 - Natsu vs. Gildarts"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - 100 - Mest"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Exiled-Destiny] Series Title Ep01 (D2201EC5).mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Commie] Series Title - 23 [5396CA24].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[FFF] Series Title - 01 [1FB538B5].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Hatsuyuki]Series_Title-01[1280x720][122E6EF8]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[HorribleSubs] Series Title 2 - 05 [720p].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Commie] Series Title 2 - 05 [FCE4D070].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[RlsGrp]Series.Title.2010.S01E01.001.HDTV-720p.x264-DTS"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - 130 - Found You, Gohan! Harsh Training in the Kaioshin Realm! [Baaro][720p][5A1AD35B].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - 131 - A Merged Super-Warrior Is Born, His Name Is Gotenks!! [Baaro][720p][32E03F96].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[HorribleSubs] Series Title - 01 [1080p]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Jumonji-Giri]_[F-B]_Series_Title_Ep04_(0b0e2c10).mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Jumonji-Giri]_[F-B]_Series_Title_Ep08_(8246e542).mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Knights Series Title - 01 [1080p 10b DTSHD-MA eng sub].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[HorribleSubs] Series Title - 20 [720p].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[HorribleSubs] Series Title 21 - 101 [480p].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Cthuyuu] Series Title - 03 [720p H264 AAC][8AD82C3A]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title Episode 56 [VOSTFR V2][720p][AAC]-Mystic Z-Team"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Mystic Z-Team] Series Title Episode 69 [VOSTFR_Finale][1080p][AAC].mp4"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Shark-Raws] Series Title #957 (NBN 1280x720 x264 AAC).mp4"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title EP06 720p x265 AOZ.mp4"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "To Another Series III - Episode 5 VOSTFR (1080p)"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Prout] Show;Title 0 - Episode 5 VOSTFR (BDRip 1920x1080 x264 FLAC)"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Abc - Abc Abc Abc - 107 VOSTFR par Fansub-Miracle Sharingan (1920x1080) - HQ_Draft"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Abc Abc Abc Abc Episode 10 VOSTFR (1920x1080) Miracle Sharingan Fansub.MKV - Team - (a suivre)"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Glenn] Series! 3 - 11 (1080p AAC)[C34B2B3B].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[HorribleSubs] Series 100 - 07 [1080p].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Cheetah-Raws] Super Long Anime - 1000 (YTV 1280x720 x264 AAC)"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[DameDesuYo] Another Anime With Special Naming (Season 2) - 33 (1280x720 10bit EAC3) [42A12A76].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[BakeSubs] 86 - 01 [1080p][D40A9E55].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Anime Title the Final - 09 (2021) [SubsPlease] [WEBRip] [HD 1080p]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[CameEsp] Another Anime 100 - Another 100 Anime - 01 [720p][ESP-ENG][mkv]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[SubsPlease] Another Anime 100 - Another 100 Anime - 01 (1080p) [4E6B4518].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Exclusive BLM Documentary with no false positives EP03.1080p.AAC.x264"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Naruto-Kun.Hu] Series Title - 12 [1080p].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Naruto-Kun.Hu] Anime Triangle - 08 [1080p].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Mystic Z-Team] Series Title Super - Episode 013 VF - Non-censure [720p].mp4"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series_Title_2_[01]_[AniLibria_TV]_[WEBRip_1080p]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[SubsPlease] Series Title 100 Years Quest - 01 (1080p) [1107F3A9].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Dae-P9] Anime Series - 05 - S01E05 - Marrying by Contesting (BD 1080p HEVC FLAC AAC) [Dual Audio] [5BCD56B8]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Kaleido-subs] Animation - 12 (S01E12) - (WEB 1080p HEVC x265 10-bit E-AC3 2.0) [1ADD8F6D]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.Ep01-12.Complete.English.AC3.DL.1080p.BluRay.x264"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Judas] Some Anime Show - 091-123 [1080p][HEVC x265 10bit][Dual-Audio][Multi-Subs]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Erai-raws] Series Title! - 01~10 [1080p][Multiple Subtitle]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Erai-raws] Series-Title! 2 - 01~10 [1080p][Multiple Subtitle]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Erai-raws] Series Title! - 01 ~ 10 [1080p][Multiple Subtitle]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Erai-raws] Series-Title! 2 - 01 ~ 10 [1080p][Multiple Subtitle]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series_Title_2_[01-05]_[AniLibria_TV]_[WEBRip_1080p]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title 2011 04 18 Emma Roberts HDTV XviD BFF"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "A Late Talk Show 2011 04 15 1080i HDTV DD5 1 MPEG2 TrollHD"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "A.Late.Talk.Show.2010.10.11.Johnny.Knoxville.iTouch-MW"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "A Late Talk Show - 2011-04-12 - Gov. Deval Patrick"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "2011.01.10 - A Late Talk Show- HD TV.mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "2011.03.13 - A Late Talk Show - HD TV.mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "A Late Talk Show - 2011-06-16 - Larry David, \"Bachelorette\" Ashley Hebert, Pitbull with Ne-Yo"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "2020.A.Late.Talk.Show.2012.16.02.PDTV.XviD-C4TV"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "2020.A.Late.Talk.Show.2012.13.02.PDTV.XviD-C4TV"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "2020.A.Late.Talk.Show.2011.12.02.PDTV.XviD-C4TV"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - 2013-10-30 - Episode Title (1) [HDTV-720p]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The Show Series 2015 02 09 WEBRIP s01e13"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Tree_Series_2018_06_22_Seth_Meyers_720p_HEVC_x265-MeGusta"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "2018-11-14.1080.all.mp4"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "2019_08_20_1080_all.mp4"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - 30-04-2024 HDTV 1080p H264 AAC"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "S07E23 .avi"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The.Series.S01E13.x264-CtrlSD"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The Series S02E01 HDTV XviD 2HD"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The Series S05E11 PROPER HDTV XviD 2HD"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The.Series.2011.S02E01.WS.PDTV.x264-TLA"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The.Series.S01E13.NTSC.x264-CtrlSD"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The.Series.S03E06.DVDRip.XviD-WiDE"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "the.Series.1x13.circles.ws.xvidvd-tns"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[FroZen] Series - 23 [DVD][7F6170E6]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The.Series.S01E10.The.Leviathan.480p.WEB-DL.x264-mSD"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The.Series.S04E10.Glee.Actually.480p.WEB-DL.x264-mSD"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The.Series.S02E10.480p.HULU.WEBRip.x264-Puffin"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "SERIES.S03E01-06.DUAL.XviD.Bluray.AC3-REPACK.-HELLYWOOD.avi"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The.Series.S01E05.480p.BluRay.DD5.1.x264-HiSD"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The.Series.S01E05.576p.BluRay.DD5.1.x264-HiSD"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series - S01E01 - Title [HDTV]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series - S01E01 - Title [HDTV-720p]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The Series S04E87 REPACK 720p HDTV x264 aAF"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The.Series.S08E05.720p.HDTV.X264-DIMENSION"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[Underwater-FFF] The Series - 01 (720p) [27AAA0A0]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[HorribleSubs]_Series_Title_-_145_[720p]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Under the Series S01E10 Let the Sonarr Begin 1080p"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.S07E01.ARE.YOU.1080P.HDTV.X264-QCF"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series - S01E01 - Title [HDTV-1080p]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[HorribleSubs] Series Title - 32 [1080p]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "My Title - S01E01 - EpTitle [HEVC 4k DTSHD-MA-6ch]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "My Title - S01E01 - EpTitle [4k HEVC DTSHD-MA-6ch]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series S01E04 Mexicos Death Train 720p WEB DL"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The.Series.S02E15.720p.WEB-DL.DD5.1.H.264-SURFER"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "S07E23 - [WEBDL].mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.S04.720p.Web-Dl.Dd5.1.h264-P2PACK"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.S04E01.720p.WEBRip.AAC2.0.x264-NFRiP"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.S01E07.A.Prayer.For.Mad.Sweeney.720p.AMZN.WEBRip.DD5.1.x264-NTb"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series S09E03 1080p WEB DL DD5 1 H264 NFHD"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.S08E01.1080p.WEB-DL.DD5.1.H264-NFHD"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Its.Always.Sonarrs.Fault.S08E01.1080p.WEB-DL.proper.AAC2.0.H.264"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.S04E01.iNTERNAL.1080p.WEBRip.x264-QRUS"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.2016.03.14.2160p.WEB.x264-spamTV"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "House.of.Sonarr.AK.s05e13.4K.UHD.WEB.DL"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series S01E01.2160P AMZN WEBRIP DD2.0 HI10P X264-TROLLUHD"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The.Man.In.The.Series.S01E01.2160p.AMZN.WEBRip.DD2.0.Hi10p.X264-TrollUHD"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "SERIES.S03E01-06.DUAL.Bluray.AC3.-HELLYWOOD.avi"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series - S01E03 - Come Fly With Me - 720p BluRay.mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[FFF] DATE A Sonarr Dev - 01 [BD][720p-AAC][0601BED4]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series - S01E03 - Come Fly With Me - 1080p BluRay.mkv"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Sonarr.Of.Series.S02E13.1080p.BluRay.x264-AVCDVD"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[FFF] Series no Muromi-san - 10 [BD][1080p-FLAC][0C4091AF]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series!!! on ICE - S01E12[JP BD Remux][ENG subs]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.S01E08.The.Well.BluRay.1080p.AVC.DTS-HD.MA.5.1.REMUX-FraMeSToR"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.US.s05e13.4K.UHD.Bluray"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[DameDesuYo] Series Bundle - Part 1 (BD 4K 8bit FLAC)"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series!!! on ICE - S01E12[JP BD 2160p Remux][ENG subs]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.Title.S01E08.The.Sonarr.BluRay.2160p.AVC.DTS-HD.MA.5.1.REMUX-FraMeSToR"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "POI S02E11 1080i HDTV DD5.1 MPEG2-TrollHD"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The Series S01E11 The Finals 1080i HDTV DD5.1 MPEG2-TrollHD"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Show - S03E01 - Episode Title Raw-HD.ts"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title - 4x05 - Title"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series & Title - 4x05 - Title"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Mad Series - Season 1 [Bluray720p]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The Daily Series -"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "The Series Bros. (2006)"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series (2011)"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Time S02 720p HDTV x264 CRON"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series Title 0"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series of the Day"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series of the Day 2"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "[ www.Torrenting.com ] - Series.S03E14.720p.HDTV.X264-DIMENSION"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "www.Torrenting.com - Series.S03E14.720p.HDTV.X264-DIMENSION"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series S02E09 HDTV x264-2HD [eztv]-[rarbg.com]"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.911.S01.DVDRip.DD2.0.x264-DEEP"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series S03E14 720p HDTV X264-DIMENSION"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series.S03E14.720p.HDTV.X264-DIMENSION"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series-S03E14-720p-HDTV-X264-DIMENSION"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series_S03E14_720p_HDTV_X264-DIMENSION"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "Series (2022) S03E14 720p HDTV X264-DIMENSION"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "1234 S03E14 720p HDTV X264-DIMENSION"
+    },
+    {
+      "fixture": "sonarr_cases.json",
+      "input": "1234 (2022) S03E14 720p HDTV X264-DIMENSION"
+    }
+  ]
+}

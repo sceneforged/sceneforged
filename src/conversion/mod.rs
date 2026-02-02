@@ -1,0 +1,20 @@
+//! Media conversion module.
+//!
+//! This module handles transcoding source files to Profile B universal format
+//! for HLS streaming. It includes:
+//!
+//! - Job queue management
+//! - FFmpeg-based transcoding with hardware acceleration support
+//! - Profile B compliance verification
+//!
+//! # Profile B Specification
+//!
+//! Profile B (universal) files must meet these requirements:
+//! - Container: MP4 with faststart (moov before mdat)
+//! - Video: H.264 High profile, ≤1920x1080
+//! - Audio: AAC stereo
+//! - Keyframes: Every 2 seconds for HLS segment alignment
+
+mod executor;
+
+pub use executor::{ConversionExecutor, ProfileBSettings};

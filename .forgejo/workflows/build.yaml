@@ -1,0 +1,28 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: docker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        run: |
+          docker build -t localhost:5000/sceneforged:latest .
+          docker tag localhost:5000/sceneforged:latest localhost:5000/sceneforged:${{ github.sha }}
+
+      - name: Push to Registry
+        run: |
+          docker push localhost:5000/sceneforged:latest
+          docker push localhost:5000/sceneforged:${{ github.sha }}
+
+      - name: Deploy
+        run: |
+          docker compose -f /opt/stacks/sceneforged/compose.yaml pull
+          docker compose -f /opt/stacks/sceneforged/compose.yaml up -d --force-recreate

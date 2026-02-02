@@ -1,0 +1,51 @@
+[package]
+name = "sceneforged-parser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version = "1.80"
+description = "A fast, comprehensive parser for media release names"
+keywords = ["media", "parser", "release-name", "torrent"]
+categories = ["parsing", "multimedia"]
+
+[dependencies]
+winnow = "0.6"
+logos = "0.14"
+
+[dependencies.phf]
+version = "0.11"
+features = ["macros"]
+
+[dependencies.serde]
+version = "1"
+features = ["derive"]
+optional = true
+
+[dependencies.chrono]
+version = "0.4"
+optional = true
+
+[dependencies.wasm-bindgen]
+version = "0.2"
+optional = true
+
+[dependencies.serde-wasm-bindgen]
+version = "0.6"
+optional = true
+
+[dev-dependencies]
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+criterion = { version = "0.5", features = ["html_reports"] }
+chrono = "0.4"
+
+[[bench]]
+name = "parser_benchmark"
+harness = false
+
+[features]
+default = []
+serde = ["dep:serde", "chrono?/serde"]
+chrono = ["dep:chrono"]
+wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "serde"]

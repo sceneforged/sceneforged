@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+/* shadcn-svelte theme variables (zinc-based) */
+@layer base {
+  :root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0.017 285.938);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0.017 285.938);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0.017 285.938);
+    --primary: oklch(0.205 0.014 285.938);
+    --primary-foreground: oklch(0.985 0.001 285.938);
+    --secondary: oklch(0.967 0.003 285.938);
+    --secondary-foreground: oklch(0.205 0.014 285.938);
+    --muted: oklch(0.967 0.003 285.938);
+    --muted-foreground: oklch(0.553 0.018 285.938);
+    --accent: oklch(0.967 0.003 285.938);
+    --accent-foreground: oklch(0.205 0.014 285.938);
+    --destructive: oklch(0.588 0.213 29.234);
+    --destructive-foreground: oklch(0.985 0.001 285.938);
+    --border: oklch(0.92 0.004 285.938);
+    --input: oklch(0.92 0.004 285.938);
+    --ring: oklch(0.708 0.015 285.938);
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: oklch(0.145 0.017 285.938);
+    --foreground: oklch(0.985 0.001 285.938);
+    --card: oklch(0.145 0.017 285.938);
+    --card-foreground: oklch(0.985 0.001 285.938);
+    --popover: oklch(0.145 0.017 285.938);
+    --popover-foreground: oklch(0.985 0.001 285.938);
+    --primary: oklch(0.985 0.001 285.938);
+    --primary-foreground: oklch(0.205 0.014 285.938);
+    --secondary: oklch(0.269 0.015 285.938);
+    --secondary-foreground: oklch(0.985 0.001 285.938);
+    --muted: oklch(0.269 0.015 285.938);
+    --muted-foreground: oklch(0.708 0.015 285.938);
+    --accent: oklch(0.269 0.015 285.938);
+    --accent-foreground: oklch(0.985 0.001 285.938);
+    --destructive: oklch(0.588 0.213 29.234);
+    --destructive-foreground: oklch(0.985 0.001 285.938);
+    --border: oklch(0.269 0.015 285.938);
+    --input: oklch(0.269 0.015 285.938);
+    --ring: oklch(0.708 0.015 285.938);
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+}

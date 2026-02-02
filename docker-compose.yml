@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  sceneforged:
+    build: .
+    container_name: sceneforged
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.toml:/config/config.toml:ro
+      - ./data:/data
+      - /path/to/media:/media:rw
+    environment:
+      - RUST_LOG=info
+    restart: unless-stopped
+
+# Example with Radarr/Sonarr
+# services:
+#   sceneforged:
+#     ...
+#   radarr:
+#     image: lscr.io/linuxserver/radarr:latest
+#     ...
+#   sonarr:
+#     image: lscr.io/linuxserver/sonarr:latest
+#     ...
