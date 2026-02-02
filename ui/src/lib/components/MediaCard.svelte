@@ -12,9 +12,10 @@
     playbackPosition?: number | null;
     played?: boolean;
     libraryId?: string;
+    adminMode?: boolean;
   }
 
-  let { item, onclick, playbackPosition, played, libraryId }: Props = $props();
+  let { item, onclick, playbackPosition, played, libraryId, adminMode = false }: Props = $props();
 
   // Determine if item is web-playable using profile_b flag
   const isWebPlayable = $derived(item.has_profile_b);
@@ -22,10 +23,12 @@
   // Resolve library ID from prop or item
   const resolvedLibraryId = $derived(libraryId ?? item.library_id);
 
-  // Handle poster click - navigate to play page (only if web-playable)
+  // Handle poster click - navigate to play page (only if web-playable) or admin/detail page
   function handlePosterClick(e: MouseEvent) {
     e.stopPropagation();
-    if (isWebPlayable) {
+    if (adminMode) {
+      goto(`/admin/item/${item.id}`);
+    } else if (isWebPlayable) {
       goto(`/play/${item.id}`);
     } else {
       // Navigate to detail page instead when no web-playable version
@@ -33,10 +36,14 @@
     }
   }
 
-  // Handle title click - navigate to browse/details page
+  // Handle title click - navigate to browse/details page or admin page
   function handleTitleClick(e: MouseEvent) {
     e.stopPropagation();
-    goto(`/browse/${resolvedLibraryId}/${item.id}`);
+    if (adminMode) {
+      goto(`/admin/item/${item.id}`);
+    } else {
+      goto(`/browse/${resolvedLibraryId}/${item.id}`);
+    }
   }
 
   // Derive profile badge from item flags

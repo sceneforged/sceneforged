@@ -366,6 +366,7 @@
           <MediaCard
             {item}
             {libraryId}
+            adminMode={true}
           />
         </div>
       {/each}
