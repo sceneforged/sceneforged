@@ -1,6 +1,6 @@
 //! Configuration management API routes.
 
-use crate::config::{persist, ArrConfig, ArrType, JellyfinConfig, MatchConditions, Rule};
+use crate::config::{persist, ArrConfig, ArrType, ConversionConfig, JellyfinConfig, MatchConditions, Rule};
 use crate::server::AppContext;
 use axum::{
     extract::{Path, Query, State},
@@ -32,6 +32,9 @@ pub fn config_routes() -> Router<AppContext> {
         .route("/config/jellyfins/:name", get(get_jellyfin))
         .route("/config/jellyfins/:name", put(update_jellyfin))
         .route("/config/jellyfins/:name", delete(delete_jellyfin))
+        // Conversion config
+        .route("/config/conversion", get(get_conversion_config))
+        .route("/config/conversion", put(update_conversion_config))
         // Config operations
         .route("/config/reload", post(reload_config))
         .route("/config/validate", post(validate_config))
@@ -625,6 +628,10 @@ async fn reload_config(
         let mut jellyfins = ctx.jellyfins.write();
         *jellyfins = config.jellyfins;
     }
+    {
+        let mut conversion = ctx.conversion_config.write();
+        *conversion = config.conversion;
+    }
 
     Ok(Json(serde_json::json!({
         "status": "reloaded",
@@ -727,6 +734,55 @@ async fn validate_config(Json(req): Json<ValidateRequest>) -> impl IntoResponse 
         valid: errors.is_empty(),
         errors,
     })
+}
+
+// ============================================================================
+// Conversion Config
+// ============================================================================
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ConversionConfigResponse {
+    pub auto_convert_dv_p7_to_p8: bool,
+}
+
+impl From<&ConversionConfig> for ConversionConfigResponse {
+    fn from(c: &ConversionConfig) -> Self {
+        Self {
+            auto_convert_dv_p7_to_p8: c.auto_convert_dv_p7_to_p8,
+        }
+    }
+}
+
+async fn get_conversion_config(State(ctx): State<AppContext>) -> impl IntoResponse {
+    let conversion = ctx.conversion_config.read();
+    Json(ConversionConfigResponse::from(&*conversion))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateConversionConfigRequest {
+    pub auto_convert_dv_p7_to_p8: bool,
+}
+
+async fn update_conversion_config(
+    State(ctx): State<AppContext>,
+    Json(req): Json<UpdateConversionConfigRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    {
+        let mut conversion = ctx.conversion_config.write();
+        conversion.auto_convert_dv_p7_to_p8 = req.auto_convert_dv_p7_to_p8;
+    }
+
+    // Persist to file
+    if let Some(ref path) = ctx.config_path {
+        let conversion = ctx.conversion_config.read();
+        if let Err(e) = persist::update_conversion(path, &conversion) {
+            tracing::error!("Failed to persist conversion config: {}", e);
+        }
+    }
+
+    Ok(Json(ConversionConfigResponse {
+        auto_convert_dv_p7_to_p8: req.auto_convert_dv_p7_to_p8,
+    }))
 }
 
 // ============================================================================

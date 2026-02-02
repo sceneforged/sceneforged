@@ -20,6 +20,9 @@ pub struct Config {
 
     #[serde(default)]
     pub tools: ToolsConfig,
+
+    #[serde(default)]
+    pub conversion: ConversionConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -294,6 +297,13 @@ pub enum Action {
         #[serde(default)]
         args: Vec<String>,
     },
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ConversionConfig {
+    /// Auto-convert DV Profile 7 files to Profile 8 on import
+    #[serde(default)]
+    pub auto_convert_dv_p7_to_p8: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]

@@ -49,6 +49,8 @@
     createLibrary,
     deleteLibrary,
     scanLibrary,
+    getConversionConfig,
+    updateConversionConfig,
     type ArrConfigResponse,
     type JellyfinConfigResponse,
     type CreateLibraryRequest,
@@ -108,6 +110,12 @@
   let deletingLibrary = $state<string | null>(null);
   let scanningLibrary = $state<string | null>(null);
 
+  // Conversion settings state
+  let conversionSettings = $state<{ auto_convert_dv_p7_to_p8: boolean }>({
+    auto_convert_dv_p7_to_p8: false,
+  });
+  let loadingConversion = $state(false);
+
   async function loadData() {
     loading = true;
     error = null;
@@ -124,10 +132,30 @@
       arrs = arrsData;
       jellyfins = jellyfinsData;
       health = healthData;
+      // Load conversion settings separately (non-blocking)
+      loadConversionSettings();
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load settings';
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadConversionSettings() {
+    try {
+      const config = await getConversionConfig();
+      conversionSettings = config;
+    } catch (e) {
+      console.error('Failed to load conversion settings:', e);
+    }
+  }
+
+  async function handleConversionSettingChange() {
+    try {
+      await updateConversionConfig(conversionSettings);
+      toast.success('Conversion settings updated');
+    } catch (e) {
+      toast.error('Failed to update conversion settings');
     }
   }
 
@@ -781,6 +809,36 @@
           {/each}
         </div>
       {/if}
+    </CardContent>
+  </Card>
+
+  <!-- Conversion Settings -->
+  <Card>
+    <CardHeader>
+      <CardTitle class="flex items-center gap-2">
+        <RefreshCw class="h-5 w-5" />
+        Conversion Settings
+      </CardTitle>
+      <CardDescription>Configure automatic media conversion</CardDescription>
+    </CardHeader>
+    <CardContent>
+      <div class="space-y-4">
+        <label class="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            bind:checked={conversionSettings.auto_convert_dv_p7_to_p8}
+            onchange={handleConversionSettingChange}
+            class="h-5 w-5 rounded border-gray-300"
+          />
+          <div>
+            <p class="font-medium">Auto-convert DV Profile 7 to Profile 8</p>
+            <p class="text-sm text-muted-foreground">
+              Automatically convert Dolby Vision Profile 7 files to Profile 8 when imported.
+              Profile 8 provides better device compatibility (Infuse, Apple TV).
+            </p>
+          </div>
+        </label>
+      </div>
     </CardContent>
   </Card>
 </div>

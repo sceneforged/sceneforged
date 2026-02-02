@@ -176,6 +176,72 @@ impl ConversionManager {
         Ok(job_ids)
     }
 
+    /// Start a DV Profile 7 to Profile 8 conversion for an item.
+    ///
+    /// Validates that the item has DV Profile 7 and no active conversion job,
+    /// then creates a conversion job for the DV conversion.
+    ///
+    /// # Arguments
+    ///
+    /// * `item_id` - The ID of the media item to convert
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(String)` - The created job ID
+    /// * `Err` - If validation fails or job creation fails
+    pub fn start_dv_conversion(&self, item_id: ItemId) -> Result<String> {
+        let conn = self.pool.get()?;
+
+        // Get the item and verify it has DV Profile 7
+        let item = queries::items::get_item(&conn, item_id)?
+            .context("Item not found")?;
+        if item.dolby_vision_profile.as_deref() != Some("7") {
+            anyhow::bail!("Item does not have DV Profile 7");
+        }
+
+        // Get source file
+        let files = queries::media_files::list_media_files_for_item(&conn, item_id)?;
+        let source = files
+            .iter()
+            .find(|f| f.role == sceneforged_common::FileRole::Source)
+            .context("No source file found")?;
+
+        // Check no active job
+        if queries::conversion_jobs::get_active_job_for_item(&conn, item_id)?.is_some() {
+            anyhow::bail!("Item already has an active conversion job");
+        }
+
+        // Create conversion job
+        let job = queries::conversion_jobs::create_conversion_job(&conn, item_id, source.id)?;
+
+        Ok(job.id)
+    }
+
+    /// Batch convert multiple items from DV Profile 7 to Profile 8.
+    ///
+    /// Attempts to queue a DV conversion for each item. Items that fail validation
+    /// (e.g., not DV Profile 7, already have active job) are logged and skipped.
+    ///
+    /// # Arguments
+    ///
+    /// * `item_ids` - List of media item IDs to convert
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<String>)` - List of created job IDs (may be fewer than item_ids if some were skipped)
+    pub fn batch_dv_convert(&self, item_ids: Vec<ItemId>) -> Result<Vec<String>> {
+        let mut job_ids = Vec::new();
+        for item_id in item_ids {
+            match self.start_dv_conversion(item_id) {
+                Ok(id) => job_ids.push(id),
+                Err(e) => {
+                    tracing::warn!("Failed to queue DV conversion for {}: {}", item_id, e);
+                }
+            }
+        }
+        Ok(job_ids)
+    }
+
     /// Queue conversion jobs for multiple items to a single target profile.
     ///
     /// Validates each item individually and only creates jobs for items where

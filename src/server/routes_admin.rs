@@ -28,6 +28,7 @@ pub fn admin_routes() -> Router<AppContext> {
         .route("/items/:item_id/conversion", get(get_item_conversion))
         .route("/items/:item_id/convert", post(convert_item))
         .route("/conversions/batch", post(batch_convert))
+        .route("/conversions/dv-batch", post(batch_dv_convert))
 }
 
 // ============================================================================
@@ -130,6 +131,20 @@ pub struct BatchConvertRequest {
 /// Response after starting batch conversion.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct BatchConvertResponse {
+    /// Created job IDs
+    pub job_ids: Vec<String>,
+}
+
+/// Request to batch convert DV Profile 7 items to Profile 8.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct BatchDvConvertRequest {
+    /// Item IDs to convert
+    pub item_ids: Vec<String>,
+}
+
+/// Response after starting DV batch conversion.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BatchDvConvertResponse {
     /// Created job IDs
     pub job_ids: Vec<String>,
 }
@@ -472,6 +487,47 @@ pub async fn batch_convert(
 
     match conversion_manager.batch_convert(item_ids, profile) {
         Ok(job_ids) => Json(BatchConvertResponse { job_ids }).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
+/// Batch convert DV Profile 7 items to Profile 8.
+#[utoipa::path(
+    post,
+    path = "/api/conversions/dv-batch",
+    tag = "admin",
+    request_body = BatchDvConvertRequest,
+    responses(
+        (status = 200, description = "DV batch conversion jobs created", body = BatchDvConvertResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 503, description = "Conversion manager not available")
+    )
+)]
+pub async fn batch_dv_convert(
+    State(ctx): State<AppContext>,
+    Json(request): Json<BatchDvConvertRequest>,
+) -> impl IntoResponse {
+    let Some(ref conversion_manager) = ctx.conversion_manager else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Conversion manager not available"})),
+        )
+            .into_response();
+    };
+
+    // Parse item IDs, filtering out invalid ones
+    let item_ids: Vec<ItemId> = request
+        .item_ids
+        .iter()
+        .filter_map(|s| s.parse::<uuid::Uuid>().ok().map(ItemId::from))
+        .collect();
+
+    match conversion_manager.batch_dv_convert(item_ids) {
+        Ok(job_ids) => Json(BatchDvConvertResponse { job_ids }).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": e.to_string()})),

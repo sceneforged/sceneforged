@@ -1,6 +1,6 @@
 //! Configuration persistence using toml_edit to preserve formatting and comments.
 
-use super::{ArrConfig, JellyfinConfig, Rule};
+use super::{ArrConfig, ConversionConfig, JellyfinConfig, Rule};
 use anyhow::{Context, Result};
 use std::path::Path;
 use toml_edit::DocumentMut;
@@ -115,6 +115,37 @@ pub fn update_jellyfins(path: &Path, jellyfins: &[JellyfinConfig]) -> Result<()>
     Ok(())
 }
 
+/// Update just the conversion section of the config file
+pub fn update_conversion(path: &Path, conversion: &ConversionConfig) -> Result<()> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read config file: {:?}", path))?;
+
+    let mut doc: DocumentMut = content
+        .parse()
+        .with_context(|| format!("Failed to parse config file: {:?}", path))?;
+
+    // Serialize conversion to TOML
+    let conversion_toml = toml::to_string(&ConversionWrapper {
+        conversion: conversion.clone(),
+    })
+    .with_context(|| "Failed to serialize conversion config")?;
+    let conversion_doc: DocumentMut = conversion_toml
+        .parse()
+        .with_context(|| "Failed to parse serialized conversion config")?;
+
+    // Replace the conversion section
+    if let Some(conversion_item) = conversion_doc.get("conversion") {
+        doc["conversion"] = conversion_item.clone();
+    } else {
+        doc.remove("conversion");
+    }
+
+    std::fs::write(path, doc.to_string())
+        .with_context(|| format!("Failed to write config file: {:?}", path))?;
+
+    Ok(())
+}
+
 // Wrapper structs for serialization
 #[derive(serde::Serialize)]
 struct RulesWrapper {
@@ -129,4 +160,9 @@ struct ArrsWrapper {
 #[derive(serde::Serialize)]
 struct JellyfinsWrapper {
     jellyfins: Vec<JellyfinConfig>,
+}
+
+#[derive(serde::Serialize)]
+struct ConversionWrapper {
+    conversion: ConversionConfig,
 }

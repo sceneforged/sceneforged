@@ -8,6 +8,7 @@ pub mod identifier;
 pub mod prober;
 pub mod qualifier;
 
+use crate::config::Config;
 use anyhow::Result;
 use sceneforged_common::{
     paths::is_video_file, FileRole, ItemId, ItemKind, LibraryId, MediaFileId, MediaType, Profile,
@@ -17,6 +18,7 @@ use sceneforged_db::{
     pool::DbPool,
     queries::{conversion_jobs, items, libraries, media_files},
 };
+use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 use walkdir::WalkDir;
@@ -29,6 +31,7 @@ pub use qualifier::SourceQualifier;
 /// Scanner for discovering and importing media files.
 pub struct Scanner {
     pool: DbPool,
+    config: Arc<Config>,
     prober: FileProber,
     qualifier: SourceQualifier,
     classifier: ProfileClassifier,
@@ -60,10 +63,11 @@ pub struct ScanProgress {
 }
 
 impl Scanner {
-    /// Create a new scanner with database pool.
-    pub fn new(pool: DbPool) -> Self {
+    /// Create a new scanner with database pool and config.
+    pub fn new(pool: DbPool, config: Arc<Config>) -> Self {
         Self {
             pool,
+            config,
             prober: FileProber::new(),
             qualifier: SourceQualifier::new(),
             classifier: ProfileClassifier::new(),
@@ -301,6 +305,28 @@ impl Scanner {
                     "Queued conversion job {} for item {} (file: {:?})",
                     job.id, item.id, path
                 );
+            }
+        }
+
+        // Auto-queue DV Profile 7 → Profile 8 conversion if enabled in config
+        if self.config.conversion.auto_convert_dv_p7_to_p8 {
+            let has_dv_profile_7 = media_info.video_tracks.iter().any(|track| {
+                track
+                    .dolby_vision
+                    .as_ref()
+                    .map_or(false, |dv| dv.profile == 7)
+            });
+
+            if has_dv_profile_7 {
+                // Queue DV conversion job if not already queued
+                if conversion_jobs::get_active_job_for_item(&conn, item.id)?.is_none() {
+                    let job =
+                        conversion_jobs::create_conversion_job(&conn, item.id, media_file.id)?;
+                    info!(
+                        "Queued DV P7→P8 conversion job {} for item {}",
+                        job.id, item.id
+                    );
+                }
             }
         }
 

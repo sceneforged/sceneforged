@@ -9,7 +9,7 @@ use axum::{
 use http_body_util::BodyExt;
 use parking_lot::RwLock;
 use sceneforged::arr::{RadarrWebhook, SonarrWebhook};
-use sceneforged::config::{ArrConfig, ArrType, Config, ServerConfig};
+use sceneforged::config::{ArrConfig, ArrType, Config, ConversionConfig, ServerConfig};
 use sceneforged::server::{create_router, AppContext};
 use sceneforged::state::AppState;
 use std::sync::Arc;
@@ -41,6 +41,7 @@ fn create_radarr_context() -> AppContext {
         rules: vec![],
         jellyfins: vec![],
         tools: Default::default(),
+        conversion: ConversionConfig::default(),
     };
 
     AppContext {
@@ -48,6 +49,7 @@ fn create_radarr_context() -> AppContext {
         rules: Arc::new(RwLock::new(config.rules.clone())),
         arrs: Arc::new(RwLock::new(config.arrs.clone())),
         jellyfins: Arc::new(RwLock::new(config.jellyfins.clone())),
+        conversion_config: Arc::new(RwLock::new(config.conversion.clone())),
         config: Arc::new(config),
         config_path: None,
         db_pool: None,
@@ -74,6 +76,7 @@ fn create_sonarr_context() -> AppContext {
         rules: vec![],
         jellyfins: vec![],
         tools: Default::default(),
+        conversion: ConversionConfig::default(),
     };
 
     AppContext {
@@ -81,6 +84,7 @@ fn create_sonarr_context() -> AppContext {
         rules: Arc::new(RwLock::new(config.rules.clone())),
         arrs: Arc::new(RwLock::new(config.arrs.clone())),
         jellyfins: Arc::new(RwLock::new(config.jellyfins.clone())),
+        conversion_config: Arc::new(RwLock::new(config.conversion.clone())),
         config: Arc::new(config),
         config_path: None,
         db_pool: None,
@@ -238,6 +242,7 @@ async fn test_webhook_disabled_arr() {
         rules: vec![],
         jellyfins: vec![],
         tools: Default::default(),
+        conversion: ConversionConfig::default(),
     };
 
     let ctx = AppContext {
@@ -245,6 +250,7 @@ async fn test_webhook_disabled_arr() {
         rules: Arc::new(RwLock::new(config.rules.clone())),
         arrs: Arc::new(RwLock::new(config.arrs.clone())),
         jellyfins: Arc::new(RwLock::new(config.jellyfins.clone())),
+        conversion_config: Arc::new(RwLock::new(config.conversion.clone())),
         config: Arc::new(config),
         config_path: None,
         db_pool: None,

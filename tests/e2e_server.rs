@@ -8,7 +8,7 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use parking_lot::RwLock;
-use sceneforged::config::{ArrConfig, ArrType, Config, ServerConfig};
+use sceneforged::config::{ArrConfig, ArrType, Config, ConversionConfig, ServerConfig};
 use sceneforged::server::{create_router, AppContext};
 use sceneforged::state::AppState;
 use std::sync::Arc;
@@ -47,6 +47,7 @@ fn create_full_context() -> AppContext {
         rules: vec![],
         jellyfins: vec![],
         tools: Default::default(),
+        conversion: ConversionConfig::default(),
     };
 
     AppContext {
@@ -54,6 +55,7 @@ fn create_full_context() -> AppContext {
         rules: Arc::new(RwLock::new(config.rules.clone())),
         arrs: Arc::new(RwLock::new(config.arrs.clone())),
         jellyfins: Arc::new(RwLock::new(config.jellyfins.clone())),
+        conversion_config: Arc::new(RwLock::new(config.conversion.clone())),
         config: Arc::new(config),
         config_path: None,
         db_pool: None,

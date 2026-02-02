@@ -133,6 +133,17 @@ enabled = false
 # enabled = true
 
 # ============================================================================
+# Conversion Settings
+# ============================================================================
+# Configure automatic conversion behavior.
+
+[conversion]
+# Automatically convert Dolby Vision Profile 7 files to Profile 8 on import.
+# Profile 8 provides better compatibility with Infuse and other players.
+# Default: false (manual conversion only)
+auto_convert_dv_p7_to_p8 = false
+
+# ============================================================================
 # External Tools Configuration
 # ============================================================================
 # Specify custom paths for required external tools.

@@ -620,4 +620,27 @@ export async function batchConvert(itemIds: string[], targetProfile: 'A' | 'B' |
   });
 }
 
+export async function batchDvConvert(itemIds: string[]): Promise<BatchConvertResponse> {
+  return fetchApi('/conversions/dv-batch', {
+    method: 'POST',
+    body: JSON.stringify({ item_ids: itemIds }),
+  });
+}
+
+// Conversion Config
+export interface ConversionConfig {
+  auto_convert_dv_p7_to_p8: boolean;
+}
+
+export async function getConversionConfig(): Promise<ConversionConfig> {
+  return fetchApi('/config/conversion');
+}
+
+export async function updateConversionConfig(config: ConversionConfig): Promise<ConversionConfig> {
+  return fetchApi('/config/conversion', {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  });
+}
+
 export { ApiError };

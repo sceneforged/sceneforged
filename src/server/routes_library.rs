@@ -569,7 +569,7 @@ pub async fn scan_library(
     ctx.state
         .broadcast(AppEvent::library_scan_started(library_id.clone()));
 
-    let scanner = Scanner::new(pool.clone());
+    let scanner = Scanner::new(pool.clone(), ctx.config.clone());
     match scanner.scan_library(id) {
         Ok(results) => {
             let items_added = results.len() as u32;

@@ -33,9 +33,10 @@
   // Selection state
   let selectedItems = $state<SvelteSet<string>>(new SvelteSet());
   let converting = $state(false);
+  let convertingDv = $state(false);
 
   // Filter state
-  type FilterOption = 'all' | 'profile_a_only' | 'profile_c_only' | 'missing_b';
+  type FilterOption = 'all' | 'profile_a_only' | 'profile_c_only' | 'missing_b' | 'dv_profile_7';
   let filterValue = $state<FilterOption>('all');
 
   const filterOptions: { value: FilterOption; label: string }[] = [
@@ -43,6 +44,7 @@
     { value: 'profile_a_only', label: 'Profile A only' },
     { value: 'profile_c_only', label: 'Profile C only' },
     { value: 'missing_b', label: 'Missing Profile B' },
+    { value: 'dv_profile_7', label: 'Has DV Profile 7' },
   ];
 
   // Filter items client-side
@@ -54,6 +56,8 @@
         return allItems.filter(item => item.has_profile_c && !item.has_profile_b);
       case 'missing_b':
         return allItems.filter(item => !item.has_profile_b);
+      case 'dv_profile_7':
+        return allItems.filter(item => item.dolby_vision_profile === '7');
       default:
         return allItems;
     }
@@ -65,6 +69,14 @@
   const selectedCount = $derived(selectedItems.size);
   const allFilteredSelected = $derived(
     filteredItems.length > 0 && filteredItems.every(item => selectedItems.has(item.id))
+  );
+
+  // Derived to check if any selected items have DV P7
+  const hasDvProfile7Selected = $derived(
+    Array.from(selectedItems).some(id => {
+      const item = allItems.find(i => i.id === id);
+      return item?.dolby_vision_profile === '7';
+    })
   );
 
   onMount(async () => {
@@ -159,6 +171,32 @@
     }
   }
 
+  async function handleBatchDvConvert() {
+    if (selectedItems.size === 0 || convertingDv) return;
+
+    convertingDv = true;
+    try {
+      // Filter to only DV P7 items
+      const dvItems = Array.from(selectedItems).filter(id => {
+        const item = allItems.find(i => i.id === id);
+        return item?.dolby_vision_profile === '7';
+      });
+
+      if (dvItems.length === 0) {
+        toast.error('No DV Profile 7 items selected');
+        return;
+      }
+
+      const response = await api.batchDvConvert(dvItems);
+      toast.success(`DV conversion started: ${response.job_ids.length} job(s) created`);
+      selectedItems = new SvelteSet();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to start DV conversion');
+    } finally {
+      convertingDv = false;
+    }
+  }
+
   async function handleRefresh() {
     selectedItems = new SvelteSet();
     await loadLibraryAndItems();
@@ -247,6 +285,20 @@
             {/if}
             Convert to Profile B
           </Button>
+
+          {#if hasDvProfile7Selected}
+            <Button
+              variant="secondary"
+              size="sm"
+              onclick={handleBatchDvConvert}
+              disabled={convertingDv || selectedCount === 0}
+            >
+              {#if convertingDv}
+                <Loader2 class="h-4 w-4 mr-2 animate-spin" />
+              {/if}
+              Convert DV → P8
+            </Button>
+          {/if}
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-use crate::config::{ArrConfig, Config, JellyfinConfig, Rule};
+use crate::config::{ArrConfig, Config, ConversionConfig, JellyfinConfig, Rule};
 use crate::conversion::ConversionManager;
 use crate::state::AppState;
 use crate::streaming::{self, start_cleanup_task, SessionManager};
@@ -45,6 +45,8 @@ pub struct AppContext {
     pub arrs: Arc<RwLock<Vec<ArrConfig>>>,
     /// Mutable jellyfin configs (can be edited via API)
     pub jellyfins: Arc<RwLock<Vec<JellyfinConfig>>>,
+    /// Mutable conversion config (can be edited via API)
+    pub conversion_config: Arc<RwLock<ConversionConfig>>,
     /// Database connection pool (optional for backwards compatibility)
     pub db_pool: Option<DbPool>,
     /// Session manager for tracking active streams
@@ -181,6 +183,7 @@ pub async fn start_server_with_options(
         rules: Arc::new(RwLock::new(config.rules.clone())),
         arrs: Arc::new(RwLock::new(config.arrs.clone())),
         jellyfins: Arc::new(RwLock::new(config.jellyfins.clone())),
+        conversion_config: Arc::new(RwLock::new(config.conversion.clone())),
         config: Arc::new(config.clone()),
         config_path,
         db_pool,
