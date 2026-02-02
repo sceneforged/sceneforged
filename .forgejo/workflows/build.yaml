@@ -13,6 +13,9 @@ jobs:
       volumes:
         - /var/run/docker.sock:/var/run/docker.sock
     steps:
+      - name: Install git
+        run: apk add --no-cache git
+
       - name: Checkout
         uses: actions/checkout@v4
 
