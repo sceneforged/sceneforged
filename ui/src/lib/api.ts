@@ -488,7 +488,8 @@ export async function searchItems(query: string, limit = 20): Promise<Item[]> {
 // Playback API
 
 export async function getPlaybackInfo(itemId: string): Promise<PlaybackInfo> {
-  return fetchApi(`/playback/${itemId}/info`);
+  // Request web-only sources (Profile B/universal) for browser playback
+  return fetchApi(`/playback/${itemId}/info?web_only=true`);
 }
 
 export async function updatePlaybackPosition(

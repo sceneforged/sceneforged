@@ -118,6 +118,14 @@ impl MediaSourceInfo {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct PlaybackInfoQuery {
+    /// If true, only return web-playable sources (Profile B/universal).
+    /// Defaults to false (returns all sources for capable players).
+    #[serde(default)]
+    pub web_only: bool,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ProgressRequest {
     pub position_ticks: i64,
     #[serde(default)]
@@ -178,6 +186,7 @@ pub struct FavoriteResponse {
 async fn get_playback_info(
     State(ctx): State<AppContext>,
     Path(item_id): Path<String>,
+    Query(query): Query<PlaybackInfoQuery>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
         return (
@@ -229,13 +238,19 @@ async fn get_playback_info(
             .into_response();
     }
 
-    // Filter to only web-playable sources (universal/serves_as_universal)
-    let playable_files: Vec<_> = files
-        .into_iter()
-        .filter(|f| f.serves_as_universal || f.role == FileRole::Universal)
-        .collect();
+    // Filter sources based on web_only parameter
+    let filtered_files: Vec<_> = if query.web_only {
+        // Only web-playable sources (universal/serves_as_universal)
+        files
+            .into_iter()
+            .filter(|f| f.serves_as_universal || f.role == FileRole::Universal)
+            .collect()
+    } else {
+        // All sources for capable players like Infuse
+        files
+    };
 
-    if playable_files.is_empty() {
+    if filtered_files.is_empty() {
         return (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "No web-playable sources available. Item needs conversion to Profile B."})),
@@ -249,7 +264,7 @@ async fn get_playback_info(
         ctx.config.server.host, ctx.config.server.port
     );
 
-    let media_sources: Vec<MediaSourceInfo> = playable_files
+    let media_sources: Vec<MediaSourceInfo> = filtered_files
         .into_iter()
         .map(|f| MediaSourceInfo::from_media_file(f, &base_url))
         .collect();
