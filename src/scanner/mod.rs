@@ -42,6 +42,8 @@ pub struct ScanResult {
     pub media_file_id: MediaFileId,
     pub serves_as_universal: bool,
     pub needs_conversion: bool,
+    /// The full Item that was created/updated.
+    pub item: Item,
 }
 
 /// Progress callback for scan operations.
@@ -310,6 +312,7 @@ impl Scanner {
             media_file_id: media_file.id,
             serves_as_universal: qualification.serves_as_universal,
             needs_conversion,
+            item,
         })
     }
 

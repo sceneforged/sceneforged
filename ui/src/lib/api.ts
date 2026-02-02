@@ -458,6 +458,7 @@ export async function getItems(params?: {
   search?: string;
   limit?: number;
   offset?: number;
+  filter?: 'continue_watching' | 'recently_added' | 'favorites';
 }): Promise<ItemsPage> {
   const searchParams = new URLSearchParams();
   if (params?.library_id) searchParams.set('library_id', params.library_id);
@@ -466,6 +467,7 @@ export async function getItems(params?: {
   if (params?.search) searchParams.set('search', params.search);
   if (params?.limit) searchParams.set('limit', String(params.limit));
   if (params?.offset) searchParams.set('offset', String(params.offset));
+  if (params?.filter) searchParams.set('filter', params.filter);
 
   const query = searchParams.toString();
   return fetchApi(`/items${query ? `?${query}` : ''}`);

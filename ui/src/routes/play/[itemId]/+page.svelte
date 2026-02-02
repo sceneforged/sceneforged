@@ -75,7 +75,7 @@
       console.error('Failed to mark as played:', e);
     }
     // Optionally return to item detail
-    // goto(`/library/${itemId}`);
+    // if (item) goto(`/browse/${item.library_id}/${itemId}`);
   }
 
   function handleError(errorMessage: string) {
@@ -83,7 +83,11 @@
   }
 
   function goBack() {
-    goto(`/library/${itemId}`);
+    if (item) {
+      goto(`/browse/${item.library_id}/${itemId}`);
+    } else {
+      goto('/');
+    }
   }
 </script>
 

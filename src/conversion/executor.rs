@@ -2,6 +2,7 @@
 //!
 //! Processes queued conversion jobs, transcoding source files to Profile B format.
 
+use crate::state::AppEvent;
 use anyhow::{Context, Result};
 use sceneforged_common::FileRole;
 use sceneforged_db::{
@@ -13,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use tracing::{debug, error, info};
 
 /// Profile B transcoding settings.
@@ -62,6 +64,7 @@ pub struct ConversionExecutor {
     pool: DbPool,
     settings: ProfileBSettings,
     stop_signal: Arc<AtomicBool>,
+    event_tx: Option<broadcast::Sender<AppEvent>>,
 }
 
 impl ConversionExecutor {
@@ -71,6 +74,30 @@ impl ConversionExecutor {
             pool,
             settings,
             stop_signal: Arc::new(AtomicBool::new(false)),
+            event_tx: None,
+        }
+    }
+
+    /// Create a new conversion executor with event broadcasting.
+    pub fn with_events(
+        pool: DbPool,
+        settings: ProfileBSettings,
+        event_tx: broadcast::Sender<AppEvent>,
+    ) -> Self {
+        Self {
+            pool,
+            settings,
+            stop_signal: Arc::new(AtomicBool::new(false)),
+            event_tx: Some(event_tx),
+        }
+    }
+
+    /// Broadcast an event if the event sender is configured.
+    fn broadcast(&self, event: AppEvent) {
+        if let Some(ref tx) = self.event_tx {
+            if tx.send(event).is_err() {
+                debug!("No subscribers for conversion event");
+            }
         }
     }
 
@@ -113,11 +140,9 @@ impl ConversionExecutor {
             };
 
             // Start job
-            if let Err(e) = conversion_jobs::start_job(
-                &conn,
-                &job.id,
-                self.settings.hw_accel.as_deref(),
-            ) {
+            if let Err(e) =
+                conversion_jobs::start_job(&conn, &job.id, self.settings.hw_accel.as_deref())
+            {
                 error!("Failed to start job: {}", e);
                 continue;
             }
@@ -151,13 +176,12 @@ impl ConversionExecutor {
                     }
 
                     // Register output as universal file
-                    if let Err(e) = self.register_universal_file(
-                        &conn,
-                        job.item_id,
-                        &output_path,
-                    ) {
+                    if let Err(e) = self.register_universal_file(&conn, job.item_id, &output_path) {
                         error!("Failed to register universal file: {}", e);
                     }
+
+                    // Broadcast PlaybackAvailable event
+                    self.broadcast(AppEvent::playback_available(job.item_id.to_string()));
                 }
                 Err(e) => {
                     error!("Conversion failed: {} - {}", job.id, e);
@@ -222,14 +246,8 @@ impl ConversionExecutor {
         ]);
 
         // Keyframe interval for HLS
-        let keyframe_expr = format!(
-            "expr:gte(t,n_forced*{})",
-            self.settings.keyframe_interval
-        );
-        args.extend([
-            "-force_key_frames".to_string(),
-            keyframe_expr,
-        ]);
+        let keyframe_expr = format!("expr:gte(t,n_forced*{})", self.settings.keyframe_interval);
+        args.extend(["-force_key_frames".to_string(), keyframe_expr]);
 
         // Audio settings
         args.extend([
@@ -291,8 +309,8 @@ impl ConversionExecutor {
             Some("aac"),
             Some(self.settings.max_width as i32),
             Some(self.settings.max_height as i32),
-            None, // Duration will be read from source
-            None, // Bit rate
+            None,  // Duration will be read from source
+            None,  // Bit rate
             false, // Not HDR
             true,  // Serves as universal
             true,  // Has faststart

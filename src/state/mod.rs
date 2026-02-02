@@ -4,6 +4,7 @@ pub use types::*;
 
 use anyhow::Result;
 use parking_lot::RwLock;
+use sceneforged_db::models::{Item, Library};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -13,25 +14,248 @@ use uuid::Uuid;
 
 const MAX_HISTORY_SIZE: usize = 1000;
 
+/// Event category for filtering events by audience.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EventCategory {
+    /// Admin-only events (job processing, system status).
+    Admin,
+    /// User-facing events (library changes, playback availability).
+    User,
+}
+
+/// Application-wide event for SSE broadcasting.
+///
+/// This encompasses all event types that can be broadcast to connected clients.
+/// Events are categorized as either "admin" (for administrative dashboards) or
+/// "user" (for end-user clients).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum JobEvent {
-    Queued(Job),
-    Started {
+#[serde(tag = "event_type", rename_all = "snake_case")]
+pub enum AppEvent {
+    // ========================================================================
+    // Job Events (Admin category)
+    // ========================================================================
+    /// A job has been queued for processing.
+    JobQueued {
+        #[serde(flatten)]
+        job: Job,
+        category: EventCategory,
+    },
+    /// A job has started processing.
+    JobStarted {
         id: Uuid,
         rule_name: String,
+        category: EventCategory,
     },
-    Progress {
+    /// A job's progress has been updated.
+    JobProgress {
         id: Uuid,
         progress: f32,
         step: String,
+        category: EventCategory,
     },
-    Completed(Job),
-    Failed {
+    /// A job has completed successfully.
+    JobCompleted {
+        #[serde(flatten)]
+        job: Job,
+        category: EventCategory,
+    },
+    /// A job has failed.
+    JobFailed {
         id: Uuid,
         error: String,
+        category: EventCategory,
+    },
+
+    // ========================================================================
+    // Library Events (User category)
+    // ========================================================================
+    /// A library scan has started.
+    LibraryScanStarted {
+        library_id: String,
+        category: EventCategory,
+    },
+    /// A library scan has completed.
+    LibraryScanComplete {
+        library_id: String,
+        items_added: u32,
+        category: EventCategory,
+    },
+    /// A new library has been created.
+    LibraryCreated {
+        #[serde(flatten)]
+        library: Library,
+        category: EventCategory,
+    },
+    /// A library has been deleted.
+    LibraryDeleted {
+        library_id: String,
+        category: EventCategory,
+    },
+
+    // ========================================================================
+    // Item Events (User category)
+    // ========================================================================
+    /// A new item has been added to the library.
+    ItemAdded {
+        #[serde(flatten)]
+        item: Item,
+        category: EventCategory,
+    },
+    /// An item has been updated.
+    ItemUpdated {
+        #[serde(flatten)]
+        item: Item,
+        category: EventCategory,
+    },
+    /// An item has been removed from the library.
+    ItemRemoved {
+        item_id: String,
+        category: EventCategory,
+    },
+    /// Playback is now available for an item (conversion completed or already playable).
+    PlaybackAvailable {
+        item_id: String,
+        category: EventCategory,
     },
 }
+
+impl AppEvent {
+    /// Get the category of this event.
+    pub fn category(&self) -> EventCategory {
+        match self {
+            // Job events are admin-only
+            AppEvent::JobQueued { category, .. } => *category,
+            AppEvent::JobStarted { category, .. } => *category,
+            AppEvent::JobProgress { category, .. } => *category,
+            AppEvent::JobCompleted { category, .. } => *category,
+            AppEvent::JobFailed { category, .. } => *category,
+            // Library events are user-facing
+            AppEvent::LibraryScanStarted { category, .. } => *category,
+            AppEvent::LibraryScanComplete { category, .. } => *category,
+            AppEvent::LibraryCreated { category, .. } => *category,
+            AppEvent::LibraryDeleted { category, .. } => *category,
+            // Item events are user-facing
+            AppEvent::ItemAdded { category, .. } => *category,
+            AppEvent::ItemUpdated { category, .. } => *category,
+            AppEvent::ItemRemoved { category, .. } => *category,
+            AppEvent::PlaybackAvailable { category, .. } => *category,
+        }
+    }
+
+    /// Create a JobQueued event.
+    pub fn job_queued(job: Job) -> Self {
+        AppEvent::JobQueued {
+            job,
+            category: EventCategory::Admin,
+        }
+    }
+
+    /// Create a JobStarted event.
+    pub fn job_started(id: Uuid, rule_name: String) -> Self {
+        AppEvent::JobStarted {
+            id,
+            rule_name,
+            category: EventCategory::Admin,
+        }
+    }
+
+    /// Create a JobProgress event.
+    pub fn job_progress(id: Uuid, progress: f32, step: String) -> Self {
+        AppEvent::JobProgress {
+            id,
+            progress,
+            step,
+            category: EventCategory::Admin,
+        }
+    }
+
+    /// Create a JobCompleted event.
+    pub fn job_completed(job: Job) -> Self {
+        AppEvent::JobCompleted {
+            job,
+            category: EventCategory::Admin,
+        }
+    }
+
+    /// Create a JobFailed event.
+    pub fn job_failed(id: Uuid, error: String) -> Self {
+        AppEvent::JobFailed {
+            id,
+            error,
+            category: EventCategory::Admin,
+        }
+    }
+
+    /// Create a LibraryScanStarted event.
+    pub fn library_scan_started(library_id: String) -> Self {
+        AppEvent::LibraryScanStarted {
+            library_id,
+            category: EventCategory::User,
+        }
+    }
+
+    /// Create a LibraryScanComplete event.
+    pub fn library_scan_complete(library_id: String, items_added: u32) -> Self {
+        AppEvent::LibraryScanComplete {
+            library_id,
+            items_added,
+            category: EventCategory::User,
+        }
+    }
+
+    /// Create a LibraryCreated event.
+    pub fn library_created(library: Library) -> Self {
+        AppEvent::LibraryCreated {
+            library,
+            category: EventCategory::User,
+        }
+    }
+
+    /// Create a LibraryDeleted event.
+    pub fn library_deleted(library_id: String) -> Self {
+        AppEvent::LibraryDeleted {
+            library_id,
+            category: EventCategory::User,
+        }
+    }
+
+    /// Create an ItemAdded event.
+    pub fn item_added(item: Item) -> Self {
+        AppEvent::ItemAdded {
+            item,
+            category: EventCategory::User,
+        }
+    }
+
+    /// Create an ItemUpdated event.
+    pub fn item_updated(item: Item) -> Self {
+        AppEvent::ItemUpdated {
+            item,
+            category: EventCategory::User,
+        }
+    }
+
+    /// Create an ItemRemoved event.
+    pub fn item_removed(item_id: String) -> Self {
+        AppEvent::ItemRemoved {
+            item_id,
+            category: EventCategory::User,
+        }
+    }
+
+    /// Create a PlaybackAvailable event.
+    pub fn playback_available(item_id: String) -> Self {
+        AppEvent::PlaybackAvailable {
+            item_id,
+            category: EventCategory::User,
+        }
+    }
+}
+
+/// Legacy JobEvent type alias for backwards compatibility within the crate.
+/// New code should use AppEvent directly.
+pub type JobEvent = AppEvent;
 
 pub struct AppState {
     jobs: RwLock<HashMap<Uuid, Job>>,
@@ -40,7 +264,7 @@ pub struct AppState {
     stats: RwLock<JobStats>,
     seen_files: RwLock<std::collections::HashSet<PathBuf>>,
     persistence_path: Option<PathBuf>,
-    event_tx: broadcast::Sender<JobEvent>,
+    event_tx: broadcast::Sender<AppEvent>,
 }
 
 impl AppState {
@@ -67,8 +291,20 @@ impl AppState {
         state
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<JobEvent> {
+    pub fn subscribe(&self) -> broadcast::Receiver<AppEvent> {
         self.event_tx.subscribe()
+    }
+
+    /// Get a clone of the event sender for use in other components.
+    pub fn event_sender(&self) -> broadcast::Sender<AppEvent> {
+        self.event_tx.clone()
+    }
+
+    /// Broadcast an event to all subscribers.
+    pub fn broadcast(&self, event: AppEvent) {
+        if self.event_tx.send(event).is_err() {
+            tracing::debug!("No subscribers for event");
+        }
     }
 
     /// Queue a new job for processing
@@ -93,7 +329,7 @@ impl AppState {
             queue.push_back(id);
         }
 
-        if self.event_tx.send(JobEvent::Queued(job.clone())).is_err() {
+        if self.event_tx.send(AppEvent::job_queued(job.clone())).is_err() {
             tracing::debug!("No subscribers for job event");
         }
         self.persist();
@@ -119,10 +355,7 @@ impl AppState {
             job.start(rule_name);
             if self
                 .event_tx
-                .send(JobEvent::Started {
-                    id,
-                    rule_name: rule_name.to_string(),
-                })
+                .send(AppEvent::job_started(id, rule_name.to_string()))
                 .is_err()
             {
                 tracing::debug!("No subscribers for job event");
@@ -139,11 +372,7 @@ impl AppState {
             job.update_progress(progress, step);
             if self
                 .event_tx
-                .send(JobEvent::Progress {
-                    id,
-                    progress,
-                    step: step.to_string(),
-                })
+                .send(AppEvent::job_progress(id, progress, step.to_string()))
                 .is_err()
             {
                 tracing::debug!("No subscribers for job event");
@@ -188,7 +417,7 @@ impl AppState {
                 jobs.remove(&id);
             }
 
-            if self.event_tx.send(JobEvent::Completed(job)).is_err() {
+            if self.event_tx.send(AppEvent::job_completed(job)).is_err() {
                 tracing::debug!("No subscribers for job event");
             }
             self.persist();
@@ -231,10 +460,7 @@ impl AppState {
 
             if self
                 .event_tx
-                .send(JobEvent::Failed {
-                    id,
-                    error: error.to_string(),
-                })
+                .send(AppEvent::job_failed(id, error.to_string()))
                 .is_err()
             {
                 tracing::debug!("No subscribers for job event");

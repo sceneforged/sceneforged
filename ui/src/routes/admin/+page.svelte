@@ -1,10 +1,18 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { SvelteSet } from 'svelte/reactivity';
   import { toast } from 'svelte-sonner';
   import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card';
   import { Badge } from '$lib/components/ui/badge';
   import { Button } from '$lib/components/ui/button';
-  import { Separator } from '$lib/components/ui/separator';
+  import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+  } from '$lib/components/ui/table';
   import {
     Library,
     HardDrive,
@@ -13,23 +21,31 @@
     Activity,
     RefreshCw,
     Pause,
-    Play,
     Loader2,
+    CheckCircle,
+    XCircle,
+    History,
+    FolderOpen,
+    Settings,
+    ExternalLink,
   } from 'lucide-svelte';
-  import { getAdminDashboard, formatBytes, batchConvert } from '$lib/api';
-  import { connectToEvents, disconnectFromEvents, runningJobs, queuedJobs } from '$lib/stores/jobs';
+  import { getAdminDashboard, formatBytes, batchConvert, getHistory, formatJobSource } from '$lib/api';
+  import { runningJobs, queuedJobs, jobHistory, activeJobs } from '$lib/stores/jobs.svelte';
+  import { subscribe as subscribeToEvents } from '$lib/services/events.svelte';
   import StatsCard from '$lib/components/StatsCard.svelte';
   import StreamCard from '$lib/components/StreamCard.svelte';
   import ConversionCard from '$lib/components/ConversionCard.svelte';
-  import type { DashboardResponse } from '$lib/types';
+  import type { DashboardResponse, Job, AppEvent } from '$lib/types';
 
   let loading = $state(true);
   let error = $state<string | null>(null);
   let data = $state<DashboardResponse | null>(null);
+  let recentJobs = $state<Job[]>([]);
   let refreshInterval: ReturnType<typeof setInterval> | null = null;
+  let unsubscribeEvents: (() => void) | null = null;
 
   // Batch conversion state
-  let selectedStreamIds = $state<Set<string>>(new Set());
+  let selectedStreamIds = $state<SvelteSet<string>>(new SvelteSet());
   let targetProfile = $state<'A' | 'B' | 'C'>('B');
   let converting = $state(false);
 
@@ -38,13 +54,39 @@
     return num.toLocaleString();
   }
 
+  // Format date for display
+  function formatDate(dateStr: string | null): string {
+    if (!dateStr) return '-';
+    return new Date(dateStr).toLocaleString();
+  }
+
+  // Get status badge info
+  function getStatusBadge(status: string) {
+    switch (status) {
+      case 'completed':
+        return { variant: 'default' as const, icon: CheckCircle, class: 'bg-green-500' };
+      case 'failed':
+        return { variant: 'destructive' as const, icon: XCircle, class: '' };
+      case 'running':
+        return { variant: 'secondary' as const, icon: Activity, class: 'bg-blue-500' };
+      case 'queued':
+        return { variant: 'outline' as const, icon: Clock, class: '' };
+      default:
+        return { variant: 'outline' as const, icon: Clock, class: '' };
+    }
+  }
+
   async function loadData() {
     try {
       error = null;
-      data = await getAdminDashboard();
+      const [dashboardData, historyData] = await Promise.all([
+        getAdminDashboard(),
+        getHistory(10)
+      ]);
+      data = dashboardData;
+      recentJobs = historyData;
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load dashboard';
-      console.error('Dashboard load error:', e);
     } finally {
       loading = false;
     }
@@ -52,12 +94,34 @@
 
   async function handleRefresh() {
     loading = true;
-    await loadData();
+    // Also refresh the jobs stores
+    await Promise.all([
+      loadData(),
+      activeJobs.refresh(),
+      jobHistory.refresh(10)
+    ]);
+  }
+
+  // Handle admin events for real-time updates
+  function handleAdminEvent(event: AppEvent): void {
+    // Refresh dashboard stats when jobs complete
+    if (event.type === 'job:completed' || event.type === 'job:failed') {
+      // Update recent jobs list
+      if (event.type === 'job:completed') {
+        recentJobs = [event.job, ...recentJobs].slice(0, 10);
+      }
+      // Refresh stats (debounced via interval)
+    }
+
+    // Refresh on library changes
+    if (event.type.startsWith('library:') || event.type.startsWith('item:')) {
+      loadData();
+    }
   }
 
   // Batch conversion functions
   function toggleStreamSelection(streamId: string) {
-    const newSelected = new Set(selectedStreamIds);
+    const newSelected = new SvelteSet(selectedStreamIds);
     if (newSelected.has(streamId)) {
       newSelected.delete(streamId);
     } else {
@@ -71,10 +135,10 @@
 
     if (selectedStreamIds.size === data.streams.length) {
       // Deselect all
-      selectedStreamIds = new Set();
+      selectedStreamIds = new SvelteSet();
     } else {
       // Select all
-      selectedStreamIds = new Set(data.streams.map(s => s.id));
+      selectedStreamIds = new SvelteSet(data.streams.map(s => s.id));
     }
   }
 
@@ -94,7 +158,7 @@
       );
 
       // Clear selection after successful conversion
-      selectedStreamIds = new Set();
+      selectedStreamIds = new SvelteSet();
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Failed to start batch conversion';
       toast.error(message);
@@ -105,16 +169,20 @@
 
   onMount(async () => {
     await loadData();
-    connectToEvents();
 
-    // Auto-refresh every 10 seconds
-    refreshInterval = setInterval(loadData, 10000);
+    // Subscribe to admin events for real-time updates
+    unsubscribeEvents = subscribeToEvents('admin', handleAdminEvent);
+
+    // Auto-refresh dashboard stats every 30 seconds
+    refreshInterval = setInterval(loadData, 30000);
   });
 
   onDestroy(() => {
-    disconnectFromEvents();
     if (refreshInterval) {
       clearInterval(refreshInterval);
+    }
+    if (unsubscribeEvents) {
+      unsubscribeEvents();
     }
   });
 </script>
@@ -322,6 +390,89 @@
             {/if}
           </div>
         {/if}
+      </CardContent>
+    </Card>
+
+    <!-- Recent Jobs Section -->
+    <Card class="mb-6">
+      <CardHeader>
+        <div class="flex items-center justify-between">
+          <CardTitle class="flex items-center gap-2">
+            <History class="h-5 w-5" />
+            Recent Jobs
+          </CardTitle>
+          <Button variant="ghost" size="sm" href="/history">
+            View All
+            <ExternalLink class="h-4 w-4 ml-2" />
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {#if recentJobs.length === 0}
+          <div class="text-center py-8 text-muted-foreground">
+            <History class="h-12 w-12 mx-auto mb-2 opacity-50" />
+            <p>No recent jobs</p>
+          </div>
+        {:else}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>File</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Rule</TableHead>
+                <TableHead>Source</TableHead>
+                <TableHead>Completed</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {#each recentJobs as job (job.id)}
+                {@const statusInfo = getStatusBadge(job.status)}
+                <TableRow>
+                  <TableCell class="font-medium truncate max-w-xs">
+                    <span title={job.file_path}>{job.file_name}</span>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={statusInfo.variant} class={statusInfo.class}>
+                      <svelte:component this={statusInfo.icon} class="h-3 w-3 mr-1" />
+                      {job.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{job.rule_name ?? '-'}</TableCell>
+                  <TableCell>{formatJobSource(job.source)}</TableCell>
+                  <TableCell class="text-muted-foreground">
+                    {formatDate(job.completed_at)}
+                  </TableCell>
+                </TableRow>
+              {/each}
+            </TableBody>
+          </Table>
+        {/if}
+      </CardContent>
+    </Card>
+
+    <!-- Quick Links Section -->
+    <Card class="mb-6">
+      <CardHeader>
+        <CardTitle class="flex items-center gap-2">
+          <FolderOpen class="h-5 w-5" />
+          Quick Links
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <Button variant="outline" class="h-auto py-4 flex-col gap-2" href="/history">
+            <History class="h-6 w-6" />
+            <span>Job History</span>
+          </Button>
+          <Button variant="outline" class="h-auto py-4 flex-col gap-2" href="/rules">
+            <Settings class="h-6 w-6" />
+            <span>Rules</span>
+          </Button>
+          <Button variant="outline" class="h-auto py-4 flex-col gap-2" href="/settings">
+            <Settings class="h-6 w-6" />
+            <span>Settings</span>
+          </Button>
+        </div>
       </CardContent>
     </Card>
 

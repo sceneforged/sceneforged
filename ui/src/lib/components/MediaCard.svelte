@@ -4,6 +4,7 @@
   import { Film, Tv, Music, FolderOpen, Star, Play, Check, Clock } from 'lucide-svelte';
   import Badge from './ui/badge/badge.svelte';
   import ProfileBadge from './ProfileBadge.svelte';
+  import { goto } from '$app/navigation';
 
   interface Props {
     item: Item;
@@ -11,9 +12,32 @@
     playbackPosition?: number | null;
     played?: boolean;
     mediaFiles?: MediaFile[];
+    libraryId?: string;
   }
 
-  let { item, onclick, playbackPosition, played, mediaFiles }: Props = $props();
+  let { item, onclick, playbackPosition, played, mediaFiles, libraryId }: Props = $props();
+
+  // Determine if item is playable - has a universal/serves_as_universal media file
+  const isPlayable = $derived(
+    mediaFiles ? mediaFiles.some(f => f.serves_as_universal || f.role === 'universal') : true
+  );
+
+  // Resolve library ID from prop or item
+  const resolvedLibraryId = $derived(libraryId ?? item.library_id);
+
+  // Handle poster click - navigate to play page if playable
+  function handlePosterClick(e: MouseEvent) {
+    e.stopPropagation();
+    if (isPlayable) {
+      goto(`/play/${item.id}`);
+    }
+  }
+
+  // Handle title click - navigate to browse/details page
+  function handleTitleClick(e: MouseEvent) {
+    e.stopPropagation();
+    goto(`/browse/${resolvedLibraryId}/${item.id}`);
+  }
 
   function getItemProfile(files: MediaFile[] | undefined): Profile | 'AB' | null {
     if (!files || files.length === 0) return null;
@@ -53,21 +77,32 @@
   );
 </script>
 
-<button
-  class="group relative flex flex-col bg-card rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer text-left w-full"
-  {onclick}
+<div
+  class="group relative flex flex-col bg-card rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow text-left w-full"
 >
   <!-- Poster/Thumbnail area -->
-  <div class="relative aspect-[2/3] bg-muted flex items-center justify-center overflow-hidden">
+  <button
+    type="button"
+    class="relative aspect-[2/3] bg-muted flex items-center justify-center overflow-hidden w-full {isPlayable ? 'cursor-pointer' : 'cursor-default'}"
+    onclick={handlePosterClick}
+    disabled={!isPlayable}
+  >
     <!-- Placeholder icon -->
     <Icon class="w-16 h-16 text-muted-foreground/30" />
 
-    <!-- Play overlay on hover -->
-    <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-      <div class="bg-primary rounded-full p-3">
-        <Play class="w-8 h-8 text-primary-foreground" />
+    <!-- Play overlay on hover (only if playable) -->
+    {#if isPlayable}
+      <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+        <div class="bg-primary rounded-full p-3">
+          <Play class="w-8 h-8 text-primary-foreground" />
+        </div>
       </div>
-    </div>
+    {:else}
+      <!-- Needs Conversion overlay (not playable) -->
+      <div class="absolute inset-0 bg-black/50 opacity-50 pointer-events-none flex items-center justify-center">
+        <span class="text-white text-sm font-medium px-2 py-1 bg-black/60 rounded">Needs Conversion</span>
+      </div>
+    {/if}
 
     <!-- HDR/DV badges -->
     <div class="absolute bottom-2 left-2 flex gap-1">
@@ -104,11 +139,17 @@
         ></div>
       </div>
     {/if}
-  </div>
+  </button>
 
   <!-- Content -->
   <div class="p-3 flex-1 flex flex-col gap-1">
-    <h3 class="font-medium text-sm line-clamp-2 text-foreground">{item.name}</h3>
+    <button
+      type="button"
+      class="font-medium text-sm line-clamp-2 text-foreground hover:text-primary transition-colors cursor-pointer text-left"
+      onclick={handleTitleClick}
+    >
+      {item.name}
+    </button>
 
     <div class="flex items-center gap-2 text-xs text-muted-foreground mt-auto">
       <!-- Year -->
@@ -157,4 +198,4 @@
       </div>
     {/if}
   </div>
-</button>
+</div>

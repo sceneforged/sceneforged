@@ -1,5 +1,5 @@
 use crate::server::AppContext;
-use crate::state::JobEvent;
+use crate::state::AppEvent;
 use axum::{
     extract::State,
     response::sse::{Event, Sse},
@@ -23,50 +23,33 @@ pub async fn events_handler(
 
     let stream = BroadcastStream::new(rx)
         .filter_map(|result| result.ok())
-        .map(|event: JobEvent| {
-            let (event_type, data) = match &event {
-                JobEvent::Queued(job) => (
-                    "job:queued",
-                    serde_json::json!({
-                        "type": "queued",
-                        "job": job
-                    }),
-                ),
-                JobEvent::Started { id, rule_name } => (
-                    "job:started",
-                    serde_json::json!({
-                        "type": "started",
-                        "id": id,
-                        "rule_name": rule_name
-                    }),
-                ),
-                JobEvent::Progress { id, progress, step } => (
-                    "job:progress",
-                    serde_json::json!({
-                        "type": "progress",
-                        "id": id,
-                        "progress": progress,
-                        "step": step
-                    }),
-                ),
-                JobEvent::Completed(job) => (
-                    "job:completed",
-                    serde_json::json!({
-                        "type": "completed",
-                        "job": job
-                    }),
-                ),
-                JobEvent::Failed { id, error } => (
-                    "job:failed",
-                    serde_json::json!({
-                        "type": "failed",
-                        "id": id,
-                        "error": error
-                    }),
-                ),
+        .map(|event: AppEvent| {
+            // Get the event type string for the SSE event field
+            let event_type = match &event {
+                // Job events (admin)
+                AppEvent::JobQueued { .. } => "job:queued",
+                AppEvent::JobStarted { .. } => "job:started",
+                AppEvent::JobProgress { .. } => "job:progress",
+                AppEvent::JobCompleted { .. } => "job:completed",
+                AppEvent::JobFailed { .. } => "job:failed",
+                // Library events (user)
+                AppEvent::LibraryScanStarted { .. } => "library:scan_started",
+                AppEvent::LibraryScanComplete { .. } => "library:scan_complete",
+                AppEvent::LibraryCreated { .. } => "library:created",
+                AppEvent::LibraryDeleted { .. } => "library:deleted",
+                // Item events (user)
+                AppEvent::ItemAdded { .. } => "item:added",
+                AppEvent::ItemUpdated { .. } => "item:updated",
+                AppEvent::ItemRemoved { .. } => "item:removed",
+                AppEvent::PlaybackAvailable { .. } => "item:playback_available",
             };
 
-            Ok(Event::default().event(event_type).data(data.to_string()))
+            // Serialize the entire event as JSON (includes category field)
+            let data = serde_json::to_string(&event).unwrap_or_else(|e| {
+                format!(r#"{{"error": "serialization failed: {}"}}"#, e)
+            });
+
+            Ok(Event::default().event(event_type).data(data))
         });
 
     // Add keepalive with heartbeat every 30 seconds
@@ -75,7 +58,7 @@ pub async fn events_handler(
             .map(|_| {
                 Ok(Event::default()
                     .event("heartbeat")
-                    .data(r#"{"type":"heartbeat"}"#))
+                    .data(r#"{"event_type":"heartbeat","category":"user"}"#))
             });
 
     let combined = stream.merge(heartbeat);

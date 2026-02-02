@@ -1,7 +1,6 @@
 <script lang="ts">
   import '../app.css';
   import favicon from '$lib/assets/favicon.svg';
-  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { Button } from '$lib/components/ui/button';
@@ -9,7 +8,6 @@
   import { authStore } from '$lib/stores/auth';
   import { Toaster } from 'svelte-sonner';
   import {
-    Home,
     History,
     Settings,
     Moon,
@@ -17,21 +15,40 @@
     Menu,
     X,
     Film,
+    Tv,
     LogOut,
     User,
-    Library,
-    LayoutDashboard
+    LayoutDashboard,
+    FolderX
   } from 'lucide-svelte';
   import { cn } from '$lib/utils';
+  import { connect, disconnect } from '$lib/services/events.svelte';
+  import { getLibraries } from '$lib/api';
+  import type { Library } from '$lib/types';
 
   let { children } = $props();
 
   let sidebarOpen = $state(true);
   let mobileMenuOpen = $state(false);
+  let libraries = $state<Library[]>([]);
 
-  // Check auth status on mount
-  onMount(async () => {
-    await authStore.checkStatus();
+  // Connect to events and fetch libraries on mount, disconnect on destroy
+  $effect(() => {
+    connect();
+
+    // Fetch libraries
+    getLibraries().then((libs) => {
+      libraries = libs;
+    }).catch((err) => {
+      console.error('Failed to fetch libraries:', err);
+    });
+
+    // Check auth status
+    authStore.checkStatus();
+
+    return () => {
+      disconnect();
+    };
   });
 
   // Redirect to login if auth required but not authenticated
@@ -47,10 +64,14 @@
     goto('/login');
   }
 
-  const userNav = [
-    { href: '/', icon: Home, label: 'Home' },
-    { href: '/library', icon: Library, label: 'Library' },
-  ];
+  // Derive library nav items from libraries
+  const libraryNav = $derived(
+    libraries.map((lib) => ({
+      href: `/browse/${lib.id}`,
+      icon: lib.media_type === 'movies' ? Film : Tv,
+      label: lib.name,
+    }))
+  );
 
   const adminNav = [
     { href: '/admin', icon: LayoutDashboard, label: 'Dashboard' },
@@ -99,24 +120,39 @@
 
     <!-- Navigation -->
     <nav class="flex-1 space-y-1 p-2">
-      <!-- User Section -->
-      {#each userNav as item}
-        {@const active = isActive(item.href, $page.url.pathname)}
+      <!-- Libraries Section -->
+      {#if libraryNav.length > 0}
+        {#each libraryNav as item}
+          {@const active = isActive(item.href, $page.url.pathname)}
+          <a
+            href={item.href}
+            class={cn(
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              active
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            )}
+          >
+            <item.icon class="h-5 w-5 flex-shrink-0" />
+            {#if sidebarOpen}
+              <span>{item.label}</span>
+            {/if}
+          </a>
+        {/each}
+      {:else}
         <a
-          href={item.href}
+          href="/settings"
           class={cn(
             "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-            active
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           )}
         >
-          <item.icon class="h-5 w-5 flex-shrink-0" />
+          <FolderX class="h-5 w-5 flex-shrink-0" />
           {#if sidebarOpen}
-            <span>{item.label}</span>
+            <span>No Libraries</span>
           {/if}
         </a>
-      {/each}
+      {/if}
 
       <!-- Separator -->
       <div class="py-2">
@@ -211,22 +247,35 @@
 
     {#if mobileMenuOpen}
       <nav class="border-b bg-card p-4 shadow-lg">
-        <!-- User Section -->
-        {#each userNav as item}
-          {@const active = isActive(item.href, $page.url.pathname)}
+        <!-- Libraries Section -->
+        {#if libraryNav.length > 0}
+          {#each libraryNav as item}
+            {@const active = isActive(item.href, $page.url.pathname)}
+            <a
+              href={item.href}
+              class={cn(
+                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                active
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              )}
+            >
+              <item.icon class="h-5 w-5" />
+              <span>{item.label}</span>
+            </a>
+          {/each}
+        {:else}
           <a
-            href={item.href}
+            href="/settings"
             class={cn(
               "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-              active
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
             )}
           >
-            <item.icon class="h-5 w-5" />
-            <span>{item.label}</span>
+            <FolderX class="h-5 w-5" />
+            <span>No Libraries</span>
           </a>
-        {/each}
+        {/if}
 
         <!-- Separator -->
         <div class="py-2">

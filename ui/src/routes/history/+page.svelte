@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
   import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card';
   import { Badge } from '$lib/components/ui/badge';
   import { Button } from '$lib/components/ui/button';
@@ -32,7 +32,7 @@
     ArrowDown,
   } from 'lucide-svelte';
   import { getHistory, retryJob, deleteJob, formatJobSource } from '$lib/api';
-  import { jobHistory, connectToEvents, disconnectFromEvents } from '$lib/stores/jobs';
+  import { jobHistory } from '$lib/stores/jobs.svelte';
   import type { Job } from '$lib/types';
 
   let loading = $state(true);
@@ -136,11 +136,6 @@
 
   onMount(() => {
     loadData();
-    connectToEvents();
-  });
-
-  onDestroy(() => {
-    disconnectFromEvents();
   });
 </script>
 

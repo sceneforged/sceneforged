@@ -20,6 +20,7 @@ use utoipa::ToSchema;
 
 use super::AppContext;
 use crate::scanner::Scanner;
+use crate::state::AppEvent;
 
 /// Create library routes.
 pub fn library_routes() -> Router<AppContext> {
@@ -256,6 +257,12 @@ pub struct ItemsQuery {
     /// Sort in descending order
     #[serde(default)]
     pub sort_desc: bool,
+    /// Special filter: continue_watching, recently_added, favorites
+    #[serde(default)]
+    pub filter: Option<String>,
+    /// User ID for user-specific filters (defaults to default user)
+    #[serde(default)]
+    pub user_id: Option<String>,
 }
 
 fn default_offset() -> u32 {
@@ -308,7 +315,11 @@ pub struct ItemsListResponse {
 )]
 pub async fn list_libraries(State(ctx): State<AppContext>) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {
@@ -352,7 +363,11 @@ pub async fn create_library(
     Json(req): Json<CreateLibraryRequest>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {
@@ -367,7 +382,11 @@ pub async fn create_library(
     };
 
     match libraries::create_library(&conn, &req.name, req.media_type, &req.paths) {
-        Ok(lib) => (StatusCode::CREATED, Json(LibraryResponse::from(lib))).into_response(),
+        Ok(lib) => {
+            // Broadcast library created event
+            ctx.state.broadcast(AppEvent::library_created(lib.clone()));
+            (StatusCode::CREATED, Json(LibraryResponse::from(lib))).into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": e.to_string()})),
@@ -396,7 +415,11 @@ pub async fn get_library(
     Path(library_id): Path<String>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {
@@ -456,7 +479,11 @@ pub async fn delete_library(
     Path(library_id): Path<String>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {
@@ -482,7 +509,11 @@ pub async fn delete_library(
     };
 
     match libraries::delete_library(&conn, id) {
-        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(true) => {
+            // Broadcast library deleted event
+            ctx.state.broadcast(AppEvent::library_deleted(library_id));
+            StatusCode::NO_CONTENT.into_response()
+        }
         Ok(false) => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "Library not found"})),
@@ -516,7 +547,11 @@ pub async fn scan_library(
     Path(library_id): Path<String>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let id = match library_id.parse::<uuid::Uuid>() {
@@ -530,9 +565,30 @@ pub async fn scan_library(
         }
     };
 
+    // Broadcast scan started event
+    ctx.state
+        .broadcast(AppEvent::library_scan_started(library_id.clone()));
+
     let scanner = Scanner::new(pool.clone());
     match scanner.scan_library(id) {
         Ok(results) => {
+            let items_added = results.len() as u32;
+
+            // Broadcast ItemAdded and PlaybackAvailable events for each item
+            for result in &results {
+                ctx.state.broadcast(AppEvent::item_added(result.item.clone()));
+
+                // If the source serves as universal, playback is immediately available
+                if result.serves_as_universal {
+                    ctx.state
+                        .broadcast(AppEvent::playback_available(result.item_id.to_string()));
+                }
+            }
+
+            // Broadcast scan complete event
+            ctx.state
+                .broadcast(AppEvent::library_scan_complete(library_id, items_added));
+
             let response = serde_json::json!({
                 "files_scanned": results.len(),
                 "files_added": results.len(),
@@ -568,7 +624,11 @@ pub async fn get_library_items(
     Query(query): Query<ItemsQuery>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {
@@ -595,11 +655,10 @@ pub async fn get_library_items(
 
     let filter = items::ItemFilter {
         library_id: Some(lib_id),
-        parent_id: query.parent_id.as_ref().and_then(|s| {
-            s.parse::<uuid::Uuid>()
-                .ok()
-                .map(ItemId::from)
-        }),
+        parent_id: query
+            .parent_id
+            .as_ref()
+            .and_then(|s| s.parse::<uuid::Uuid>().ok().map(ItemId::from)),
         item_kinds: query.item_kinds.as_ref().map(|s| {
             s.split(',')
                 .filter_map(|k| serde_json::from_str(&format!("\"{}\"", k)).ok())
@@ -663,7 +722,11 @@ pub async fn get_recent_items(
     Query(query): Query<ItemsQuery>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {
@@ -701,7 +764,15 @@ pub async fn get_recent_items(
     }
 }
 
+/// Default user ID when auth is disabled
+const DEFAULT_USER_ID: &str = "00000000-0000-0000-0000-000000000001";
+
 /// List all items with filtering.
+///
+/// Supports special filters via the `filter` query param:
+/// - `continue_watching`: Items with playback progress (position > 0, not marked played)
+/// - `recently_added`: Items created in the last 7 days
+/// - `favorites`: Items marked as favorite by the user
 #[utoipa::path(
     get,
     path = "/api/items",
@@ -709,6 +780,7 @@ pub async fn get_recent_items(
     params(ItemsQuery),
     responses(
         (status = 200, description = "List of items", body = ItemsListResponse),
+        (status = 400, description = "Invalid filter"),
         (status = 503, description = "Database not available")
     )
 )]
@@ -717,7 +789,11 @@ pub async fn list_items_handler(
     Query(query): Query<ItemsQuery>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {
@@ -731,17 +807,26 @@ pub async fn list_items_handler(
         }
     };
 
+    let pagination = items::Pagination {
+        offset: query.offset,
+        limit: query.limit,
+    };
+
+    // Handle special filters
+    if let Some(ref filter_name) = query.filter {
+        return handle_special_filter(&conn, filter_name, &query, &pagination);
+    }
+
+    // Standard item listing
     let filter = items::ItemFilter {
-        library_id: query.library_id.as_ref().and_then(|s| {
-            s.parse::<uuid::Uuid>()
-                .ok()
-                .map(LibraryId::from)
-        }),
-        parent_id: query.parent_id.as_ref().and_then(|s| {
-            s.parse::<uuid::Uuid>()
-                .ok()
-                .map(ItemId::from)
-        }),
+        library_id: query
+            .library_id
+            .as_ref()
+            .and_then(|s| s.parse::<uuid::Uuid>().ok().map(LibraryId::from)),
+        parent_id: query
+            .parent_id
+            .as_ref()
+            .and_then(|s| s.parse::<uuid::Uuid>().ok().map(ItemId::from)),
         item_kinds: query.item_kinds.as_ref().map(|s| {
             s.split(',')
                 .filter_map(|k| serde_json::from_str(&format!("\"{}\"", k)).ok())
@@ -752,10 +837,6 @@ pub async fn list_items_handler(
     };
 
     let sort = build_sort_options(&query);
-    let pagination = items::Pagination {
-        offset: query.offset,
-        limit: query.limit,
-    };
 
     let total = match items::count_items(&conn, &filter) {
         Ok(c) => c,
@@ -772,13 +853,133 @@ pub async fn list_items_handler(
         Ok(items_list) => Json(ItemsListResponse {
             items: items_list.into_iter().map(Into::into).collect(),
             total_count: total,
-            offset: query.offset,
-            limit: query.limit,
+            offset: pagination.offset,
+            limit: pagination.limit,
         })
         .into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
+/// Handle special filter types (continue_watching, recently_added, favorites).
+fn handle_special_filter(
+    conn: &rusqlite::Connection,
+    filter_name: &str,
+    query: &ItemsQuery,
+    pagination: &items::Pagination,
+) -> axum::response::Response {
+    use sceneforged_common::UserId;
+
+    match filter_name {
+        "continue_watching" => {
+            // Get user ID from query or use default
+            let user_id = query
+                .user_id
+                .as_ref()
+                .and_then(|s| s.parse::<uuid::Uuid>().ok())
+                .map(UserId::from)
+                .unwrap_or_else(|| UserId::from(uuid::Uuid::parse_str(DEFAULT_USER_ID).unwrap()));
+
+            let total = match items::count_continue_watching_items(conn, user_id) {
+                Ok(c) => c,
+                Err(e) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"error": e.to_string()})),
+                    )
+                        .into_response()
+                }
+            };
+
+            match items::get_continue_watching_items(conn, user_id, pagination) {
+                Ok(items_list) => Json(ItemsListResponse {
+                    items: items_list.into_iter().map(Into::into).collect(),
+                    total_count: total,
+                    offset: pagination.offset,
+                    limit: pagination.limit,
+                })
+                .into_response(),
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": e.to_string()})),
+                )
+                    .into_response(),
+            }
+        }
+        "recently_added" => {
+            // Items added in the last 7 days
+            const RECENTLY_ADDED_DAYS: u32 = 7;
+
+            let total = match items::count_recently_added_items(conn, RECENTLY_ADDED_DAYS) {
+                Ok(c) => c,
+                Err(e) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"error": e.to_string()})),
+                    )
+                        .into_response()
+                }
+            };
+
+            match items::get_recently_added_items(conn, RECENTLY_ADDED_DAYS, pagination) {
+                Ok(items_list) => Json(ItemsListResponse {
+                    items: items_list.into_iter().map(Into::into).collect(),
+                    total_count: total,
+                    offset: pagination.offset,
+                    limit: pagination.limit,
+                })
+                .into_response(),
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": e.to_string()})),
+                )
+                    .into_response(),
+            }
+        }
+        "favorites" => {
+            // Get user ID from query or use default
+            let user_id = query
+                .user_id
+                .as_ref()
+                .and_then(|s| s.parse::<uuid::Uuid>().ok())
+                .map(UserId::from)
+                .unwrap_or_else(|| UserId::from(uuid::Uuid::parse_str(DEFAULT_USER_ID).unwrap()));
+
+            let total = match items::count_favorite_items(conn, user_id) {
+                Ok(c) => c,
+                Err(e) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"error": e.to_string()})),
+                    )
+                        .into_response()
+                }
+            };
+
+            match items::get_favorite_items(conn, user_id, pagination) {
+                Ok(items_list) => Json(ItemsListResponse {
+                    items: items_list.into_iter().map(Into::into).collect(),
+                    total_count: total,
+                    offset: pagination.offset,
+                    limit: pagination.limit,
+                })
+                .into_response(),
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": e.to_string()})),
+                )
+                    .into_response(),
+            }
+        }
+        _ => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!("Unknown filter: {}. Valid filters: continue_watching, recently_added, favorites", filter_name)
+            })),
         )
             .into_response(),
     }
@@ -804,7 +1005,11 @@ pub async fn get_item(
     Path(item_id): Path<String>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {
@@ -863,7 +1068,11 @@ pub async fn get_children(
     Path(item_id): Path<String>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {
@@ -920,7 +1129,11 @@ pub async fn get_item_files(
     Path(item_id): Path<String>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {
@@ -978,7 +1191,11 @@ pub async fn get_similar_items(
     Path(item_id): Path<String>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {
@@ -1071,7 +1288,11 @@ pub async fn search_items(
     Query(query): Query<SearchQuery>,
 ) -> impl IntoResponse {
     let Some(ref pool) = ctx.db_pool else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "Database not available"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
     };
 
     let conn = match pool.get() {

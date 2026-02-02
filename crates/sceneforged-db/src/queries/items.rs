@@ -607,6 +607,240 @@ pub fn get_recent_items(
     Ok(items)
 }
 
+/// Get recently added items within a time window with pagination.
+///
+/// Returns items created within the last `days` days, ordered by date_created descending.
+///
+/// # Arguments
+///
+/// * `conn` - Database connection
+/// * `days` - Number of days to look back
+/// * `pagination` - Pagination options
+///
+/// # Returns
+///
+/// * `Ok(Vec<Item>)` - List of recently added items
+/// * `Err(Error)` - If a database error occurs
+pub fn get_recently_added_items(
+    conn: &Connection,
+    days: u32,
+    pagination: &Pagination,
+) -> Result<Vec<Item>> {
+    let cutoff = Utc::now() - chrono::Duration::days(days as i64);
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, library_id, parent_id, item_kind, name, sort_name, original_title,
+                    file_path, container, video_codec, audio_codec, resolution, runtime_ticks,
+                    size_bytes, overview, tagline, genres, tags, studios, people,
+                    community_rating, critic_rating, production_year, premiere_date, end_date,
+                    official_rating, provider_ids, scene_release_name, scene_group,
+                    index_number, parent_index_number, etag, date_created, date_modified,
+                    hdr_type, dolby_vision_profile
+             FROM items
+             WHERE date_created >= :cutoff
+             ORDER BY date_created DESC
+             LIMIT :limit OFFSET :offset",
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    let items = stmt
+        .query_map(
+            rusqlite::named_params! {
+                ":cutoff": cutoff.to_rfc3339(),
+                ":limit": pagination.limit,
+                ":offset": pagination.offset,
+            },
+            parse_item_row,
+        )
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    Ok(items)
+}
+
+/// Count recently added items within a time window.
+///
+/// # Arguments
+///
+/// * `conn` - Database connection
+/// * `days` - Number of days to look back
+///
+/// # Returns
+///
+/// * `Ok(u32)` - Count of items
+/// * `Err(Error)` - If a database error occurs
+pub fn count_recently_added_items(conn: &Connection, days: u32) -> Result<u32> {
+    let cutoff = Utc::now() - chrono::Duration::days(days as i64);
+
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM items WHERE date_created >= :cutoff",
+            rusqlite::named_params! { ":cutoff": cutoff.to_rfc3339() },
+            |row| row.get(0),
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    Ok(count as u32)
+}
+
+/// Get continue watching items for a user with pagination.
+///
+/// Returns items where the user has playback_position_ticks > 0 and is not marked as played.
+///
+/// # Arguments
+///
+/// * `conn` - Database connection
+/// * `user_id` - User ID
+/// * `pagination` - Pagination options
+///
+/// # Returns
+///
+/// * `Ok(Vec<Item>)` - List of in-progress items
+/// * `Err(Error)` - If a database error occurs
+pub fn get_continue_watching_items(
+    conn: &Connection,
+    user_id: UserId,
+    pagination: &Pagination,
+) -> Result<Vec<Item>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT i.id, i.library_id, i.parent_id, i.item_kind, i.name, i.sort_name, i.original_title,
+                    i.file_path, i.container, i.video_codec, i.audio_codec, i.resolution, i.runtime_ticks,
+                    i.size_bytes, i.overview, i.tagline, i.genres, i.tags, i.studios, i.people,
+                    i.community_rating, i.critic_rating, i.production_year, i.premiere_date, i.end_date,
+                    i.official_rating, i.provider_ids, i.scene_release_name, i.scene_group,
+                    i.index_number, i.parent_index_number, i.etag, i.date_created, i.date_modified,
+                    i.hdr_type, i.dolby_vision_profile
+             FROM items i
+             INNER JOIN user_item_data uid ON i.id = uid.item_id
+             WHERE uid.user_id = :user_id
+               AND uid.playback_position_ticks > 0
+               AND uid.played = 0
+             ORDER BY uid.last_played_date DESC
+             LIMIT :limit OFFSET :offset",
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    let items = stmt
+        .query_map(
+            rusqlite::named_params! {
+                ":user_id": user_id.to_string(),
+                ":limit": pagination.limit,
+                ":offset": pagination.offset,
+            },
+            parse_item_row,
+        )
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    Ok(items)
+}
+
+/// Count continue watching items for a user.
+///
+/// # Arguments
+///
+/// * `conn` - Database connection
+/// * `user_id` - User ID
+///
+/// # Returns
+///
+/// * `Ok(u32)` - Count of items
+/// * `Err(Error)` - If a database error occurs
+pub fn count_continue_watching_items(conn: &Connection, user_id: UserId) -> Result<u32> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM items i
+             INNER JOIN user_item_data uid ON i.id = uid.item_id
+             WHERE uid.user_id = :user_id
+               AND uid.playback_position_ticks > 0
+               AND uid.played = 0",
+            rusqlite::named_params! { ":user_id": user_id.to_string() },
+            |row| row.get(0),
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    Ok(count as u32)
+}
+
+/// Get favorite items for a user with pagination.
+///
+/// # Arguments
+///
+/// * `conn` - Database connection
+/// * `user_id` - User ID
+/// * `pagination` - Pagination options
+///
+/// # Returns
+///
+/// * `Ok(Vec<Item>)` - List of favorite items
+/// * `Err(Error)` - If a database error occurs
+pub fn get_favorite_items(
+    conn: &Connection,
+    user_id: UserId,
+    pagination: &Pagination,
+) -> Result<Vec<Item>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT i.id, i.library_id, i.parent_id, i.item_kind, i.name, i.sort_name, i.original_title,
+                    i.file_path, i.container, i.video_codec, i.audio_codec, i.resolution, i.runtime_ticks,
+                    i.size_bytes, i.overview, i.tagline, i.genres, i.tags, i.studios, i.people,
+                    i.community_rating, i.critic_rating, i.production_year, i.premiere_date, i.end_date,
+                    i.official_rating, i.provider_ids, i.scene_release_name, i.scene_group,
+                    i.index_number, i.parent_index_number, i.etag, i.date_created, i.date_modified,
+                    i.hdr_type, i.dolby_vision_profile
+             FROM items i
+             INNER JOIN user_item_data uid ON i.id = uid.item_id
+             WHERE uid.user_id = :user_id AND uid.is_favorite = 1
+             ORDER BY COALESCE(i.sort_name, i.name) ASC
+             LIMIT :limit OFFSET :offset",
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    let items = stmt
+        .query_map(
+            rusqlite::named_params! {
+                ":user_id": user_id.to_string(),
+                ":limit": pagination.limit,
+                ":offset": pagination.offset,
+            },
+            parse_item_row,
+        )
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    Ok(items)
+}
+
+/// Count favorite items for a user.
+///
+/// # Arguments
+///
+/// * `conn` - Database connection
+/// * `user_id` - User ID
+///
+/// # Returns
+///
+/// * `Ok(u32)` - Count of items
+/// * `Err(Error)` - If a database error occurs
+pub fn count_favorite_items(conn: &Connection, user_id: UserId) -> Result<u32> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM items i
+             INNER JOIN user_item_data uid ON i.id = uid.item_id
+             WHERE uid.user_id = :user_id AND uid.is_favorite = 1",
+            rusqlite::named_params! { ":user_id": user_id.to_string() },
+            |row| row.get(0),
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    Ok(count as u32)
+}
+
 /// Delete an item.
 ///
 /// # Arguments
