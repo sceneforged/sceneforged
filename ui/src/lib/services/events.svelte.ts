@@ -139,11 +139,15 @@ export function subscribe(
 }
 
 /**
- * Derived state indicating if the event service is connected
+ * Get the current connection status
  */
-export const isConnected = $derived(connected);
+export function getIsConnected(): boolean {
+  return connected;
+}
 
 /**
  * Get the current number of reconnection attempts
  */
-export const currentReconnectAttempts = $derived(reconnectAttempts);
+export function getReconnectAttempts(): number {
+  return reconnectAttempts;
+}

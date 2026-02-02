@@ -433,7 +433,10 @@
                   </TableCell>
                   <TableCell>
                     <Badge variant={statusInfo.variant} class={statusInfo.class}>
-                      <svelte:component this={statusInfo.icon} class="h-3 w-3 mr-1" />
+                      {#if statusInfo.icon}
+                        {@const StatusIcon = statusInfo.icon}
+                        <StatusIcon class="h-3 w-3 mr-1" />
+                      {/if}
                       {job.status}
                     </Badge>
                   </TableCell>

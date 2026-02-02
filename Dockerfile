@@ -6,21 +6,20 @@
 # Stage 1: Build the SvelteKit UI
 FROM node:20-alpine AS ui-builder
 
+# Enable and install pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
 WORKDIR /app/ui
 
 # Copy package files
-COPY ui/package.json ui/pnpm-lock.yaml* ui/package-lock.json* ui/yarn.lock* ./
+COPY ui/package.json ui/pnpm-lock.yaml ./
 
-# Install dependencies (try pnpm, fallback to npm)
-RUN corepack enable && corepack prepare pnpm@latest --activate || true
-RUN if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; \
-    elif [ -f package-lock.json ]; then npm ci; \
-    elif [ -f yarn.lock ]; then yarn --frozen-lockfile; \
-    else npm install; fi
+# Install dependencies
+RUN pnpm install --frozen-lockfile
 
 # Copy source and build
 COPY ui/ ./
-RUN npm run build || pnpm run build
+RUN pnpm run build
 
 # Stage 2: Build the Rust binary
 FROM rust:1.85-bookworm AS rust-builder

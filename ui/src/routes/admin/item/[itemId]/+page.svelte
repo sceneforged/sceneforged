@@ -142,8 +142,10 @@
         <div class="flex items-start gap-4">
           <!-- Icon placeholder -->
           <div class="w-16 h-16 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
-            {@const Icon = ItemIcon}
-            <Icon class="w-8 h-8 text-muted-foreground" />
+            {#if ItemIcon}
+              {@const Icon = ItemIcon}
+              <Icon class="w-8 h-8 text-muted-foreground" />
+            {/if}
           </div>
 
           <div class="flex-1 min-w-0">
