@@ -258,15 +258,12 @@ async fn get_playback_info(
             .into_response();
     }
 
-    // Build base URL from config
-    let base_url = format!(
-        "http://{}:{}/api",
-        ctx.config.server.host, ctx.config.server.port
-    );
+    // Use relative URLs to avoid issues with 0.0.0.0 bind address
+    let base_url = "/api";
 
     let media_sources: Vec<MediaSourceInfo> = filtered_files
         .into_iter()
-        .map(|f| MediaSourceInfo::from_media_file(f, &base_url))
+        .map(|f| MediaSourceInfo::from_media_file(f, base_url))
         .collect();
 
     Json(PlaybackInfoResponse {

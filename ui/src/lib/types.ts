@@ -117,6 +117,28 @@ export interface Library {
 
 export type MediaType = 'movies' | 'tvshows' | 'music';
 
+// Person metadata (actor, director, writer, etc.)
+export interface Person {
+  name: string;
+  role: string | null;
+  person_type: string; // 'Actor', 'Director', 'Writer', etc.
+  image_url: string | null;
+}
+
+// Image types for artwork
+export type ImageType = 'primary' | 'backdrop' | 'banner' | 'thumb' | 'logo';
+
+// Image/artwork for an item
+export interface ItemImage {
+  id: string;
+  item_id: string;
+  image_type: ImageType;
+  path: string;
+  provider: string | null;
+  width: number | null;
+  height: number | null;
+}
+
 export interface Item {
   id: string;
   library_id: string;
@@ -137,6 +159,8 @@ export interface Item {
   genres: string[];
   tags: string[];
   studios: string[];
+  // People (cast/crew) - optional, may not be present in all API responses
+  people?: Person[];
   community_rating: number | null;
   critic_rating: number | null;
   production_year: number | null;
@@ -151,6 +175,14 @@ export interface Item {
   has_profile_c: boolean;
   date_created: string;
   date_modified: string;
+  // Images - optional, may be fetched separately
+  images?: ItemImage[];
+  // Provider IDs for external lookups
+  provider_ids?: {
+    tmdb?: string;
+    imdb?: string;
+    tvdb?: string;
+  };
 }
 
 export type ItemKind =

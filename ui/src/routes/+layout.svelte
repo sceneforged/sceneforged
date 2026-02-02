@@ -30,8 +30,7 @@
   import { getLibraries } from '$lib/api';
   import type { Library, AppEvent } from '$lib/types';
 
-  // Commit hash injected at build time
-  declare const __COMMIT_SHA__: string;
+  // Commit hash injected at build time (declared in app.d.ts)
   const commitSha = __COMMIT_SHA__;
 
   let { children } = $props();

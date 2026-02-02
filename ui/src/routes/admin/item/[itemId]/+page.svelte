@@ -69,7 +69,11 @@
     try {
       const [itemData, files] = await Promise.all([
         api.getItem(itemId),
-        api.getItemFiles(itemId).catch(() => []),
+        api.getItemFiles(itemId).catch((e) => {
+          toast.error('Failed to load media files');
+          console.error('Failed to load media files:', e);
+          return [];
+        }),
       ]);
       item = itemData;
       mediaFiles = files;

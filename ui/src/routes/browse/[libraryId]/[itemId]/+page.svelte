@@ -2,8 +2,9 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import { toast } from 'svelte-sonner';
   import * as api from '$lib/api';
-  import type { Item, MediaFile, UserItemData } from '$lib/types';
+  import type { Item, MediaFile, UserItemData, Person } from '$lib/types';
   import Button from '$lib/components/ui/button/button.svelte';
   import Badge from '$lib/components/ui/badge/badge.svelte';
   import {
@@ -19,6 +20,8 @@
     Play,
     Loader2,
     AlertCircle,
+    User,
+    Users,
   } from 'lucide-svelte';
 
   const libraryId = $derived($page.params.libraryId!);
@@ -56,6 +59,37 @@
     }
   });
 
+  // Get poster image URL if available
+  const posterImage = $derived.by(() => {
+    if (!item?.images) return null;
+    // Look for primary (poster) image first, then backdrop
+    const poster = item.images.find(img => img.image_type === 'primary');
+    if (poster) return poster.path;
+    const backdrop = item.images.find(img => img.image_type === 'backdrop');
+    return backdrop?.path ?? null;
+  });
+
+  // Get director(s) from people
+  const directors = $derived.by(() => {
+    if (!item?.people) return [];
+    return item.people.filter(p => p.person_type === 'Director');
+  });
+
+  // Get cast members (actors), limited to top 10
+  const cast = $derived.by(() => {
+    if (!item?.people) return [];
+    return item.people.filter(p => p.person_type === 'Actor').slice(0, 10);
+  });
+
+  // Get writers from people
+  const writers = $derived.by(() => {
+    if (!item?.people) return [];
+    return item.people.filter(p => p.person_type === 'Writer');
+  });
+
+  // Check if we have any people data to display
+  const hasPeopleData = $derived(directors.length > 0 || cast.length > 0 || writers.length > 0);
+
   onMount(async () => {
     await loadItemData();
   });
@@ -68,13 +102,21 @@
     try {
       const [itemData, files, playbackInfo] = await Promise.all([
         api.getItem(itemId),
-        api.getItemFiles(itemId).catch(() => []),
-        api.getPlaybackInfo(itemId).catch(() => null),
+        api.getItemFiles(itemId).catch((e) => {
+          toast.error('Failed to load media files');
+          console.error('Failed to load media files:', e);
+          return [];
+        }),
+        api.getPlaybackInfo(itemId).catch((e) => {
+          toast.error('Failed to load playback info');
+          console.error('Failed to load playback info:', e);
+          return null;
+        }),
       ]);
 
       item = itemData;
       mediaFiles = files;
-      userItemData = playbackInfo?.user_data ?? null;
+      // Note: PlaybackInfo doesn't include user_data - it's updated via toggle functions
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load item';
     } finally {
@@ -89,6 +131,7 @@
     try {
       userItemData = await api.toggleFavorite(item.id);
     } catch (e) {
+      toast.error('Failed to update favorite status');
       console.error('Failed to toggle favorite:', e);
     } finally {
       togglingFavorite = false;
@@ -123,6 +166,7 @@
         }
       }
     } catch (e) {
+      toast.error('Failed to update played status');
       console.error('Failed to toggle played status:', e);
     } finally {
       togglingPlayed = false;
@@ -167,7 +211,16 @@
       <!-- Poster area -->
       <div class="md:col-span-1">
         <div class="aspect-[2/3] bg-muted rounded-lg flex items-center justify-center overflow-hidden shadow-lg">
-          <ItemIcon class="w-24 h-24 text-muted-foreground/30" />
+          {#if posterImage}
+            <img
+              src={posterImage}
+              alt={item.name}
+              class="w-full h-full object-cover"
+              loading="lazy"
+            />
+          {:else}
+            <ItemIcon class="w-24 h-24 text-muted-foreground/30" />
+          {/if}
         </div>
 
         <!-- Action buttons -->
@@ -299,6 +352,80 @@
                 <Badge variant="outline">{genre}</Badge>
               {/each}
             </div>
+          </div>
+        {/if}
+
+        <!-- Cast & Crew -->
+        {#if hasPeopleData}
+          <div class="mb-6">
+            <h2 class="text-lg font-semibold mb-3">Cast & Crew</h2>
+
+            <!-- Director(s) -->
+            {#if directors.length > 0}
+              <div class="mb-4">
+                <h3 class="text-sm font-medium text-muted-foreground mb-2">
+                  {directors.length === 1 ? 'Director' : 'Directors'}
+                </h3>
+                <div class="flex flex-wrap gap-2">
+                  {#each directors as director (director.name)}
+                    <Badge variant="secondary" class="flex items-center gap-1">
+                      <User class="w-3 h-3" />
+                      {director.name}
+                    </Badge>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+
+            <!-- Writer(s) -->
+            {#if writers.length > 0}
+              <div class="mb-4">
+                <h3 class="text-sm font-medium text-muted-foreground mb-2">
+                  {writers.length === 1 ? 'Writer' : 'Writers'}
+                </h3>
+                <div class="flex flex-wrap gap-2">
+                  {#each writers.slice(0, 5) as writer (writer.name)}
+                    <Badge variant="secondary" class="flex items-center gap-1">
+                      {writer.name}
+                    </Badge>
+                  {/each}
+                  {#if writers.length > 5}
+                    <Badge variant="outline">+{writers.length - 5} more</Badge>
+                  {/if}
+                </div>
+              </div>
+            {/if}
+
+            <!-- Cast -->
+            {#if cast.length > 0}
+              <div>
+                <h3 class="text-sm font-medium text-muted-foreground mb-2">Cast</h3>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {#each cast as actor (actor.name)}
+                    <div class="flex items-center gap-3 p-2 rounded-lg bg-muted/50">
+                      {#if actor.image_url}
+                        <img
+                          src={actor.image_url}
+                          alt={actor.name}
+                          class="w-10 h-10 rounded-full object-cover"
+                          loading="lazy"
+                        />
+                      {:else}
+                        <div class="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+                          <User class="w-5 h-5 text-muted-foreground" />
+                        </div>
+                      {/if}
+                      <div class="flex-1 min-w-0">
+                        <p class="font-medium text-sm truncate">{actor.name}</p>
+                        {#if actor.role}
+                          <p class="text-xs text-muted-foreground truncate">as {actor.role}</p>
+                        {/if}
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {/if}
           </div>
         {/if}
 

@@ -8,6 +8,9 @@ declare global {
 		// interface PageState {}
 		// interface Platform {}
 	}
+
+	// Build-time constants
+	const __COMMIT_SHA__: string;
 }
 
 export {};

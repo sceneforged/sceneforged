@@ -414,10 +414,7 @@ export async function login(
 }
 
 export async function logout(): Promise<void> {
-  await fetch(`${API_BASE}/auth/logout`, {
-    method: 'POST',
-    credentials: 'include',
-  });
+  await fetchApi('/auth/logout', { method: 'POST' });
 }
 
 // Library API

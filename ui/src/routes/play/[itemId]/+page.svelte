@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import { toast } from 'svelte-sonner';
   import * as api from '$lib/api';
   import type { Item, PlaybackInfo, MediaSourceInfo } from '$lib/types';
   import VideoPlayer from '$lib/components/VideoPlayer.svelte';
@@ -79,6 +80,7 @@
     try {
       await api.updatePlaybackPosition(itemId, positionTicks);
     } catch (e) {
+      toast.error('Failed to update playback position');
       console.error('Failed to update playback position:', e);
     }
   }
@@ -87,6 +89,7 @@
     try {
       await api.markPlayed(itemId);
     } catch (e) {
+      toast.error('Failed to mark as played');
       console.error('Failed to mark as played:', e);
     }
     // Optionally return to item detail

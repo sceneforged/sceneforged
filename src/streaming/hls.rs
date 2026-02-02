@@ -61,15 +61,11 @@ pub async fn master_playlist(
     // Get media file info
     let media_file = media_files::get_media_file(&conn, id).map_err(|_| StatusCode::NOT_FOUND)?;
 
-    let base_url = format!(
-        "http://{}:{}",
-        ctx.config.server.host, ctx.config.server.port
-    );
-
     // For now, generate a simple single-stream playlist
+    // Use relative URLs to avoid issues with 0.0.0.0 bind address
     let stream = StreamInfo {
         id: media_file_id.clone(),
-        uri: format!("{}/stream/{}/playlist.m3u8", base_url, media_file_id),
+        uri: format!("/api/stream/{}/playlist.m3u8", media_file_id),
         bandwidth: media_file.bit_rate.unwrap_or(5_000_000) as u32,
         width: media_file.width.unwrap_or(1920) as u32,
         height: media_file.height.unwrap_or(1080) as u32,
@@ -110,10 +106,6 @@ pub async fn media_playlist(
     let media_file = media_files::get_media_file(&conn, id).map_err(|_| StatusCode::NOT_FOUND)?;
 
     let file_path = std::path::Path::new(&media_file.file_path);
-    let base_url = format!(
-        "http://{}:{}",
-        ctx.config.server.host, ctx.config.server.port
-    );
 
     let segment_cache = get_segment_cache();
 
@@ -131,8 +123,8 @@ pub async fn media_playlist(
         })
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Generate media playlist
-    let playlist = MediaPlaylist::from_segment_map(&segment_map, &base_url, &media_file_id);
+    // Generate media playlist with relative URLs to avoid 0.0.0.0 bind address issues
+    let playlist = MediaPlaylist::from_segment_map(&segment_map, "/api", &media_file_id);
     let m3u8 = playlist.render();
 
     Ok(Response::builder()
