@@ -300,18 +300,23 @@ export interface QueueSummary {
 
 // Unified SSE event type with category routing
 // Backend uses serde with #[serde(tag = "event_type", rename_all = "snake_case")]
+// Category determines routing: 'admin' for job events, 'user' for library/item events
 export type AppEvent =
+  // Job events - admin only
   | { category: 'admin'; event_type: 'job_queued'; job: Job }
   | { category: 'admin'; event_type: 'job_started'; id: string; rule_name: string }
   | { category: 'admin'; event_type: 'job_progress'; id: string; progress: number; step: string }
   | { category: 'admin'; event_type: 'job_completed'; job: Job }
   | { category: 'admin'; event_type: 'job_failed'; id: string; error: string }
-  | { category: 'admin'; event_type: 'library_scan_started'; library_id: string }
-  | { category: 'admin'; event_type: 'library_scan_complete'; library_id: string; items_added: number }
-  | { category: 'admin'; event_type: 'library_created'; library: Library }
-  | { category: 'admin'; event_type: 'library_deleted'; library_id: string }
-  | { category: 'admin'; event_type: 'item_added'; item: Item }
-  | { category: 'admin'; event_type: 'item_updated'; item: Item }
-  | { category: 'admin'; event_type: 'item_removed'; item_id: string }
+  // Library events - user (UI updates)
+  | { category: 'user'; event_type: 'library_scan_started'; library_id: string }
+  | { category: 'user'; event_type: 'library_scan_complete'; library_id: string; items_added: number }
+  | { category: 'user'; event_type: 'library_created'; library: Library }
+  | { category: 'user'; event_type: 'library_deleted'; library_id: string }
+  // Item events - user (UI updates)
+  | { category: 'user'; event_type: 'item_added'; item: Item }
+  | { category: 'user'; event_type: 'item_updated'; item: Item }
+  | { category: 'user'; event_type: 'item_removed'; item_id: string }
   | { category: 'user'; event_type: 'playback_available'; item_id: string }
+  // System events
   | { category: 'user'; event_type: 'heartbeat' };

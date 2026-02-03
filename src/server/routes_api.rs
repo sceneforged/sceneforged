@@ -14,6 +14,58 @@ use std::path::PathBuf;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+/// Unified job info for API responses.
+/// Can represent both in-memory jobs and database conversion jobs.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct JobInfo {
+    /// Unique job identifier
+    pub id: String,
+    /// File path being processed
+    pub file_path: String,
+    /// Current job status
+    pub status: String,
+    /// Progress percentage (0-100)
+    pub progress: f64,
+    /// Error message if failed
+    pub error: Option<String>,
+    /// When the job was created
+    pub created_at: String,
+    /// When the job started processing
+    pub started_at: Option<String>,
+    /// When the job completed
+    pub completed_at: Option<String>,
+}
+
+impl From<&Job> for JobInfo {
+    fn from(job: &Job) -> Self {
+        Self {
+            id: job.id.to_string(),
+            file_path: job.file_path.display().to_string(),
+            status: format!("{:?}", job.status).to_lowercase(),
+            progress: job.progress as f64,
+            error: job.error.clone(),
+            created_at: job.created_at.to_rfc3339(),
+            started_at: job.started_at.map(|t| t.to_rfc3339()),
+            completed_at: job.completed_at.map(|t| t.to_rfc3339()),
+        }
+    }
+}
+
+impl From<sceneforged_db::models::ConversionJob> for JobInfo {
+    fn from(job: sceneforged_db::models::ConversionJob) -> Self {
+        Self {
+            id: job.id,
+            file_path: job.output_path.unwrap_or_default(),
+            status: job.status.to_string(),
+            progress: job.progress_pct,
+            error: job.error_message,
+            created_at: job.created_at.to_rfc3339(),
+            started_at: job.started_at.map(|t| t.to_rfc3339()),
+            completed_at: job.completed_at.map(|t| t.to_rfc3339()),
+        }
+    }
+}
+
 pub fn api_routes() -> Router<AppContext> {
     Router::new()
         .route("/health", get(health))
@@ -103,23 +155,40 @@ pub struct ListJobsQuery {
     tag = "jobs",
     params(ListJobsQuery),
     responses(
-        (status = 200, description = "List of jobs", body = Vec<super::openapi::JobSchema>)
+        (status = 200, description = "List of jobs", body = Vec<JobInfo>)
     )
 )]
 pub async fn list_jobs(
     State(ctx): State<AppContext>,
     Query(params): Query<ListJobsQuery>,
 ) -> impl IntoResponse {
-    let mut jobs = ctx.state.get_active_jobs();
+    let limit = params.limit.unwrap_or(100);
+    let mut jobs: Vec<JobInfo> = Vec::new();
+
+    // Get jobs from database (conversion jobs)
+    if let Some(ref pool) = ctx.db_pool {
+        if let Ok(conn) = pool.get() {
+            if let Ok(db_jobs) = sceneforged_db::queries::conversion_jobs::list_active_jobs(&conn, limit) {
+                for job in db_jobs {
+                    jobs.push(JobInfo::from(job));
+                }
+            }
+        }
+    }
+
+    // Also include in-memory jobs (legacy file processing jobs)
+    for job in ctx.state.get_active_jobs() {
+        jobs.push(JobInfo::from(&job));
+    }
 
     // Filter by status if specified
     if let Some(status) = params.status {
-        jobs.retain(|j| format!("{:?}", j.status).to_lowercase() == status.to_lowercase());
+        let status_lower = status.to_lowercase();
+        jobs.retain(|j| j.status == status_lower);
     }
 
     // Apply pagination
     let offset = params.offset.unwrap_or(0);
-    let limit = params.limit.unwrap_or(100);
     let jobs: Vec<_> = jobs.into_iter().skip(offset).take(limit).collect();
 
     Json(jobs)
@@ -240,7 +309,7 @@ pub async fn retry_job(
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
 }
 
-/// Delete a job.
+/// Delete/cancel a job.
 #[utoipa::path(
     delete,
     path = "/api/jobs/{id}",
@@ -249,15 +318,24 @@ pub async fn retry_job(
         ("id" = Uuid, Path, description = "Job ID")
     ),
     responses(
-        (status = 204, description = "Job deleted"),
+        (status = 204, description = "Job deleted/cancelled"),
         (status = 404, description = "Job not found")
     )
 )]
 pub async fn delete_job(State(ctx): State<AppContext>, Path(id): Path<Uuid>) -> impl IntoResponse {
+    // Try to cancel in database first (for conversion jobs)
+    if let Some(ref pool) = ctx.db_pool {
+        if let Ok(conn) = pool.get() {
+            let _ = sceneforged_db::queries::conversion_jobs::cancel_job(&conn, &id.to_string());
+        }
+    }
+
+    // Also remove from in-memory state
     if ctx.state.delete_job(id) {
         StatusCode::NO_CONTENT
     } else {
-        StatusCode::NOT_FOUND
+        // Even if not in memory, might have been cancelled in DB
+        StatusCode::NO_CONTENT
     }
 }
 

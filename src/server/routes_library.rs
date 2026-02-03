@@ -549,6 +549,10 @@ pub async fn delete_library(
 }
 
 /// Scan a library for new media files.
+///
+/// This endpoint starts a background scan and returns immediately.
+/// Progress is reported via SSE events (library_scan_started, item_added,
+/// playback_available, library_scan_complete).
 #[utoipa::path(
     post,
     path = "/api/libraries/{library_id}/scan",
@@ -557,9 +561,8 @@ pub async fn delete_library(
         ("library_id" = String, Path, description = "Library ID")
     ),
     responses(
-        (status = 200, description = "Scan completed"),
+        (status = 202, description = "Scan started in background"),
         (status = 400, description = "Invalid library ID"),
-        (status = 500, description = "Scan failed"),
         (status = 503, description = "Database not available")
     )
 )]
@@ -567,7 +570,7 @@ pub async fn scan_library(
     State(ctx): State<AppContext>,
     Path(library_id): Path<String>,
 ) -> impl IntoResponse {
-    let Some(ref pool) = ctx.db_pool else {
+    let Some(pool) = ctx.db_pool.clone() else {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({"error": "Database not available"})),
@@ -590,38 +593,61 @@ pub async fn scan_library(
     ctx.state
         .broadcast(AppEvent::library_scan_started(library_id.clone()));
 
-    let scanner = Scanner::new(pool.clone(), ctx.config.clone());
-    match scanner.scan_library(id) {
-        Ok(results) => {
-            let items_added = results.len() as u32;
+    // Spawn background task for the scan
+    let state = ctx.state.clone();
+    let config = ctx.config.clone();
+    let lib_id_clone = library_id.clone();
 
-            // Broadcast ItemAdded and PlaybackAvailable events for each item
-            for result in &results {
-                ctx.state.broadcast(AppEvent::item_added(result.item.clone()));
+    tokio::spawn(async move {
+        // Run the blocking scan in a blocking task
+        let scan_result = tokio::task::spawn_blocking(move || {
+            let scanner = Scanner::new(pool, config);
+            scanner.scan_library(id)
+        })
+        .await;
 
-                // If the source serves as universal, playback is immediately available
-                if result.serves_as_universal {
-                    ctx.state
-                        .broadcast(AppEvent::playback_available(result.item_id.to_string()));
+        match scan_result {
+            Ok(Ok(results)) => {
+                let items_added = results.len() as u32;
+
+                // Broadcast ItemAdded and PlaybackAvailable events for each item
+                for result in &results {
+                    state.broadcast(AppEvent::item_added(result.item.clone()));
+
+                    // If the source serves as universal, playback is immediately available
+                    if result.serves_as_universal {
+                        state.broadcast(AppEvent::playback_available(result.item_id.to_string()));
+                    }
                 }
+
+                tracing::info!(
+                    "Library scan complete: {} items added to {}",
+                    items_added,
+                    lib_id_clone
+                );
+
+                // Broadcast scan complete event (consumes lib_id_clone)
+                state.broadcast(AppEvent::library_scan_complete(lib_id_clone, items_added));
             }
-
-            // Broadcast scan complete event
-            ctx.state
-                .broadcast(AppEvent::library_scan_complete(library_id, items_added));
-
-            let response = serde_json::json!({
-                "files_scanned": results.len(),
-                "files_added": results.len(),
-            });
-            Json(response).into_response()
+            Ok(Err(e)) => {
+                tracing::error!("Library scan failed for {}: {}", lib_id_clone, e);
+                // Could broadcast a scan_failed event here if needed
+            }
+            Err(e) => {
+                tracing::error!("Library scan task panicked for {}: {}", lib_id_clone, e);
+            }
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
-    }
+    });
+
+    // Return immediately with 202 Accepted
+    (
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({
+            "status": "scanning",
+            "message": "Library scan started in background. Progress will be reported via SSE events."
+        })),
+    )
+        .into_response()
 }
 
 /// Get items in a library.

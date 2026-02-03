@@ -67,6 +67,7 @@ use super::AppContext;
             super::routes_api::ArrStatus,
             super::routes_api::TestResult,
             super::routes_api::ToolStatusResponse,
+            super::routes_api::JobInfo,
             // Library types
             super::routes_library::CreateLibraryRequest,
             super::routes_library::LibraryResponse,

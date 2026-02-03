@@ -309,6 +309,75 @@ pub fn prune_old_jobs(conn: &Connection, days: i32) -> Result<usize> {
     Ok(affected)
 }
 
+/// List all active (queued or running) conversion jobs.
+pub fn list_active_jobs(conn: &Connection, limit: usize) -> Result<Vec<ConversionJob>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, item_id, source_file_id, status, progress_pct, output_path, error_message,
+                    hw_accel_used, encode_fps, started_at, completed_at, created_at
+             FROM conversion_jobs
+             WHERE status IN ('queued', 'running')
+             ORDER BY created_at ASC
+             LIMIT ?",
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    let jobs = stmt
+        .query_map(params![limit as i64], |row| {
+            Ok(ConversionJob {
+                id: row.get(0)?,
+                item_id: ItemId::from(Uuid::parse_str(&row.get::<_, String>(1)?).unwrap()),
+                source_file_id: MediaFileId::from(
+                    Uuid::parse_str(&row.get::<_, String>(2)?).unwrap(),
+                ),
+                status: row
+                    .get::<_, String>(3)?
+                    .parse()
+                    .unwrap_or(ConversionStatus::Queued),
+                progress_pct: row.get(4)?,
+                output_path: row.get(5)?,
+                error_message: row.get(6)?,
+                hw_accel_used: row.get(7)?,
+                encode_fps: row.get(8)?,
+                started_at: row
+                    .get::<_, Option<String>>(9)?
+                    .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|dt| dt.with_timezone(&Utc)),
+                completed_at: row
+                    .get::<_, Option<String>>(10)?
+                    .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+                    .map(|dt| dt.with_timezone(&Utc)),
+                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(11)?)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now()),
+            })
+        })
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    Ok(jobs)
+}
+
+/// Cancel all stale jobs (running jobs that started more than `hours` ago).
+/// Returns the number of jobs cancelled.
+pub fn cancel_stale_jobs(conn: &Connection, hours: i32) -> Result<usize> {
+    let now = Utc::now();
+    let affected = conn
+        .execute(
+            "UPDATE conversion_jobs
+             SET status = 'failed',
+                 error_message = 'Job timed out (stale)',
+                 completed_at = ?
+             WHERE status = 'running'
+             AND started_at < datetime('now', ? || ' hours')",
+            params![now.to_rfc3339(), format!("-{}", hours)],
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    Ok(affected)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
