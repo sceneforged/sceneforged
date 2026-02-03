@@ -588,6 +588,8 @@ pub struct ConversionJobResponse {
     pub status: String,
     /// Progress percentage (0-100)
     pub progress_pct: f64,
+    /// Current encoding speed in fps
+    pub encode_fps: Option<f64>,
     /// Output file path
     pub output_path: Option<String>,
     /// Error message if failed
@@ -640,6 +642,7 @@ pub async fn list_conversion_jobs(State(ctx): State<AppContext>) -> impl IntoRes
                     source_file_id: j.source_file_id.to_string(),
                     status: j.status.to_string(),
                     progress_pct: j.progress_pct,
+                    encode_fps: j.encode_fps,
                     output_path: j.output_path,
                     error_message: j.error_message,
                     created_at: j.created_at.to_rfc3339(),

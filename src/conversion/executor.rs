@@ -12,7 +12,8 @@ use sceneforged_db::{
     queries::{conversion_jobs, media_files},
 };
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::io::{BufRead, BufReader};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -194,9 +195,46 @@ impl ConversionExecutor {
                 .output_dir
                 .join(format!("{}_{}.mp4", file_stem, job.source_file_id));
 
+            // Calculate source duration in microseconds for progress tracking
+            let source_duration_us = source_file
+                .duration_ticks
+                .map(|ticks| (ticks as f64 / 10.0) as u64); // ticks are 100ns units → µs
+
+            // Progress callback: update DB and broadcast SSE event
+            let job_id_for_progress = job.id.clone();
+            let item_id_for_progress = job.item_id.to_string();
+            let pool_for_progress = self.pool.clone();
+            let event_tx_for_progress = self.event_tx.clone();
+            let progress_callback = move |pct: f64, fps: Option<f64>| {
+                // Update database
+                if let Ok(conn) = pool_for_progress.get() {
+                    let _ = conversion_jobs::update_progress(
+                        &conn,
+                        &job_id_for_progress,
+                        pct,
+                        fps,
+                    );
+                }
+                // Broadcast SSE event
+                if let Some(ref tx) = event_tx_for_progress {
+                    let _ = tx.send(AppEvent::conversion_job_progress(
+                        job_id_for_progress.clone(),
+                        item_id_for_progress.clone(),
+                        pct,
+                        fps,
+                    ));
+                }
+            };
+
             // Run transcode with source height for adaptive CRF
             let source_height = source_file.height.map(|h| h as u32);
-            match self.transcode(&source_file.file_path, &output_path, &job.id, source_height) {
+            match self.transcode(
+                &source_file.file_path,
+                &output_path,
+                source_height,
+                source_duration_us,
+                &progress_callback,
+            ) {
                 Ok(()) => {
                     info!("Conversion completed: {}", job.id);
 
@@ -216,13 +254,22 @@ impl ConversionExecutor {
                         error!("Failed to register universal file: {}", e);
                     }
 
-                    // Broadcast PlaybackAvailable event
+                    // Broadcast completion events
+                    self.broadcast(AppEvent::conversion_job_completed(
+                        job.id.clone(),
+                        job.item_id.to_string(),
+                    ));
                     self.broadcast(AppEvent::playback_available(job.item_id.to_string()));
                 }
                 Err(e) => {
                     error!("Conversion failed: {} - {}", job.id, e);
                     let conn = self.pool.get()?;
                     let _ = conversion_jobs::fail_job(&conn, &job.id, &e.to_string());
+                    self.broadcast(AppEvent::conversion_job_failed(
+                        job.id.clone(),
+                        job.item_id.to_string(),
+                        e.to_string(),
+                    ));
                 }
             }
         }
@@ -231,23 +278,25 @@ impl ConversionExecutor {
         Ok(())
     }
 
-    /// Transcode a single file to Profile B format.
+    /// Transcode a single file to Profile B format with progress tracking.
     ///
-    /// # Arguments
-    /// * `input` - Source file path
-    /// * `output` - Output file path
-    /// * `_job_id` - Job identifier (for future progress tracking)
-    /// * `source_height` - Source video height for adaptive CRF calculation
+    /// Uses FFmpeg's `-progress pipe:1` to stream progress info to stdout,
+    /// parses `out_time_us` to calculate completion percentage.
     fn transcode(
         &self,
         input: &str,
         output: &Path,
-        _job_id: &str,
         source_height: Option<u32>,
+        source_duration_us: Option<u64>,
+        on_progress: &dyn Fn(f64, Option<f64>),
     ) -> Result<()> {
         let mut args = vec![
             "-i".to_string(),
             input.to_string(),
+            // Progress output to stdout
+            "-progress".to_string(),
+            "pipe:1".to_string(),
+            "-nostats".to_string(),
             // Video settings
             "-c:v".to_string(),
         ];
@@ -334,13 +383,64 @@ impl ConversionExecutor {
 
         debug!("FFmpeg args: {:?}", args);
 
-        let status = Command::new("ffmpeg")
+        let mut child = Command::new("ffmpeg")
             .args(&args)
-            .status()
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .context("Failed to execute ffmpeg")?;
 
+        // Read progress from stdout (ffmpeg -progress pipe:1 writes key=value pairs)
+        let stdout = child.stdout.take().context("Failed to get ffmpeg stdout")?;
+        let reader = BufReader::new(stdout);
+
+        let mut last_pct = 0.0_f64;
+        let mut current_fps: Option<f64> = None;
+
+        for line in reader.lines() {
+            let line = match line {
+                Ok(l) => l,
+                Err(_) => break,
+            };
+
+            if let Some((key, value)) = line.split_once('=') {
+                match key.trim() {
+                    "out_time_us" => {
+                        if let (Ok(time_us), Some(total_us)) =
+                            (value.trim().parse::<i64>(), source_duration_us)
+                        {
+                            if total_us > 0 && time_us > 0 {
+                                let pct =
+                                    (time_us as f64 / total_us as f64 * 100.0).min(99.9);
+                                // Only report meaningful changes (>=0.5% delta)
+                                if (pct - last_pct).abs() >= 0.5 {
+                                    last_pct = pct;
+                                    on_progress(pct, current_fps);
+                                }
+                            }
+                        }
+                    }
+                    "fps" => {
+                        current_fps = value.trim().parse::<f64>().ok().filter(|&f| f > 0.0);
+                    }
+                    "progress" if value.trim() == "end" => {
+                        on_progress(100.0, current_fps);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let status = child.wait().context("Failed to wait for ffmpeg")?;
+
         if !status.success() {
-            anyhow::bail!("FFmpeg exited with status: {}", status);
+            // Try to read stderr for error details
+            let stderr_output = child.stderr.take().map(|stderr| {
+                let reader = BufReader::new(stderr);
+                reader.lines().filter_map(|l| l.ok()).last().unwrap_or_default()
+            });
+            let err_msg = stderr_output.unwrap_or_else(|| format!("exit code {}", status));
+            anyhow::bail!("FFmpeg failed: {}", err_msg);
         }
 
         Ok(())
@@ -417,9 +517,19 @@ impl ConversionExecutor {
             .output_dir
             .join(format!("{}_{}.mp4", file_stem, job.source_file_id));
 
-        // Run transcode with source height for adaptive CRF
         let source_height = source_file.height.map(|h| h as u32);
-        match self.transcode(&source_file.file_path, &output_path, job_id, source_height) {
+        let source_duration_us = source_file
+            .duration_ticks
+            .map(|ticks| (ticks as f64 / 10.0) as u64);
+        let noop_progress = |_pct: f64, _fps: Option<f64>| {};
+
+        match self.transcode(
+            &source_file.file_path,
+            &output_path,
+            source_height,
+            source_duration_us,
+            &noop_progress,
+        ) {
             Ok(()) => {
                 conversion_jobs::complete_job(&conn, job_id, &output_path.to_string_lossy())?;
                 self.register_universal_file(&conn, job.item_id, &output_path)?;

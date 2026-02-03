@@ -129,6 +129,27 @@ pub enum AppEvent {
         status: String,
         category: EventCategory,
     },
+    /// A conversion job's progress has been updated.
+    ConversionJobProgress {
+        job_id: String,
+        item_id: String,
+        progress_pct: f64,
+        encode_fps: Option<f64>,
+        category: EventCategory,
+    },
+    /// A conversion job has completed.
+    ConversionJobCompleted {
+        job_id: String,
+        item_id: String,
+        category: EventCategory,
+    },
+    /// A conversion job has failed.
+    ConversionJobFailed {
+        job_id: String,
+        item_id: String,
+        error: String,
+        category: EventCategory,
+    },
     /// A conversion job has been cancelled.
     ConversionJobCancelled {
         job_id: String,
@@ -159,6 +180,9 @@ impl AppEvent {
             AppEvent::PlaybackAvailable { category, .. } => *category,
             // Conversion job events are admin-only
             AppEvent::ConversionJobCreated { category, .. } => *category,
+            AppEvent::ConversionJobProgress { category, .. } => *category,
+            AppEvent::ConversionJobCompleted { category, .. } => *category,
+            AppEvent::ConversionJobFailed { category, .. } => *category,
             AppEvent::ConversionJobCancelled { category, .. } => *category,
         }
     }
@@ -278,6 +302,41 @@ impl AppEvent {
             job_id,
             item_id,
             status,
+            category: EventCategory::Admin,
+        }
+    }
+
+    /// Create a ConversionJobProgress event.
+    pub fn conversion_job_progress(
+        job_id: String,
+        item_id: String,
+        progress_pct: f64,
+        encode_fps: Option<f64>,
+    ) -> Self {
+        AppEvent::ConversionJobProgress {
+            job_id,
+            item_id,
+            progress_pct,
+            encode_fps,
+            category: EventCategory::Admin,
+        }
+    }
+
+    /// Create a ConversionJobCompleted event.
+    pub fn conversion_job_completed(job_id: String, item_id: String) -> Self {
+        AppEvent::ConversionJobCompleted {
+            job_id,
+            item_id,
+            category: EventCategory::Admin,
+        }
+    }
+
+    /// Create a ConversionJobFailed event.
+    pub fn conversion_job_failed(job_id: String, item_id: String, error: String) -> Self {
+        AppEvent::ConversionJobFailed {
+            job_id,
+            item_id,
+            error,
             category: EventCategory::Admin,
         }
     }

@@ -305,6 +305,7 @@ export interface ConversionJob {
   source_file_id: string;
   status: string;
   progress_pct: number;
+  encode_fps: number | null;
   output_path: string | null;
   error_message: string | null;
   created_at: string;
@@ -334,6 +335,9 @@ export type AppEvent =
   | { category: 'user'; event_type: 'playback_available'; item_id: string }
   // Conversion job events - admin
   | { category: 'admin'; event_type: 'conversion_job_created'; job_id: string; item_id: string; status: string }
+  | { category: 'admin'; event_type: 'conversion_job_progress'; job_id: string; item_id: string; progress_pct: number; encode_fps: number | null }
+  | { category: 'admin'; event_type: 'conversion_job_completed'; job_id: string; item_id: string }
+  | { category: 'admin'; event_type: 'conversion_job_failed'; job_id: string; item_id: string; error: string }
   | { category: 'admin'; event_type: 'conversion_job_cancelled'; job_id: string; item_id: string }
   // System events
   | { category: 'user'; event_type: 'heartbeat' };

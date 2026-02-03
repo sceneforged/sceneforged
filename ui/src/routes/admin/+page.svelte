@@ -120,9 +120,27 @@
       }
     }
 
-    // Refresh conversion jobs list on conversion events
-    if (event.event_type === 'conversion_job_created' || event.event_type === 'conversion_job_cancelled') {
+    // Handle conversion job events
+    if (event.event_type === 'conversion_job_progress') {
+      // Update progress inline without re-fetching
+      conversionJobs = conversionJobs.map(j =>
+        j.id === event.job_id
+          ? { ...j, progress_pct: event.progress_pct, encode_fps: event.encode_fps, status: 'running' }
+          : j
+      );
+    } else if (event.event_type === 'conversion_job_created') {
       getConversionJobs().then(jobs => { conversionJobs = jobs; }).catch(() => {});
+    } else if (event.event_type === 'conversion_job_completed') {
+      conversionJobs = conversionJobs.filter(j => j.id !== event.job_id);
+      loadData(); // Refresh stats
+    } else if (event.event_type === 'conversion_job_failed') {
+      conversionJobs = conversionJobs.map(j =>
+        j.id === event.job_id
+          ? { ...j, status: 'failed', error_message: event.error }
+          : j
+      );
+    } else if (event.event_type === 'conversion_job_cancelled') {
+      conversionJobs = conversionJobs.filter(j => j.id !== event.job_id);
     }
 
     // Refresh on library changes
@@ -392,10 +410,16 @@
                     </Button>
                   </div>
                 </div>
-                {#if cjob.progress_pct > 0}
+                {#if cjob.status === 'running' || cjob.progress_pct > 0}
                   <div class="space-y-1">
                     <div class="flex justify-between text-xs">
-                      <span class="text-muted-foreground">Progress</span>
+                      <span class="text-muted-foreground">
+                        {#if cjob.encode_fps}
+                          {cjob.encode_fps.toFixed(1)} fps
+                        {:else}
+                          Encoding...
+                        {/if}
+                      </span>
                       <span class="font-medium">{cjob.progress_pct.toFixed(1)}%</span>
                     </div>
                     <Progress value={cjob.progress_pct} max={100} />
