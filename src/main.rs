@@ -70,11 +70,7 @@ async fn start_server(
     let processor_handle = tokio::spawn(processor.run());
 
     // Start conversion executor
-    let converted_dir = data_dir.join("converted");
-    let profile_b_settings = conversion::ProfileBSettings {
-        output_dir: converted_dir,
-        ..Default::default()
-    };
+    let profile_b_settings = conversion::ProfileBSettings::default();
     let executor = conversion::ConversionExecutor::with_events(
         db_pool.clone(),
         profile_b_settings,

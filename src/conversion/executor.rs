@@ -11,7 +11,7 @@ use sceneforged_db::{
     pool::DbPool,
     queries::{conversion_jobs, hls_cache, media_files},
 };
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -71,8 +71,8 @@ pub struct ProfileBSettings {
     pub keyframe_interval: f64,
     /// Hardware acceleration (none, nvenc, qsv, videotoolbox).
     pub hw_accel: Option<String>,
-    /// Output directory for converted files.
-    pub output_dir: PathBuf,
+    /// Suffix appended before extension to avoid name clashes (default: "-pb").
+    pub output_suffix: String,
     /// Use adaptive CRF based on source resolution (default: true).
     pub adaptive_crf: bool,
 }
@@ -89,7 +89,7 @@ impl Default for ProfileBSettings {
             audio_bitrate: "256k".to_string(), // Higher fidelity audio
             keyframe_interval: 2.0,
             hw_accel: None,
-            output_dir: PathBuf::from("/tmp/sceneforged/converted"),
+            output_suffix: "-pb".to_string(),
             adaptive_crf: true, // Use resolution-based CRF by default
         }
     }
@@ -144,9 +144,6 @@ impl ConversionExecutor {
 
     /// Process queued conversion jobs until stopped.
     pub fn run(&self) -> Result<()> {
-        // Ensure output directory exists
-        std::fs::create_dir_all(&self.settings.output_dir)?;
-
         info!("Conversion executor started");
 
         while !self.stop_signal.load(Ordering::Relaxed) {
@@ -184,16 +181,15 @@ impl ConversionExecutor {
             }
             drop(conn);
 
-            // Generate output path
+            // Generate output path alongside source file
             let source_path = Path::new(&source_file.file_path);
             let file_stem = source_path
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("output");
-            let output_path = self
-                .settings
-                .output_dir
-                .join(format!("{}_{}.mp4", file_stem, job.source_file_id));
+            let source_dir = source_path.parent().unwrap_or(Path::new("."));
+            let output_path =
+                source_dir.join(format!("{}{}.mp4", file_stem, self.settings.output_suffix));
 
             // Calculate source duration in microseconds for progress tracking
             let source_duration_us = source_file
@@ -594,16 +590,15 @@ impl ConversionExecutor {
         // Start job
         conversion_jobs::start_job(&conn, job_id, self.settings.hw_accel.as_deref())?;
 
-        // Generate output path
+        // Generate output path alongside source file
         let source_path = Path::new(&source_file.file_path);
         let file_stem = source_path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("output");
-        let output_path = self
-            .settings
-            .output_dir
-            .join(format!("{}_{}.mp4", file_stem, job.source_file_id));
+        let source_dir = source_path.parent().unwrap_or(Path::new("."));
+        let output_path =
+            source_dir.join(format!("{}{}.mp4", file_stem, self.settings.output_suffix));
 
         let source_height = source_file.height.map(|h| h as u32);
         let source_duration_us = source_file
