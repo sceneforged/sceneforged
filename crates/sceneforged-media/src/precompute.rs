@@ -21,13 +21,11 @@ pub struct HlsPrecomputed {
 ///
 /// This function:
 /// 1. Parses the MP4 to extract sample tables
-/// 2. Validates video sample contiguity (required for zero-copy serving)
-/// 3. Builds the SegmentMap with keyframe-aligned boundaries
-/// 4. Pre-builds moof+mdat headers for each segment
-/// 5. Builds the fMP4 init segment with real codec config
+/// 2. Builds the SegmentMap with keyframe-aligned boundaries
+/// 3. Pre-builds moof+mdat headers for each segment
+/// 4. Builds the fMP4 init segment with real codec config
 ///
-/// Returns an error if the file can't be parsed, has no video track,
-/// or has non-contiguous video samples.
+/// Returns an error if the file can't be parsed or has no video track.
 pub fn precompute_hls(path: &Path) -> Result<HlsPrecomputed> {
     let mp4 = Mp4File::open(path)?;
 
@@ -35,9 +33,6 @@ pub fn precompute_hls(path: &Path) -> Result<HlsPrecomputed> {
         .video_track
         .as_ref()
         .ok_or_else(|| crate::Error::InvalidMp4("No video track found".into()))?;
-
-    // Validate sample contiguity
-    validate_contiguity(&video_track.sample_table)?;
 
     // Build segment map
     let mut segment_map = SegmentMapBuilder::new()
@@ -90,29 +85,4 @@ pub fn precompute_hls(path: &Path) -> Result<HlsPrecomputed> {
         init_segment: init_segment.data,
         segment_map,
     })
-}
-
-/// Validate that video samples are contiguous in the file.
-///
-/// For zero-copy HLS serving, we seek to the first sample's offset and read
-/// `data_size` bytes. If samples aren't contiguous, we'd serve wrong data.
-fn validate_contiguity(sample_table: &crate::mp4::SampleTable) -> Result<()> {
-    if sample_table.samples.len() < 2 {
-        return Ok(());
-    }
-
-    for window in sample_table.samples.windows(2) {
-        let current = &window[0];
-        let next = &window[1];
-        let expected_next_offset = current.offset + current.size as u64;
-
-        if next.offset != expected_next_offset {
-            return Err(crate::Error::InvalidMp4(format!(
-                "Non-contiguous video samples at index {}: expected offset {}, got {}",
-                next.index, expected_next_offset, next.offset
-            )));
-        }
-    }
-
-    Ok(())
 }

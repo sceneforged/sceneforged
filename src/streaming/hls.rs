@@ -25,7 +25,6 @@ use sceneforged_db::queries::{hls_cache, media_files};
 use sceneforged_media::hls::{MediaPlaylist, StreamInfo};
 use std::io::SeekFrom;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
-use tokio_util::io::ReaderStream;
 
 use crate::server::AppContext;
 
@@ -145,8 +144,9 @@ pub async fn init_segment(
 
 /// Serve HLS media segment.
 ///
-/// Uses zero-copy streaming: pre-built moof header is loaded from DB, then file
-/// data is streamed directly without buffering the entire segment in memory.
+/// Uses streaming delivery: pre-built moof header from DB, then file data
+/// streamed via `futures::stream::unfold` over byte ranges. Interleaved MP4s
+/// produce multiple ranges; each range is seeked and streamed in 64KB chunks.
 pub async fn media_segment(
     State(ctx): State<AppContext>,
     Path((media_file_id, segment_index_str)): Path<(String, String)>,
@@ -193,25 +193,45 @@ pub async fn media_segment(
 
     let header_len = moof_mdat_header.len();
     let header_bytes = Bytes::from(moof_mdat_header.clone());
+    let data_size = segment.data_size();
 
     // Calculate total content length for Content-Length header
-    let total_size = header_len as u64 + segment.data_size;
+    let total_size = header_len as u64 + data_size;
 
-    // Open file and seek to segment data
-    let mut file = tokio::fs::File::open(file_path)
+    // Open file for streaming byte ranges
+    let file = tokio::fs::File::open(file_path)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
 
-    file.seek(SeekFrom::Start(segment.data_offset))
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    // Create bounded reader for just this segment's data
-    let segment_reader = file.take(segment.data_size);
-
-    // Stream: first the pre-built moof header, then the file data
+    // Stream: first the pre-built moof header, then file data from byte ranges
     let header_stream = stream::once(async move { Ok::<_, std::io::Error>(header_bytes) });
-    let file_stream = ReaderStream::new(segment_reader);
+
+    let byte_ranges = segment.byte_ranges.clone();
+    let file_stream = stream::unfold(
+        (file, byte_ranges.into_iter(), 0u32),
+        |(mut file, mut ranges, remaining)| async move {
+            const CHUNK_SIZE: u32 = 64 * 1024;
+
+            // If current range exhausted, advance to next
+            let remaining = if remaining == 0 {
+                let (offset, length) = ranges.next()?;
+                file.seek(SeekFrom::Start(offset)).await.ok()?;
+                length
+            } else {
+                remaining
+            };
+
+            let to_read = (remaining).min(CHUNK_SIZE) as usize;
+            let mut buf = vec![0u8; to_read];
+            let n = file.read_exact(&mut buf).await.ok()?;
+            buf.truncate(n);
+
+            Some((
+                Ok::<_, std::io::Error>(Bytes::from(buf)),
+                (file, ranges, remaining - n as u32),
+            ))
+        },
+    );
 
     // Chain the streams together
     let combined_stream = header_stream.chain(file_stream);

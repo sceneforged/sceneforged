@@ -146,20 +146,26 @@ impl SegmentMapBuilder {
         sample_table: &SampleTable,
         start_time_ticks: u64,
     ) -> Segment {
-        let start = sample_table.get(start_sample);
         let end = if end_sample > 0 && end_sample <= sample_table.sample_count {
             sample_table.get(end_sample.saturating_sub(1))
         } else {
             None
         };
 
-        let data_offset = start.map(|s| s.offset).unwrap_or(0);
-
-        // Calculate total data size
-        let mut data_size = 0u64;
+        // Coalesce contiguous samples into byte ranges
+        let mut byte_ranges: Vec<(u64, u32)> = Vec::new();
         for i in start_sample..end_sample {
             if let Some(sample) = sample_table.get(i) {
-                data_size += sample.size as u64;
+                if let Some(last) = byte_ranges.last_mut() {
+                    let run_end = last.0 + last.1 as u64;
+                    if sample.offset == run_end {
+                        // Extend current run
+                        last.1 += sample.size;
+                        continue;
+                    }
+                }
+                // Start new run
+                byte_ranges.push((sample.offset, sample.size));
             }
         }
 
@@ -186,8 +192,7 @@ impl SegmentMapBuilder {
             end_sample,
             duration_secs,
             start_time_secs,
-            data_offset,
-            data_size,
+            byte_ranges,
             moof_data: None,
         }
     }
@@ -275,5 +280,39 @@ mod tests {
         // Should create one segment with all samples
         assert_eq!(segment_map.segment_count(), 1);
         assert_eq!(segment_map.segments[0].sample_count(), 10);
+    }
+
+    #[test]
+    fn test_interleaved_samples() {
+        // Simulate interleaved video/audio: 2 video samples per chunk across 3 chunks
+        // with gaps between chunks (where audio data would be).
+        let mut builder = SampleTableBuilder::new();
+        builder.set_stts(vec![(6, 1000)]);
+        builder.set_sync_samples(vec![1]); // First sample is keyframe
+        builder.set_stsc(vec![(1, 2, 1)]); // 2 samples per chunk
+        builder.set_stsz(0, vec![100, 150, 200, 250, 300, 350]);
+        // Chunks at non-contiguous offsets (audio data in between)
+        builder.set_chunk_offsets(vec![1000, 2000, 3000]);
+
+        let sample_table = builder.build();
+
+        let segment_map = SegmentMapBuilder::new()
+            .timescale(1000)
+            .target_duration(10.0)
+            .build(&sample_table);
+
+        assert_eq!(segment_map.segment_count(), 1);
+        let seg = &segment_map.segments[0];
+
+        // Should have 3 byte ranges (one per chunk), not 1
+        assert_eq!(seg.byte_ranges.len(), 3);
+        // First chunk: samples 0+1 = 100+150 = 250 bytes
+        assert_eq!(seg.byte_ranges[0], (1000, 250));
+        // Second chunk: samples 2+3 = 200+250 = 450 bytes
+        assert_eq!(seg.byte_ranges[1], (2000, 450));
+        // Third chunk: samples 4+5 = 300+350 = 650 bytes
+        assert_eq!(seg.byte_ranges[2], (3000, 650));
+        // Total data size
+        assert_eq!(seg.data_size(), 1350);
     }
 }

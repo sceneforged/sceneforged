@@ -23,10 +23,10 @@ pub struct Segment {
     pub duration_secs: f64,
     /// Start time in seconds (from beginning of file).
     pub start_time_secs: f64,
-    /// File offset of first sample.
-    pub data_offset: u64,
-    /// Total size of sample data in this segment.
-    pub data_size: u64,
+    /// Byte ranges in the source file: `(offset, length)`.
+    /// Contiguous samples are coalesced into single ranges.
+    /// Interleaved files (e.g. FFmpeg output) will have multiple ranges.
+    pub byte_ranges: Vec<(u64, u32)>,
     /// Pre-built moof box for this segment (if available).
     pub moof_data: Option<Vec<u8>>,
 }
@@ -35,6 +35,11 @@ impl Segment {
     /// Get sample count in this segment.
     pub fn sample_count(&self) -> u32 {
         self.end_sample - self.start_sample
+    }
+
+    /// Total size of sample data in this segment.
+    pub fn data_size(&self) -> u64 {
+        self.byte_ranges.iter().map(|(_, len)| *len as u64).sum()
     }
 }
 
@@ -138,8 +143,7 @@ mod tests {
                     end_sample: 100,
                     duration_secs: 5.0,
                     start_time_secs: 0.0,
-                    data_offset: 0,
-                    data_size: 1000,
+                    byte_ranges: vec![(0, 1000)],
                     moof_data: None,
                 },
                 Segment {
@@ -148,8 +152,7 @@ mod tests {
                     end_sample: 200,
                     duration_secs: 5.0,
                     start_time_secs: 5.0,
-                    data_offset: 1000,
-                    data_size: 1000,
+                    byte_ranges: vec![(1000, 1000)],
                     moof_data: None,
                 },
             ],
