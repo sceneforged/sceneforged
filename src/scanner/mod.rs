@@ -9,6 +9,7 @@ pub mod prober;
 pub mod qualifier;
 
 use crate::config::Config;
+use crate::state::AppEvent;
 use anyhow::Result;
 use sceneforged_common::{
     paths::is_video_file, FileRole, ItemId, ItemKind, LibraryId, MediaFileId, MediaType, Profile,
@@ -20,6 +21,7 @@ use sceneforged_db::{
 };
 use std::sync::Arc;
 use std::path::{Path, PathBuf};
+use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
 use walkdir::WalkDir;
 
@@ -36,6 +38,7 @@ pub struct Scanner {
     qualifier: SourceQualifier,
     classifier: ProfileClassifier,
     identifier: MediaIdentifier,
+    event_tx: Option<broadcast::Sender<AppEvent>>,
 }
 
 /// Result of scanning a single file.
@@ -72,6 +75,31 @@ impl Scanner {
             qualifier: SourceQualifier::new(),
             classifier: ProfileClassifier::new(),
             identifier: MediaIdentifier::new(),
+            event_tx: None,
+        }
+    }
+
+    /// Create a new scanner with event broadcasting support.
+    pub fn with_events(
+        pool: DbPool,
+        config: Arc<Config>,
+        event_tx: broadcast::Sender<AppEvent>,
+    ) -> Self {
+        Self {
+            pool,
+            config,
+            prober: FileProber::new(),
+            qualifier: SourceQualifier::new(),
+            classifier: ProfileClassifier::new(),
+            identifier: MediaIdentifier::new(),
+            event_tx: Some(event_tx),
+        }
+    }
+
+    /// Broadcast an event if the event sender is configured.
+    fn broadcast(&self, event: AppEvent) {
+        if let Some(ref tx) = self.event_tx {
+            let _ = tx.send(event);
         }
     }
 
@@ -103,24 +131,35 @@ impl Scanner {
         media_type: MediaType,
     ) -> Result<Vec<ScanResult>> {
         info!("Scanning directory: {:?}", path);
-        let mut results = Vec::new();
 
-        for entry in WalkDir::new(path)
+        // First pass: collect all video file paths
+        let video_files: Vec<PathBuf> = WalkDir::new(path)
             .follow_links(true)
             .into_iter()
             .filter_map(|e| e.ok())
-        {
-            let file_path = entry.path();
+            .filter(|e| !e.path().is_dir() && is_video_file(e.path()))
+            .map(|e| e.path().to_path_buf())
+            .collect();
 
-            // Skip directories
-            if file_path.is_dir() {
-                continue;
-            }
+        let files_found = video_files.len() as u32;
+        info!("Found {} video files in {:?}", files_found, path);
 
-            // Check if it's a media file
-            if !is_video_file(file_path) {
-                continue;
-            }
+        let library_id_str = library_id.to_string();
+        let mut results = Vec::new();
+        let mut files_processed: u32 = 0;
+        let mut files_added: u32 = 0;
+
+        for file_path in &video_files {
+            files_processed += 1;
+
+            // Broadcast progress
+            self.broadcast(AppEvent::library_scan_progress(
+                library_id_str.clone(),
+                files_found,
+                files_processed,
+                files_added,
+                file_path.file_name().and_then(|n| n.to_str()).map(|s| s.to_string()),
+            ));
 
             // Check if already in database
             let conn = self.pool.get()?;
@@ -133,7 +172,15 @@ impl Scanner {
 
             // Scan and import the file
             match self.scan_file(file_path, library_id, media_type) {
-                Ok(result) => results.push(result),
+                Ok(result) => {
+                    files_added += 1;
+                    // Broadcast item_added immediately so UI updates in real-time
+                    self.broadcast(AppEvent::item_added(result.item.clone()));
+                    if result.serves_as_universal {
+                        self.broadcast(AppEvent::playback_available(result.item_id.to_string()));
+                    }
+                    results.push(result);
+                }
                 Err(e) => {
                     warn!("Failed to scan file {:?}: {}", file_path, e);
                 }

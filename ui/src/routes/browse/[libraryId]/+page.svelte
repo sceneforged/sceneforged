@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import * as api from '$lib/api';
-  import type { Library, Item } from '$lib/types';
+  import type { Library, Item, AppEvent } from '$lib/types';
+  import { subscribe } from '$lib/services/events.svelte';
   import MediaCard from '$lib/components/MediaCard.svelte';
   import Button from '$lib/components/ui/button/button.svelte';
   import Input from '$lib/components/ui/input/input.svelte';
@@ -20,15 +21,36 @@
   let searchQuery = $state('');
   let searchTimeout: ReturnType<typeof setTimeout> | null = null;
   let initialLoadDone = $state(false);
+  let unsubscribe: (() => void) | null = null;
 
   const PAGE_SIZE = 24;
   let offset = $state(0);
 
   const hasMore = $derived(offset + items.length < totalCount);
 
+  function handleEvent(event: AppEvent) {
+    if (event.event_type === 'item_added' && event.item.library_id === libraryId) {
+      if (!items.some(i => i.id === event.item.id)) {
+        items = [...items, event.item];
+        totalCount += 1;
+      }
+    } else if (event.event_type === 'item_removed') {
+      const idx = items.findIndex(i => i.id === event.item_id);
+      if (idx !== -1) {
+        items = items.filter(i => i.id !== event.item_id);
+        totalCount = Math.max(0, totalCount - 1);
+      }
+    }
+  }
+
   onMount(async () => {
+    unsubscribe = subscribe('user', handleEvent);
     await loadLibraryAndItems();
     initialLoadDone = true;
+  });
+
+  onDestroy(() => {
+    unsubscribe?.();
   });
 
   // React to search changes (only after initial load)

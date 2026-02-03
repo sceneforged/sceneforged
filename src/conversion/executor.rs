@@ -243,7 +243,14 @@ impl ConversionExecutor {
                 Ok(()) => {
                     info!("Conversion completed: {}", job.id);
 
-                    let conn = self.pool.get()?;
+                    let conn = match self.pool.get() {
+                        Ok(c) => c,
+                        Err(e) => {
+                            error!("Failed to get DB connection after conversion: {}", e);
+                            std::thread::sleep(std::time::Duration::from_secs(2));
+                            continue;
+                        }
+                    };
 
                     // Complete job
                     if let Err(e) = conversion_jobs::complete_job(
@@ -306,7 +313,14 @@ impl ConversionExecutor {
                 }
                 Err(e) => {
                     error!("Conversion failed: {} - {}", job.id, e);
-                    let conn = self.pool.get()?;
+                    let conn = match self.pool.get() {
+                        Ok(c) => c,
+                        Err(pool_err) => {
+                            error!("Failed to get DB connection to record failure: {}", pool_err);
+                            std::thread::sleep(std::time::Duration::from_secs(2));
+                            continue;
+                        }
+                    };
                     let _ = conversion_jobs::fail_job(&conn, &job.id, &e.to_string());
                     self.broadcast(AppEvent::conversion_job_failed(
                         job.id.clone(),

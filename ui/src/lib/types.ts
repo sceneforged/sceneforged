@@ -332,6 +332,7 @@ export type AppEvent =
   | { category: 'admin'; event_type: 'job_failed'; id: string; error: string }
   // Library events - user (UI updates)
   | { category: 'user'; event_type: 'library_scan_started'; library_id: string }
+  | { category: 'user'; event_type: 'library_scan_progress'; library_id: string; files_found: number; files_processed: number; files_added: number; current_file: string | null }
   | { category: 'user'; event_type: 'library_scan_complete'; library_id: string; items_added: number }
   | { category: 'user'; event_type: 'library_created'; library: Library }
   | { category: 'user'; event_type: 'library_deleted'; library_id: string }

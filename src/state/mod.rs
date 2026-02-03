@@ -75,6 +75,15 @@ pub enum AppEvent {
         library_id: String,
         category: EventCategory,
     },
+    /// Progress update during a library scan.
+    LibraryScanProgress {
+        library_id: String,
+        files_found: u32,
+        files_processed: u32,
+        files_added: u32,
+        current_file: Option<String>,
+        category: EventCategory,
+    },
     /// A library scan has completed.
     LibraryScanComplete {
         library_id: String,
@@ -172,6 +181,7 @@ impl AppEvent {
             AppEvent::JobFailed { category, .. } => *category,
             // Library events are user-facing
             AppEvent::LibraryScanStarted { category, .. } => *category,
+            AppEvent::LibraryScanProgress { category, .. } => *category,
             AppEvent::LibraryScanComplete { category, .. } => *category,
             AppEvent::LibraryCreated { category, .. } => *category,
             AppEvent::LibraryDeleted { category, .. } => *category,
@@ -237,6 +247,24 @@ impl AppEvent {
     pub fn library_scan_started(library_id: String) -> Self {
         AppEvent::LibraryScanStarted {
             library_id,
+            category: EventCategory::User,
+        }
+    }
+
+    /// Create a LibraryScanProgress event.
+    pub fn library_scan_progress(
+        library_id: String,
+        files_found: u32,
+        files_processed: u32,
+        files_added: u32,
+        current_file: Option<String>,
+    ) -> Self {
+        AppEvent::LibraryScanProgress {
+            library_id,
+            files_found,
+            files_processed,
+            files_added,
+            current_file,
             category: EventCategory::User,
         }
     }

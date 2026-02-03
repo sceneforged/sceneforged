@@ -596,12 +596,14 @@ pub async fn scan_library(
     // Spawn background task for the scan
     let state = ctx.state.clone();
     let config = ctx.config.clone();
+    let event_tx = ctx.state.event_sender();
     let lib_id_clone = library_id.clone();
 
     tokio::spawn(async move {
         // Run the blocking scan in a blocking task
+        // Scanner broadcasts ItemAdded and LibraryScanProgress events during scan
         let scan_result = tokio::task::spawn_blocking(move || {
-            let scanner = Scanner::new(pool, config);
+            let scanner = Scanner::with_events(pool, config, event_tx);
             scanner.scan_library(id)
         })
         .await;
@@ -610,31 +612,22 @@ pub async fn scan_library(
             Ok(Ok(results)) => {
                 let items_added = results.len() as u32;
 
-                // Broadcast ItemAdded and PlaybackAvailable events for each item
-                for result in &results {
-                    state.broadcast(AppEvent::item_added(result.item.clone()));
-
-                    // If the source serves as universal, playback is immediately available
-                    if result.serves_as_universal {
-                        state.broadcast(AppEvent::playback_available(result.item_id.to_string()));
-                    }
-                }
-
                 tracing::info!(
                     "Library scan complete: {} items added to {}",
                     items_added,
                     lib_id_clone
                 );
 
-                // Broadcast scan complete event (consumes lib_id_clone)
+                // Broadcast scan complete event
                 state.broadcast(AppEvent::library_scan_complete(lib_id_clone, items_added));
             }
             Ok(Err(e)) => {
                 tracing::error!("Library scan failed for {}: {}", lib_id_clone, e);
-                // Could broadcast a scan_failed event here if needed
+                state.broadcast(AppEvent::library_scan_complete(lib_id_clone, 0));
             }
             Err(e) => {
                 tracing::error!("Library scan task panicked for {}: {}", lib_id_clone, e);
+                state.broadcast(AppEvent::library_scan_complete(lib_id_clone, 0));
             }
         }
     });

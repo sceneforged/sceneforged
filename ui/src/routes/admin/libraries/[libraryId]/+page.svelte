@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { toast } from 'svelte-sonner';
@@ -14,9 +14,11 @@
     RefreshCw,
     CheckSquare,
     Square,
+    ScanLine,
   } from 'lucide-svelte';
   import * as api from '$lib/api';
-  import type { Library, Item } from '$lib/types';
+  import type { Library, Item, AppEvent } from '$lib/types';
+  import { subscribe } from '$lib/services/events.svelte';
 
   const libraryId = $derived($page.params.libraryId!);
 
@@ -34,6 +36,10 @@
   let selectedItems = $state<SvelteSet<string>>(new SvelteSet());
   let converting = $state(false);
   let convertingDv = $state(false);
+
+  // Scan progress state (driven by SSE events)
+  let scanning = $state(false);
+  let scanProgress = $state<{ found: number; processed: number; added: number } | null>(null);
 
   // Filter state
   type FilterOption = 'all' | 'profile_a_only' | 'profile_c_only' | 'missing_b' | 'dv_profile_7';
@@ -79,8 +85,38 @@
     })
   );
 
+  let unsubscribe: (() => void) | null = null;
+
+  function handleEvent(event: AppEvent) {
+    if (event.event_type === 'library_scan_started' && event.library_id === libraryId) {
+      scanning = true;
+      scanProgress = { found: 0, processed: 0, added: 0 };
+    } else if (event.event_type === 'library_scan_progress' && event.library_id === libraryId) {
+      scanProgress = {
+        found: event.files_found,
+        processed: event.files_processed,
+        added: event.files_added,
+      };
+    } else if (event.event_type === 'library_scan_complete' && event.library_id === libraryId) {
+      scanning = false;
+      scanProgress = null;
+      toast.success(`Scan complete: ${event.items_added} item${event.items_added !== 1 ? 's' : ''} added`);
+    } else if (event.event_type === 'item_added' && event.item.library_id === libraryId) {
+      // Append new item in real-time if not already present
+      if (!allItems.some(i => i.id === event.item.id)) {
+        allItems = [...allItems, event.item];
+        totalCount += 1;
+      }
+    }
+  }
+
   onMount(async () => {
+    unsubscribe = subscribe('user', handleEvent);
     await loadLibraryAndItems();
+  });
+
+  onDestroy(() => {
+    unsubscribe?.();
   });
 
   async function loadLibraryAndItems() {
@@ -197,6 +233,15 @@
     }
   }
 
+  async function handleScan() {
+    try {
+      await api.scanLibrary(libraryId);
+      // Scan state is driven by SSE events
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to start scan');
+    }
+  }
+
   async function handleRefresh() {
     selectedItems = new SvelteSet();
     await loadLibraryAndItems();
@@ -242,12 +287,46 @@
         {/each}
       </select>
 
+      <Button variant="outline" size="sm" onclick={handleScan} disabled={scanning}>
+        {#if scanning}
+          <Loader2 class="h-4 w-4 mr-2 animate-spin" />
+          {#if scanProgress && scanProgress.found > 0}
+            {scanProgress.processed}/{scanProgress.found}
+          {:else}
+            Scanning
+          {/if}
+        {:else}
+          <ScanLine class="h-4 w-4 mr-2" />
+          Scan
+        {/if}
+      </Button>
+
       <Button variant="outline" size="sm" onclick={handleRefresh} disabled={loading}>
         <RefreshCw class="h-4 w-4 mr-2 {loading ? 'animate-spin' : ''}" />
         Refresh
       </Button>
     </div>
   </div>
+
+  <!-- Scan progress banner -->
+  {#if scanning && scanProgress && scanProgress.found > 0}
+    <div class="bg-primary/5 border border-primary/20 rounded-lg p-3 mb-6 flex items-center gap-3">
+      <Loader2 class="h-4 w-4 animate-spin text-primary flex-shrink-0" />
+      <div class="text-sm">
+        <span class="font-medium">Scanning:</span>
+        {scanProgress.processed}/{scanProgress.found} files processed,
+        {scanProgress.added} added
+      </div>
+      {#if scanProgress.found > 0}
+        <div class="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+          <div
+            class="h-full bg-primary rounded-full transition-all duration-300"
+            style="width: {(scanProgress.processed / scanProgress.found * 100).toFixed(1)}%"
+          ></div>
+        </div>
+      {/if}
+    </div>
+  {/if}
 
   <!-- Selection toolbar (sticky when items selected) -->
   {#if selectedCount > 0}
@@ -331,7 +410,7 @@
         {#if filterValue !== 'all'}
           No items match the current filter. Try a different filter.
         {:else}
-          This library is empty.
+          This library is empty. Click Scan to discover media files.
         {/if}
       </p>
     </div>

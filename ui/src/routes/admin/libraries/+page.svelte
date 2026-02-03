@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card';
   import { Button } from '$lib/components/ui/button';
@@ -19,7 +19,8 @@
     ChevronRight
   } from 'lucide-svelte';
   import { getLibraries, createLibrary, deleteLibrary, scanLibrary } from '$lib/api';
-  import type { Library as LibraryType, MediaType } from '$lib/types';
+  import type { Library as LibraryType, MediaType, AppEvent } from '$lib/types';
+  import { subscribe } from '$lib/services/events.svelte';
   import PathInput from '$lib/components/PathInput.svelte';
 
   let libraries = $state<LibraryType[]>([]);
@@ -32,7 +33,34 @@
   let formType = $state<MediaType>('movies');
   let formPaths = $state<string[]>([]);
   let creating = $state(false);
-  let scanning = $state<string | null>(null);
+
+  // Scan state driven by SSE events
+  interface ScanState {
+    found: number;
+    processed: number;
+    added: number;
+  }
+  let scanningLibraries = $state<Map<string, ScanState>>(new Map());
+
+  let unsubscribe: (() => void) | null = null;
+
+  function handleEvent(event: AppEvent) {
+    if (event.event_type === 'library_scan_started') {
+      scanningLibraries = new Map(scanningLibraries).set(event.library_id, { found: 0, processed: 0, added: 0 });
+    } else if (event.event_type === 'library_scan_progress') {
+      scanningLibraries = new Map(scanningLibraries).set(event.library_id, {
+        found: event.files_found,
+        processed: event.files_processed,
+        added: event.files_added,
+      });
+    } else if (event.event_type === 'library_scan_complete') {
+      const prev = scanningLibraries.get(event.library_id);
+      const newMap = new Map(scanningLibraries);
+      newMap.delete(event.library_id);
+      scanningLibraries = newMap;
+      toast.success(`Scan complete: ${event.items_added} item${event.items_added !== 1 ? 's' : ''} added`);
+    }
+  }
 
   async function loadLibraries() {
     loading = true;
@@ -89,14 +117,11 @@
   }
 
   async function handleScan(lib: LibraryType) {
-    scanning = lib.id;
     try {
       await scanLibrary(lib.id);
-      toast.success(`Scan started for "${lib.name}"`);
+      // Scan state is driven by SSE events, not the API response
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to start scan');
-    } finally {
-      scanning = null;
     }
   }
 
@@ -109,7 +134,14 @@
     }
   }
 
-  onMount(loadLibraries);
+  onMount(() => {
+    loadLibraries();
+    unsubscribe = subscribe('user', handleEvent);
+  });
+
+  onDestroy(() => {
+    unsubscribe?.();
+  });
 </script>
 
 <svelte:head>
@@ -214,6 +246,8 @@
     <div class="grid gap-4">
       {#each libraries as lib (lib.id)}
         {@const Icon = getMediaTypeIcon(lib.media_type)}
+        {@const scanState = scanningLibraries.get(lib.id)}
+        {@const isScanning = !!scanState}
         <Card class="hover:border-primary/50 transition-colors">
           <CardContent class="p-4">
             <div class="flex items-start justify-between">
@@ -241,14 +275,19 @@
                   variant="outline"
                   size="sm"
                   onclick={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); handleScan(lib); }}
-                  disabled={scanning === lib.id}
+                  disabled={isScanning}
                 >
-                  {#if scanning === lib.id}
+                  {#if isScanning}
                     <Loader2 class="h-4 w-4 mr-2 animate-spin" />
+                    {#if scanState && scanState.found > 0}
+                      {scanState.processed}/{scanState.found}
+                    {:else}
+                      Scanning
+                    {/if}
                   {:else}
                     <ScanLine class="h-4 w-4 mr-2" />
+                    Scan
                   {/if}
-                  Scan
                 </Button>
                 <Button
                   variant="destructive"
