@@ -15,6 +15,7 @@ import type {
   DashboardResponse,
   StreamSession,
   LibraryStats,
+  ConversionJob,
 } from './types';
 
 const API_BASE = '/api';
@@ -631,21 +632,13 @@ export async function batchDvConvert(itemIds: string[]): Promise<BatchConvertRes
 
 // Conversion Jobs (admin)
 
-export interface ConversionJob {
-  id: string;
-  item_id: string;
-  source_file_id: string;
-  status: string;
-  progress_pct: number;
-  output_path: string | null;
-  error_message: string | null;
-  created_at: string;
-  started_at: string | null;
-  completed_at: string | null;
-}
-
 export async function getConversionJobs(): Promise<ConversionJob[]> {
   return fetchApi('/admin/conversion-jobs');
+}
+
+export async function getConversionJobsForItem(itemId: string): Promise<ConversionJob[]> {
+  const all = await getConversionJobs();
+  return all.filter(j => j.item_id === itemId);
 }
 
 export async function cancelConversionJob(jobId: string): Promise<void> {

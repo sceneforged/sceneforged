@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { toast } from 'svelte-sonner';
   import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card';
   import { Badge } from '$lib/components/ui/badge';
   import { Button } from '$lib/components/ui/button';
+  import { Progress } from '$lib/components/ui/progress';
   import VersionCard from '$lib/components/VersionCard.svelte';
   import {
     ArrowLeft,
@@ -20,17 +21,28 @@
     RefreshCw,
     HardDrive,
     Layers,
+    Activity,
+    XCircle,
   } from 'lucide-svelte';
   import * as api from '$lib/api';
-  import type { Item, MediaFile } from '$lib/types';
+  import { subscribe as subscribeToEvents } from '$lib/services/events.svelte';
+  import type { Item, MediaFile, ConversionJob, AppEvent } from '$lib/types';
 
   const itemId = $derived($page.params.itemId!);
 
   let item = $state<Item | null>(null);
   let mediaFiles = $state<MediaFile[]>([]);
+  let conversionJobs = $state<ConversionJob[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
   let converting = $state(false);
+  let unsubscribeEvents: (() => void) | null = null;
+
+  // Active conversion jobs for this item
+  const activeConversionJobs = $derived(
+    conversionJobs.filter(j => j.status === 'queued' || j.status === 'running')
+  );
+  const hasActiveConversion = $derived(activeConversionJobs.length > 0);
 
   // Icon based on item kind
   const ItemIcon = $derived.by(() => {
@@ -67,16 +79,18 @@
     error = null;
 
     try {
-      const [itemData, files] = await Promise.all([
+      const [itemData, files, cjobs] = await Promise.all([
         api.getItem(itemId),
         api.getItemFiles(itemId).catch((e) => {
           toast.error('Failed to load media files');
           console.error('Failed to load media files:', e);
           return [];
         }),
+        api.getConversionJobsForItem(itemId).catch(() => [] as ConversionJob[]),
       ]);
       item = itemData;
       mediaFiles = files;
+      conversionJobs = cjobs;
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load item';
     } finally {
@@ -92,13 +106,30 @@
       const response = await api.convertItem(item.id, ['B']);
       toast.success(`Universal copy conversion started (Job ID: ${response.job_ids[0]})`);
 
-      // Reload data after starting conversion
-      await loadData();
+      // Refresh conversion jobs to show the new job
+      conversionJobs = await api.getConversionJobsForItem(itemId).catch(() => []);
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Failed to start conversion';
       toast.error(message);
     } finally {
       converting = false;
+    }
+  }
+
+  async function handleCancelConversion(jobId: string) {
+    try {
+      await api.cancelConversionJob(jobId);
+      conversionJobs = conversionJobs.filter(j => j.id !== jobId);
+      toast.success('Conversion job cancelled');
+    } catch (e) {
+      toast.error('Failed to cancel conversion job');
+    }
+  }
+
+  function handleEvent(event: AppEvent): void {
+    if (event.event_type === 'conversion_job_created' || event.event_type === 'conversion_job_cancelled') {
+      // Refresh conversion jobs for this item
+      api.getConversionJobsForItem(itemId).then(jobs => { conversionJobs = jobs; }).catch(() => {});
     }
   }
 
@@ -108,6 +139,13 @@
 
   onMount(() => {
     loadData();
+    unsubscribeEvents = subscribeToEvents('admin', handleEvent);
+  });
+
+  onDestroy(() => {
+    if (unsubscribeEvents) {
+      unsubscribeEvents();
+    }
   });
 </script>
 
@@ -258,6 +296,60 @@
       </CardContent>
     </Card>
 
+    <!-- Active Conversion Jobs -->
+    {#if activeConversionJobs.length > 0}
+      <Card class="mb-6 border-blue-500/50">
+        <CardHeader>
+          <CardTitle class="flex items-center gap-2 text-lg">
+            <Activity class="w-5 h-5 text-blue-500 animate-pulse" />
+            Active Conversion
+            <Badge variant="secondary">{activeConversionJobs.length}</Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div class="space-y-3">
+            {#each activeConversionJobs as cjob (cjob.id)}
+              <div class="flex items-center justify-between p-3 border rounded-lg">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2 mb-1">
+                    <Badge variant="secondary" class={cjob.status === 'running' ? 'bg-blue-500 text-white' : ''}>
+                      {#if cjob.status === 'running'}
+                        <Activity class="h-3 w-3 mr-1 animate-pulse" />
+                      {:else}
+                        <Clock class="h-3 w-3 mr-1" />
+                      {/if}
+                      {cjob.status}
+                    </Badge>
+                    <span class="text-xs text-muted-foreground">ID: {cjob.id.slice(0, 8)}...</span>
+                  </div>
+                  {#if cjob.progress_pct > 0}
+                    <div class="space-y-1">
+                      <div class="flex justify-between text-xs">
+                        <span class="text-muted-foreground">Progress</span>
+                        <span class="font-medium">{cjob.progress_pct.toFixed(1)}%</span>
+                      </div>
+                      <Progress value={cjob.progress_pct} max={100} />
+                    </div>
+                  {/if}
+                  {#if cjob.error_message}
+                    <p class="text-xs text-destructive mt-1">{cjob.error_message}</p>
+                  {/if}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="ml-2 text-muted-foreground hover:text-destructive"
+                  onclick={() => handleCancelConversion(cjob.id)}
+                >
+                  <XCircle class="h-4 w-4" />
+                </Button>
+              </div>
+            {/each}
+          </div>
+        </CardContent>
+      </Card>
+    {/if}
+
     <!-- Versions/Media Files Section -->
     <Card class="mb-6">
       <CardHeader>
@@ -293,7 +385,7 @@
     </Card>
 
     <!-- Create Universal Copy action at bottom if applicable -->
-    {#if canCreateUniversal}
+    {#if canCreateUniversal && !hasActiveConversion}
       <Card>
         <CardContent class="p-6">
           <div class="flex items-center justify-between">

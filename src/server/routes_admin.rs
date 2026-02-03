@@ -441,7 +441,17 @@ pub async fn convert_item(
     };
 
     match conversion_manager.start_conversion(id, profiles) {
-        Ok(job_ids) => Json(ConvertItemResponse { job_ids }).into_response(),
+        Ok(job_ids) => {
+            // Broadcast SSE events for each created job
+            for job_id in &job_ids {
+                ctx.state.broadcast(crate::state::AppEvent::conversion_job_created(
+                    job_id.clone(),
+                    item_id.clone(),
+                    "queued".to_string(),
+                ));
+            }
+            Json(ConvertItemResponse { job_ids }).into_response()
+        }
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": e.to_string()})),
@@ -505,7 +515,17 @@ pub async fn batch_convert(
     };
 
     match conversion_manager.batch_convert(item_ids, profile) {
-        Ok(job_ids) => Json(BatchConvertResponse { job_ids }).into_response(),
+        Ok(job_ids) => {
+            // Broadcast SSE event for each created job
+            for job_id in &job_ids {
+                ctx.state.broadcast(crate::state::AppEvent::conversion_job_created(
+                    job_id.clone(),
+                    String::new(),
+                    "queued".to_string(),
+                ));
+            }
+            Json(BatchConvertResponse { job_ids }).into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": e.to_string()})),
@@ -665,7 +685,13 @@ pub async fn cancel_conversion_job(
     };
 
     match sceneforged_db::queries::conversion_jobs::cancel_job(&conn, &job_id) {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Ok(()) => {
+            ctx.state.broadcast(crate::state::AppEvent::conversion_job_cancelled(
+                job_id,
+                String::new(), // item_id not easily available here
+            ));
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(_) => StatusCode::NO_CONTENT.into_response(), // Idempotent
     }
 }

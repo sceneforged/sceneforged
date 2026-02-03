@@ -298,6 +298,20 @@ export interface QueueSummary {
   running: number;
 }
 
+// Conversion job (from database)
+export interface ConversionJob {
+  id: string;
+  item_id: string;
+  source_file_id: string;
+  status: string;
+  progress_pct: number;
+  output_path: string | null;
+  error_message: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
 // Unified SSE event type with category routing
 // Backend uses serde with #[serde(tag = "event_type", rename_all = "snake_case")]
 // Category determines routing: 'admin' for job events, 'user' for library/item events
@@ -318,5 +332,8 @@ export type AppEvent =
   | { category: 'user'; event_type: 'item_updated'; item: Item }
   | { category: 'user'; event_type: 'item_removed'; item_id: string }
   | { category: 'user'; event_type: 'playback_available'; item_id: string }
+  // Conversion job events - admin
+  | { category: 'admin'; event_type: 'conversion_job_created'; job_id: string; item_id: string; status: string }
+  | { category: 'admin'; event_type: 'conversion_job_cancelled'; job_id: string; item_id: string }
   // System events
   | { category: 'user'; event_type: 'heartbeat' };

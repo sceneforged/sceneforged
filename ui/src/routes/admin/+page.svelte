@@ -20,7 +20,6 @@
     Clock,
     Activity,
     RefreshCw,
-    Pause,
     Loader2,
     CheckCircle,
     XCircle,
@@ -29,20 +28,27 @@
     Settings,
     ExternalLink,
   } from 'lucide-svelte';
-  import { getAdminDashboard, formatBytes, batchConvert, getHistory, formatJobSource } from '$lib/api';
+  import { Progress } from '$lib/components/ui/progress';
+  import { getAdminDashboard, formatBytes, batchConvert, getHistory, formatJobSource, getConversionJobs, cancelConversionJob } from '$lib/api';
   import { runningJobs, queuedJobs, jobHistory, activeJobs } from '$lib/stores/jobs.svelte';
   import { subscribe as subscribeToEvents } from '$lib/services/events.svelte';
   import StatsCard from '$lib/components/StatsCard.svelte';
   import StreamCard from '$lib/components/StreamCard.svelte';
   import ConversionCard from '$lib/components/ConversionCard.svelte';
-  import type { DashboardResponse, Job, AppEvent } from '$lib/types';
+  import type { DashboardResponse, Job, ConversionJob, AppEvent } from '$lib/types';
 
   let loading = $state(true);
   let error = $state<string | null>(null);
   let data = $state<DashboardResponse | null>(null);
   let recentJobs = $state<Job[]>([]);
+  let conversionJobs = $state<ConversionJob[]>([]);
   let refreshInterval: ReturnType<typeof setInterval> | null = null;
   let unsubscribeEvents: (() => void) | null = null;
+
+  // Active conversion jobs (queued or running)
+  const activeConversionJobs = $derived(
+    conversionJobs.filter(j => j.status === 'queued' || j.status === 'running')
+  );
 
   // Batch conversion state
   let selectedStreamIds = $state<SvelteSet<string>>(new SvelteSet());
@@ -79,12 +85,14 @@
   async function loadData() {
     try {
       error = null;
-      const [dashboardData, historyData] = await Promise.all([
+      const [dashboardData, historyData, conversionData] = await Promise.all([
         getAdminDashboard(),
-        getHistory(10)
+        getHistory(10),
+        getConversionJobs().catch(() => [] as ConversionJob[]),
       ]);
       data = dashboardData;
       recentJobs = historyData;
+      conversionJobs = conversionData;
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load dashboard';
     } finally {
@@ -110,7 +118,11 @@
       if (event.event_type === 'job_completed') {
         recentJobs = [event.job, ...recentJobs].slice(0, 10);
       }
-      // Refresh stats (debounced via interval)
+    }
+
+    // Refresh conversion jobs list on conversion events
+    if (event.event_type === 'conversion_job_created' || event.event_type === 'conversion_job_cancelled') {
+      getConversionJobs().then(jobs => { conversionJobs = jobs; }).catch(() => {});
     }
 
     // Refresh on library changes
@@ -139,6 +151,16 @@
     } else {
       // Select all
       selectedStreamIds = new SvelteSet(data.streams.map(s => s.id));
+    }
+  }
+
+  async function handleCancelConversion(jobId: string) {
+    try {
+      await cancelConversionJob(jobId);
+      conversionJobs = conversionJobs.filter(j => j.id !== jobId);
+      toast.success('Conversion job cancelled');
+    } catch (e) {
+      toast.error('Failed to cancel conversion job');
     }
   }
 
@@ -323,20 +345,14 @@
           <CardTitle class="flex items-center gap-2">
             <Activity class="h-5 w-5" />
             Active Jobs
-            {#if $runningJobs.length > 0}
-              <Badge variant="secondary">{$runningJobs.length}</Badge>
+            {#if $runningJobs.length + activeConversionJobs.length > 0}
+              <Badge variant="secondary">{$runningJobs.length + activeConversionJobs.length}</Badge>
             {/if}
           </CardTitle>
-          {#if $runningJobs.length > 0}
-            <Button variant="outline" size="sm">
-              <Pause class="h-4 w-4 mr-2" />
-              Pause All
-            </Button>
-          {/if}
         </div>
       </CardHeader>
       <CardContent>
-        {#if $runningJobs.length === 0}
+        {#if $runningJobs.length === 0 && activeConversionJobs.length === 0}
           <div class="text-center py-8 text-muted-foreground">
             <Activity class="h-12 w-12 mx-auto mb-2 opacity-50" />
             <p>No jobs currently processing</p>
@@ -345,6 +361,50 @@
           <div class="space-y-4">
             {#each $runningJobs as job (job.id)}
               <ConversionCard {job} />
+            {/each}
+            {#each activeConversionJobs as cjob (cjob.id)}
+              <div class="space-y-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors">
+                <div class="flex items-start justify-between">
+                  <div class="space-y-1 flex-1 min-w-0">
+                    <h3 class="font-semibold text-sm">
+                      Conversion Job
+                    </h3>
+                    <p class="text-xs text-muted-foreground truncate">
+                      Item: {cjob.item_id}
+                    </p>
+                  </div>
+                  <div class="flex items-center gap-2 ml-2">
+                    <Badge variant="secondary" class={cjob.status === 'running' ? 'bg-blue-500 text-white' : ''}>
+                      {#if cjob.status === 'running'}
+                        <Activity class="h-3 w-3 mr-1 animate-pulse" />
+                      {:else}
+                        <Clock class="h-3 w-3 mr-1" />
+                      {/if}
+                      {cjob.status}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      class="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                      onclick={() => handleCancelConversion(cjob.id)}
+                    >
+                      <XCircle class="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                {#if cjob.progress_pct > 0}
+                  <div class="space-y-1">
+                    <div class="flex justify-between text-xs">
+                      <span class="text-muted-foreground">Progress</span>
+                      <span class="font-medium">{cjob.progress_pct.toFixed(1)}%</span>
+                    </div>
+                    <Progress value={cjob.progress_pct} max={100} />
+                  </div>
+                {/if}
+                {#if cjob.error_message}
+                  <p class="text-xs text-destructive">{cjob.error_message}</p>
+                {/if}
+              </div>
             {/each}
           </div>
         {/if}

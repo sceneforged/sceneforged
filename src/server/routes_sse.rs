@@ -24,32 +24,15 @@ pub async fn events_handler(
     let stream = BroadcastStream::new(rx)
         .filter_map(|result| result.ok())
         .map(|event: AppEvent| {
-            // Get the event type string for the SSE event field
-            let event_type = match &event {
-                // Job events (admin)
-                AppEvent::JobQueued { .. } => "job:queued",
-                AppEvent::JobStarted { .. } => "job:started",
-                AppEvent::JobProgress { .. } => "job:progress",
-                AppEvent::JobCompleted { .. } => "job:completed",
-                AppEvent::JobFailed { .. } => "job:failed",
-                // Library events (user)
-                AppEvent::LibraryScanStarted { .. } => "library:scan_started",
-                AppEvent::LibraryScanComplete { .. } => "library:scan_complete",
-                AppEvent::LibraryCreated { .. } => "library:created",
-                AppEvent::LibraryDeleted { .. } => "library:deleted",
-                // Item events (user)
-                AppEvent::ItemAdded { .. } => "item:added",
-                AppEvent::ItemUpdated { .. } => "item:updated",
-                AppEvent::ItemRemoved { .. } => "item:removed",
-                AppEvent::PlaybackAvailable { .. } => "item:playback_available",
-            };
-
-            // Serialize the entire event as JSON (includes category field)
+            // Serialize the entire event as JSON (includes event_type and category fields).
+            // We use unnamed SSE events (no `event:` field) so the browser's
+            // EventSource.onmessage handler receives all events. The event_type
+            // and category are in the JSON data for client-side routing.
             let data = serde_json::to_string(&event).unwrap_or_else(|e| {
                 format!(r#"{{"error": "serialization failed: {}"}}"#, e)
             });
 
-            Ok(Event::default().event(event_type).data(data))
+            Ok(Event::default().data(data))
         });
 
     // Add keepalive with heartbeat every 30 seconds

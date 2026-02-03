@@ -118,6 +118,23 @@ pub enum AppEvent {
         item_id: String,
         category: EventCategory,
     },
+
+    // ========================================================================
+    // Conversion Job Events (Admin category)
+    // ========================================================================
+    /// A conversion job has been created.
+    ConversionJobCreated {
+        job_id: String,
+        item_id: String,
+        status: String,
+        category: EventCategory,
+    },
+    /// A conversion job has been cancelled.
+    ConversionJobCancelled {
+        job_id: String,
+        item_id: String,
+        category: EventCategory,
+    },
 }
 
 impl AppEvent {
@@ -140,6 +157,9 @@ impl AppEvent {
             AppEvent::ItemUpdated { category, .. } => *category,
             AppEvent::ItemRemoved { category, .. } => *category,
             AppEvent::PlaybackAvailable { category, .. } => *category,
+            // Conversion job events are admin-only
+            AppEvent::ConversionJobCreated { category, .. } => *category,
+            AppEvent::ConversionJobCancelled { category, .. } => *category,
         }
     }
 
@@ -249,6 +269,25 @@ impl AppEvent {
         AppEvent::PlaybackAvailable {
             item_id,
             category: EventCategory::User,
+        }
+    }
+
+    /// Create a ConversionJobCreated event.
+    pub fn conversion_job_created(job_id: String, item_id: String, status: String) -> Self {
+        AppEvent::ConversionJobCreated {
+            job_id,
+            item_id,
+            status,
+            category: EventCategory::Admin,
+        }
+    }
+
+    /// Create a ConversionJobCancelled event.
+    pub fn conversion_job_cancelled(job_id: String, item_id: String) -> Self {
+        AppEvent::ConversionJobCancelled {
+            job_id,
+            item_id,
+            category: EventCategory::Admin,
         }
     }
 }
