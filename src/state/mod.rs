@@ -107,13 +107,11 @@ pub enum AppEvent {
     // ========================================================================
     /// A new item has been added to the library.
     ItemAdded {
-        #[serde(flatten)]
         item: Item,
         category: EventCategory,
     },
     /// An item has been updated.
     ItemUpdated {
-        #[serde(flatten)]
         item: Item,
         category: EventCategory,
     },
