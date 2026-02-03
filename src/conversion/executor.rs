@@ -205,26 +205,31 @@ impl ConversionExecutor {
             let item_id_for_progress = job.item_id.to_string();
             let pool_for_progress = self.pool.clone();
             let event_tx_for_progress = self.event_tx.clone();
-            let progress_callback = move |pct: f64, fps: Option<f64>| {
-                // Update database
-                if let Ok(conn) = pool_for_progress.get() {
-                    let _ = conversion_jobs::update_progress(
-                        &conn,
-                        &job_id_for_progress,
-                        pct,
-                        fps,
-                    );
-                }
-                // Broadcast SSE event
-                if let Some(ref tx) = event_tx_for_progress {
-                    let _ = tx.send(AppEvent::conversion_job_progress(
-                        job_id_for_progress.clone(),
-                        item_id_for_progress.clone(),
-                        pct,
-                        fps,
-                    ));
-                }
-            };
+            let start_time = std::time::Instant::now();
+            let progress_callback =
+                move |pct: f64, fps: Option<f64>, eta_secs: Option<f64>| {
+                    let elapsed_secs = start_time.elapsed().as_secs_f64();
+                    // Update database
+                    if let Ok(conn) = pool_for_progress.get() {
+                        let _ = conversion_jobs::update_progress(
+                            &conn,
+                            &job_id_for_progress,
+                            pct,
+                            fps,
+                        );
+                    }
+                    // Broadcast SSE event
+                    if let Some(ref tx) = event_tx_for_progress {
+                        let _ = tx.send(AppEvent::conversion_job_progress(
+                            job_id_for_progress.clone(),
+                            item_id_for_progress.clone(),
+                            pct,
+                            fps,
+                            eta_secs,
+                            elapsed_secs,
+                        ));
+                    }
+                };
 
             // Run transcode with source height for adaptive CRF
             let source_height = source_file.height.map(|h| h as u32);
@@ -288,7 +293,7 @@ impl ConversionExecutor {
         output: &Path,
         source_height: Option<u32>,
         source_duration_us: Option<u64>,
-        on_progress: &dyn Fn(f64, Option<f64>),
+        on_progress: &dyn Fn(f64, Option<f64>, Option<f64>),
     ) -> Result<()> {
         let mut args = vec![
             "-i".to_string(),
@@ -396,6 +401,8 @@ impl ConversionExecutor {
 
         let mut last_pct = 0.0_f64;
         let mut current_fps: Option<f64> = None;
+        let mut current_speed: Option<f64> = None;
+        let mut current_time_us: Option<i64> = None;
 
         for line in reader.lines() {
             let line = match line {
@@ -406,25 +413,44 @@ impl ConversionExecutor {
             if let Some((key, value)) = line.split_once('=') {
                 match key.trim() {
                     "out_time_us" => {
-                        if let (Ok(time_us), Some(total_us)) =
-                            (value.trim().parse::<i64>(), source_duration_us)
-                        {
-                            if total_us > 0 && time_us > 0 {
-                                let pct =
-                                    (time_us as f64 / total_us as f64 * 100.0).min(99.9);
-                                // Only report meaningful changes (>=0.5% delta)
-                                if (pct - last_pct).abs() >= 0.5 {
-                                    last_pct = pct;
-                                    on_progress(pct, current_fps);
-                                }
-                            }
-                        }
+                        current_time_us = value.trim().parse::<i64>().ok();
                     }
                     "fps" => {
                         current_fps = value.trim().parse::<f64>().ok().filter(|&f| f > 0.0);
                     }
-                    "progress" if value.trim() == "end" => {
-                        on_progress(100.0, current_fps);
+                    "speed" => {
+                        // FFmpeg outputs speed like "1.5x" or "N/A"
+                        let v = value.trim().trim_end_matches('x');
+                        current_speed = v.parse::<f64>().ok().filter(|&s| s > 0.0);
+                    }
+                    "progress" => {
+                        // "progress=continue" or "progress=end" marks end of a stats block.
+                        // Calculate and emit progress for this block.
+                        if let (Some(time_us), Some(total_us)) =
+                            (current_time_us, source_duration_us)
+                        {
+                            if total_us > 0 && time_us > 0 {
+                                let pct =
+                                    (time_us as f64 / total_us as f64 * 100.0).min(99.9);
+                                // Calculate ETA: remaining_duration / speed
+                                let eta_secs = current_speed.and_then(|speed| {
+                                    let remaining_us = total_us as f64 - time_us as f64;
+                                    if remaining_us > 0.0 {
+                                        Some(remaining_us / 1_000_000.0 / speed)
+                                    } else {
+                                        None
+                                    }
+                                });
+                                // Only report meaningful changes (>=0.5% delta)
+                                if (pct - last_pct).abs() >= 0.5 {
+                                    last_pct = pct;
+                                    on_progress(pct, current_fps, eta_secs);
+                                }
+                            }
+                        }
+                        if value.trim() == "end" {
+                            on_progress(100.0, current_fps, Some(0.0));
+                        }
                     }
                     _ => {}
                 }
@@ -521,7 +547,7 @@ impl ConversionExecutor {
         let source_duration_us = source_file
             .duration_ticks
             .map(|ticks| (ticks as f64 / 10.0) as u64);
-        let noop_progress = |_pct: f64, _fps: Option<f64>| {};
+        let noop_progress = |_pct: f64, _fps: Option<f64>, _eta: Option<f64>| {};
 
         match self.transcode(
             &source_file.file_path,

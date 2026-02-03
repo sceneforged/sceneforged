@@ -63,6 +63,19 @@
     }
   });
 
+  // Format seconds into human-readable duration
+  function formatDuration(secs: number | null | undefined): string {
+    if (secs == null || secs <= 0) return '-';
+    const s = Math.round(secs);
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    const rs = s % 60;
+    if (m < 60) return `${m}m ${rs}s`;
+    const h = Math.floor(m / 60);
+    const rm = m % 60;
+    return `${h}h ${rm}m`;
+  }
+
   // Check if a universal version exists
   const hasUniversal = $derived(mediaFiles.some(f => f.serves_as_universal));
 
@@ -130,7 +143,7 @@
     if (event.event_type === 'conversion_job_progress') {
       conversionJobs = conversionJobs.map(j =>
         j.id === event.job_id
-          ? { ...j, progress_pct: event.progress_pct, encode_fps: event.encode_fps, status: 'running' }
+          ? { ...j, progress_pct: event.progress_pct, encode_fps: event.encode_fps, eta_secs: event.eta_secs, elapsed_secs: event.elapsed_secs, status: 'running' }
           : j
       );
     } else if (event.event_type === 'conversion_job_completed') {
@@ -352,6 +365,12 @@
                         <span class="font-medium">{cjob.progress_pct.toFixed(1)}%</span>
                       </div>
                       <Progress value={cjob.progress_pct} max={100} />
+                      <div class="flex justify-between text-xs text-muted-foreground">
+                        <span>Elapsed: {formatDuration(cjob.elapsed_secs)}</span>
+                        {#if cjob.eta_secs != null && cjob.eta_secs > 0}
+                          <span>ETA: {formatDuration(cjob.eta_secs)}</span>
+                        {/if}
+                      </div>
                     </div>
                   {/if}
                   {#if cjob.error_message}

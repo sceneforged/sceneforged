@@ -135,6 +135,8 @@ pub enum AppEvent {
         item_id: String,
         progress_pct: f64,
         encode_fps: Option<f64>,
+        eta_secs: Option<f64>,
+        elapsed_secs: f64,
         category: EventCategory,
     },
     /// A conversion job has completed.
@@ -312,12 +314,16 @@ impl AppEvent {
         item_id: String,
         progress_pct: f64,
         encode_fps: Option<f64>,
+        eta_secs: Option<f64>,
+        elapsed_secs: f64,
     ) -> Self {
         AppEvent::ConversionJobProgress {
             job_id,
             item_id,
             progress_pct,
             encode_fps,
+            eta_secs,
+            elapsed_secs,
             category: EventCategory::Admin,
         }
     }
