@@ -28,7 +28,7 @@ ENV PUBLIC_COMMIT_SHA=$COMMIT_SHA
 RUN pnpm run build
 
 # Stage 2: Build the Rust binary (Trixie for FFmpeg 7+ with coded_side_data API)
-FROM rust:1.85-trixie AS rust-builder
+FROM rust:1-trixie AS rust-builder
 
 WORKDIR /app
 
