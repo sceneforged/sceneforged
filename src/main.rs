@@ -2,7 +2,7 @@ mod cli;
 mod processor;
 
 use sceneforged::{
-    config, pipeline, probe, rules,
+    config, conversion, pipeline, probe, rules,
     server::{self, auth},
     state, watch,
 };
@@ -69,6 +69,22 @@ async fn start_server(
         processor::JobProcessor::new(state.clone(), Arc::new(config.clone()), shutdown_rx);
     let processor_handle = tokio::spawn(processor.run());
 
+    // Start conversion executor
+    let converted_dir = data_dir.join("converted");
+    let mut profile_b_settings = conversion::ProfileBSettings::default();
+    profile_b_settings.output_dir = converted_dir;
+    let executor = conversion::ConversionExecutor::with_events(
+        db_pool.clone(),
+        profile_b_settings,
+        state.event_sender(),
+    );
+    let executor_stop = executor.stop_signal();
+    let executor_handle = tokio::task::spawn_blocking(move || {
+        if let Err(e) = executor.run() {
+            tracing::error!("Conversion executor error: {}", e);
+        }
+    });
+
     // Start file watcher if enabled
     let mut watcher = watch::FileWatcher::new(config.watch.clone(), state.clone());
     if config.watch.enabled {
@@ -82,8 +98,10 @@ async fn start_server(
 
     // Cleanup
     tracing::info!("Shutting down...");
+    executor_stop.store(true, std::sync::atomic::Ordering::Relaxed);
     let _ = shutdown_tx.send(()).await;
     let _ = processor_handle.await;
+    let _ = executor_handle.await;
 
     server_result
 }

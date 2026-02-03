@@ -304,7 +304,7 @@ impl ConversionExecutor {
         args.extend([
             "-vf".to_string(),
             format!(
-                "scale='min({},iw)':min'({},ih)':force_original_aspect_ratio=decrease",
+                "scale='min({},iw)':'min({},ih)':force_original_aspect_ratio=decrease",
                 self.settings.max_width, self.settings.max_height
             ),
         ]);
