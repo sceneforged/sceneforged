@@ -251,7 +251,19 @@ impl Scanner {
         let qualification = self.qualifier.check(path, &media_info);
 
         // Classify the media file into a profile
-        let classification = self.classifier.classify(&media_info);
+        let mut classification = self.classifier.classify(&media_info);
+
+        // If classifier says Profile B but qualifier says it doesn't serve as universal,
+        // downgrade to Profile C. Profile B means "can serve as universal without conversion",
+        // so if it fails any qualification check (faststart, keyframes, etc.), it's Profile C.
+        if classification.profile == Profile::B && !qualification.serves_as_universal {
+            debug!(
+                "Downgrading {:?} from Profile B to C: {}",
+                path,
+                qualification.disqualification_reasons.join(", ")
+            );
+            classification.profile = Profile::C;
+        }
 
         // Create media file entry
         let media_file = media_files::create_media_file(
