@@ -95,8 +95,8 @@ impl ProfileClassifier {
             return true;
         }
 
-        // Check for 4K + HEVC
-        let is_4k = video.width >= 3840 || video.height >= 2160;
+        // Check for 4K+ HEVC (use relaxed thresholds to catch near-4K crops like 3822x2066)
+        let is_4k = video.width >= 3600 || video.height >= 2000;
         let is_hevc = self.is_hevc_codec(&video.codec);
 
         is_4k && is_hevc

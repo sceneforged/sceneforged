@@ -393,11 +393,13 @@ impl Scanner {
             qualification.keyframe_interval_secs,
         )?;
 
-        // Queue conversion job if file doesn't have HLS cache (not Profile B)
-        // Only auto-convert Profile C content (not Profile A which is 4K/HDR)
-        // Profile A content should only be converted manually through the UI
+        // Queue conversion job if enabled and file is Profile C (needs conversion)
+        // Profile A (4K/HDR) and Profile B (already universal) are never auto-queued
         let needs_conversion = !has_hls_cache;
-        if needs_conversion && classification.profile != Profile::A {
+        if self.config.conversion.auto_convert_on_scan
+            && needs_conversion
+            && classification.profile == Profile::C
+        {
             // Check if there's already an active job for this item
             if conversion_jobs::get_active_job_for_item(&conn, item.id)?.is_none() {
                 let job = conversion_jobs::create_conversion_job(&conn, item.id, media_file.id)?;

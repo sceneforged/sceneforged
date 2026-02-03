@@ -262,7 +262,7 @@ impl ConversionExecutor {
                     }
 
                     // Register output as universal file
-                    match self.register_universal_file(&conn, job.item_id, &output_path) {
+                    match self.register_universal_file(&conn, job.item_id, &output_path, source_file.width, source_file.height) {
                         Ok(media_file_id) => {
                             // Precompute HLS cache for the new Profile B file.
                             // Profile B is only valid when HLS cache is populated.
@@ -532,8 +532,16 @@ impl ConversionExecutor {
         conn: &rusqlite::Connection,
         item_id: sceneforged_common::ItemId,
         output_path: &Path,
+        source_width: Option<i32>,
+        source_height: Option<i32>,
     ) -> Result<MediaFileId> {
         let file_size = std::fs::metadata(output_path)?.len() as i64;
+
+        // Compute actual output dimensions (min of source and max settings)
+        let max_w = self.settings.max_width as i32;
+        let max_h = self.settings.max_height as i32;
+        let out_width = source_width.map(|w| w.min(max_w));
+        let out_height = source_height.map(|h| h.min(max_h));
 
         // Create media file entry with Profile::B (universal playback profile)
         let media_file = media_files::create_media_file_with_profile(
@@ -552,8 +560,8 @@ impl ConversionExecutor {
             media_file.id,
             Some("h264"),
             Some("aac"),
-            Some(self.settings.max_width as i32),
-            Some(self.settings.max_height as i32),
+            out_width,
+            out_height,
             None,  // Duration will be read from source
             None,  // Bit rate
             false, // Not HDR
@@ -612,7 +620,7 @@ impl ConversionExecutor {
         ) {
             Ok(()) => {
                 conversion_jobs::complete_job(&conn, job_id, &output_path.to_string_lossy())?;
-                let media_file_id = self.register_universal_file(&conn, job.item_id, &output_path)?;
+                let media_file_id = self.register_universal_file(&conn, job.item_id, &output_path, source_file.width, source_file.height)?;
 
                 // Precompute and store HLS cache for the new Profile B file
                 let hls = sceneforged_media::precompute_hls(&output_path)

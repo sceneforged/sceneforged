@@ -301,6 +301,10 @@ pub enum Action {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ConversionConfig {
+    /// Automatically queue Profile C files for Profile B conversion on scan
+    #[serde(default)]
+    pub auto_convert_on_scan: bool,
+
     /// Auto-convert DV Profile 7 files to Profile 8 on import
     #[serde(default)]
     pub auto_convert_dv_p7_to_p8: bool,
@@ -341,6 +345,7 @@ fn default_adaptive_crf() -> bool {
 impl Default for ConversionConfig {
     fn default() -> Self {
         Self {
+            auto_convert_on_scan: false,
             auto_convert_dv_p7_to_p8: false,
             video_crf: default_video_crf(),
             video_preset: default_video_preset(),

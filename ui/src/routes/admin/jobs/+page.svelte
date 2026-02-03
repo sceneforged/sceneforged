@@ -33,10 +33,8 @@
     RotateCcw,
     ArrowUp,
     ArrowDown,
-    ArrowLeft,
     Loader2,
   } from 'lucide-svelte';
-  import { goto } from '$app/navigation';
   import {
     getHistory,
     retryJob,
@@ -83,6 +81,19 @@
   function formatCodec(codec: string | null): string {
     if (!codec) return '?';
     return codec.toUpperCase();
+  }
+
+  // Compute target resolution from source (capped at 1080p, preserving aspect)
+  function targetResolution(sourceRes: string | null): string | null {
+    if (!sourceRes) return null;
+    const parts = sourceRes.split('x');
+    if (parts.length !== 2) return null;
+    const sw = parseInt(parts[0]);
+    const sh = parseInt(parts[1]);
+    if (isNaN(sw) || isNaN(sh)) return null;
+    const w = Math.min(sw, 1920);
+    const h = Math.min(sh, 1080);
+    return `${w}x${h}`;
   }
 
   // Computed filtered and sorted data
@@ -231,10 +242,6 @@
   <!-- Header -->
   <div class="flex items-center justify-between mb-6">
     <div class="flex items-center gap-4">
-      <Button variant="ghost" onclick={() => goto('/admin')}>
-        <ArrowLeft class="w-4 h-4 mr-2" />
-        Dashboard
-      </Button>
       <h1 class="text-2xl font-bold">Jobs</h1>
     </div>
     <Button variant="outline" size="sm" onclick={loadData} disabled={loading}>
@@ -287,7 +294,13 @@
                       {/if}
                     </span>
                     <span class="text-muted-foreground/50">&#8594;</span>
-                    <span>H264/AAC (1080p) .mp4</span>
+                    <span>
+                      H264/AAC
+                      {#if targetResolution(cjob.source_resolution)}
+                        ({targetResolution(cjob.source_resolution)})
+                      {/if}
+                      .mp4
+                    </span>
                   </div>
                 </div>
                 <div class="flex items-center gap-2 ml-2">
