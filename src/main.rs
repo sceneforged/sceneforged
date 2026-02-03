@@ -82,11 +82,11 @@ fn main() -> Result<()> {
     // Respect RUST_LOG env var if set, otherwise use defaults based on verbose flag
     let env_filter = std::env::var("RUST_LOG").unwrap_or_else(|_| {
         if cli.verbose {
-            // Verbose mode: debug for all sceneforged crates, info for HTTP
-            "sceneforged=debug,sceneforged_media=debug,sceneforged_db=debug,sceneforged_common=debug,sceneforged_probe=debug,tower_http=debug".to_string()
+            // Verbose mode: trace for sceneforged, debug for HTTP
+            "sceneforged=trace,sceneforged_media=trace,sceneforged_db=debug,sceneforged_common=debug,sceneforged_probe=debug,tower_http=debug".to_string()
         } else {
-            // Normal mode: info for sceneforged crates, warn for HTTP (less noisy)
-            "sceneforged=info,sceneforged_media=info,sceneforged_db=info,tower_http=warn".to_string()
+            // Normal mode: debug for sceneforged crates, info for HTTP requests
+            "sceneforged=debug,sceneforged_media=debug,sceneforged_db=info,tower_http=info".to_string()
         }
     });
 

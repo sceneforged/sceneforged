@@ -59,6 +59,11 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
     throw new ApiError(response.status, message || response.statusText);
   }
 
+  // Handle 204 No Content responses (e.g., DELETE operations)
+  if (response.status === 204 || response.headers.get('content-length') === '0') {
+    return undefined as T;
+  }
+
   return response.json();
 }
 
