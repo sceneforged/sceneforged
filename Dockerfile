@@ -27,8 +27,8 @@ COPY ui/ ./
 ENV PUBLIC_COMMIT_SHA=$COMMIT_SHA
 RUN pnpm run build
 
-# Stage 2: Build the Rust binary
-FROM rust:1.85-bookworm AS rust-builder
+# Stage 2: Build the Rust binary (Trixie for FFmpeg 7+ with coded_side_data API)
+FROM rust:1.85-trixie AS rust-builder
 
 WORKDIR /app
 
@@ -61,8 +61,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --release -p sceneforged && \
     cp target/release/sceneforged /tmp/sceneforged
 
-# Stage 3: Runtime image
-FROM debian:bookworm-slim AS runtime
+# Stage 3: Runtime image (Trixie for FFmpeg 7+)
+FROM debian:trixie-slim AS runtime
 
 # Install runtime dependencies and media tools
 RUN apt-get update && apt-get install -y \
