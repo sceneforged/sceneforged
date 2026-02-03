@@ -1,0 +1,15 @@
+[package]
+name = "sf-pipeline"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sf-core.workspace = true
+sf-probe.workspace = true
+sf-av.workspace = true
+sf-rules.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tempfile.workspace = true
+async-trait.workspace = true
+tracing.workspace = true

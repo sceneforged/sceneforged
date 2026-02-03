@@ -1,0 +1,13 @@
+[package]
+name = "sf-parser"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sf-core.workspace = true
+winnow.workspace = true
+logos.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

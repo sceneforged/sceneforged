@@ -1,0 +1,17 @@
+[package]
+name = "sf-probe"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sf-core.workspace = true
+matroska.workspace = true
+mp4parse.workspace = true
+dolby_vision.workspace = true
+bitstream-io.workspace = true
+serde.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+serde_json.workspace = true

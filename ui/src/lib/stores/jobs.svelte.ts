@@ -1,134 +1,80 @@
-import type { Job, AppEvent } from '$lib/types';
-import { getJobs, getHistory } from '$lib/api';
-import { subscribe as subscribeToEvents } from '$lib/services/events.svelte';
+import type { Job, AppEvent } from '$lib/types.js';
+import { getJobs } from '$lib/api/index.js';
 
-// Module-level state using Svelte 5 runes (singleton pattern)
-let jobs = $state<Job[]>([]);
-let history = $state<Job[]>([]);
+function createJobsStore() {
+	let activeJobs = $state<Job[]>([]);
+	let jobHistory = $state<Job[]>([]);
 
-/**
- * Handle incoming job events from the event service
- */
-function handleJobEvent(event: AppEvent): void {
-  // Only process job_* events
-  if (!event.event_type.startsWith('job_')) {
-    return;
-  }
+	const runningJobs = $derived(activeJobs.filter((j) => j.status === 'running'));
+	const queuedJobs = $derived(activeJobs.filter((j) => j.status === 'queued'));
 
-  switch (event.event_type) {
-    case 'job_queued':
-      jobs = [...jobs, event.job];
-      break;
+	return {
+		get activeJobs() {
+			return activeJobs;
+		},
+		get jobHistory() {
+			return jobHistory;
+		},
+		get runningJobs() {
+			return runningJobs;
+		},
+		get queuedJobs() {
+			return queuedJobs;
+		},
 
-    case 'job_started':
-      jobs = jobs.map((j) =>
-        j.id === event.id ? { ...j, status: 'running' as const, rule_name: event.rule_name } : j
-      );
-      break;
+		async refresh() {
+			try {
+				const result = await getJobs();
+				activeJobs = result.jobs.filter(
+					(j) => j.status === 'queued' || j.status === 'running'
+				);
+				jobHistory = result.jobs.filter(
+					(j) => j.status === 'completed' || j.status === 'failed' || j.status === 'cancelled'
+				);
+			} catch (e) {
+				console.error('Failed to refresh jobs:', e);
+			}
+		},
 
-    case 'job_progress':
-      jobs = jobs.map((j) =>
-        j.id === event.id ? { ...j, progress: event.progress, current_step: event.step } : j
-      );
-      break;
+		handleEvent(event: AppEvent) {
+			const { payload } = event;
 
-    case 'job_completed':
-      // Remove from active jobs and add to history
-      jobs = jobs.filter((j) => j.id !== event.job.id);
-      history = [event.job, ...history].slice(0, 1000);
-      break;
+			switch (payload.type) {
+				case 'job_queued':
+					activeJobs = [...activeJobs, payload.job];
+					break;
 
-    case 'job_failed':
-      jobs = jobs.map((j) =>
-        j.id === event.id ? { ...j, status: 'failed' as const, error: event.error } : j
-      );
-      break;
-  }
+				case 'job_started':
+					activeJobs = activeJobs.map((j) =>
+						j.id === payload.job_id
+							? { ...j, status: 'running' as const, rule_name: payload.rule_name }
+							: j
+					);
+					break;
+
+				case 'job_progress':
+					activeJobs = activeJobs.map((j) =>
+						j.id === payload.job_id
+							? { ...j, progress: payload.progress, current_step: payload.step }
+							: j
+					);
+					break;
+
+				case 'job_completed':
+					activeJobs = activeJobs.filter((j) => j.id !== payload.job.id);
+					jobHistory = [payload.job, ...jobHistory];
+					break;
+
+				case 'job_failed':
+					activeJobs = activeJobs.map((j) =>
+						j.id === payload.job_id
+							? { ...j, status: 'failed' as const, error: payload.error }
+							: j
+					);
+					break;
+			}
+		}
+	};
 }
 
-// Subscribe to admin events on module load
-subscribeToEvents('admin', handleJobEvent);
-
-/**
- * Create a readable store-like interface
- */
-function createReadableStore<T>(getValue: () => T) {
-  return {
-    subscribe(callback: (value: T) => void) {
-      // Immediately call with current value
-      callback(getValue());
-
-      // Use $effect.root to track changes and notify subscribers
-      const cleanup = $effect.root(() => {
-        $effect(() => {
-          callback(getValue());
-        });
-      });
-
-      return cleanup;
-    },
-  };
-}
-
-/**
- * Create a writable store-like interface
- */
-function createWritableStore<T>(getValue: () => T, setValue: (v: T) => void) {
-  return {
-    ...createReadableStore(getValue),
-    set: setValue,
-    update: (fn: (v: T) => T) => setValue(fn(getValue())),
-  };
-}
-
-/**
- * Active jobs store - provides Svelte store interface
- */
-export const activeJobs = {
-  ...createWritableStore(
-    () => jobs,
-    (v: Job[]) => {
-      jobs = v;
-    }
-  ),
-
-  async refresh() {
-    jobs = await getJobs();
-  },
-
-  handleEvent: handleJobEvent,
-};
-
-/**
- * Job history store - provides Svelte store interface
- */
-export const jobHistory = {
-  ...createWritableStore(
-    () => history,
-    (v: Job[]) => {
-      history = v;
-    }
-  ),
-
-  async refresh(limit = 100) {
-    history = await getHistory(limit);
-  },
-
-  addJob(job: Job) {
-    history = [job, ...history].slice(0, 1000);
-  },
-
-  removeJob(id: string) {
-    history = history.filter((j) => j.id !== id);
-  },
-};
-
-/**
- * Derived store for running jobs
- */
-export const runningJobs = createReadableStore(() => jobs.filter((j) => j.status === 'running'));
-
-/**
- * Derived store for queued jobs
- */
-export const queuedJobs = createReadableStore(() => jobs.filter((j) => j.status === 'queued'));
+export const jobsStore = createJobsStore();

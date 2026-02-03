@@ -1,284 +1,307 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { toast } from 'svelte-sonner';
-  import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '$lib/components/ui/card';
-  import { Badge } from '$lib/components/ui/badge';
-  import { Button } from '$lib/components/ui/button';
-  import {
-    BookOpen,
-    RefreshCw,
-    CheckCircle,
-    XCircle,
-    ChevronRight,
-    Plus,
-    Pencil,
-    Trash2
-  } from 'lucide-svelte';
-  import { getConfigRules, createRule, updateRule, deleteRule } from '$lib/api';
-  import RuleEditor from '$lib/components/RuleEditor.svelte';
-  import type { Rule, Action } from '$lib/types';
+	import { onMount } from 'svelte';
+	import { getConfigRules, updateConfigRules } from '$lib/api/index.js';
+	import type { Rule } from '$lib/types.js';
+	import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '$lib/components/ui/card/index.js';
+	import Badge from '$lib/components/ui/badge/Badge.svelte';
+	import Button from '$lib/components/ui/button/Button.svelte';
+	import Input from '$lib/components/ui/input/Input.svelte';
+	import {
+		BookOpen,
+		RefreshCw,
+		CheckCircle,
+		XCircle,
+		ChevronRight,
+		Plus,
+		Pencil,
+		Trash2,
+		Save,
+		X
+	} from 'lucide-svelte';
 
-  let rules = $state<Rule[]>([]);
-  let loading = $state(true);
-  let error = $state<string | null>(null);
-  let deletingRule = $state<string | null>(null);
+	let rules = $state<Rule[]>([]);
+	let loading = $state(true);
+	let error = $state<string | null>(null);
 
-  // Editor state
-  let editorOpen = $state(false);
-  let editingRule = $state<Rule | null>(null);
+	// Editor state
+	let editorOpen = $state(false);
+	let editingIndex = $state<number | null>(null);
+	let editorName = $state('');
+	let editorEnabled = $state(true);
+	let editorPriority = $state(0);
 
-  async function loadData() {
-    loading = true;
-    error = null;
-    try {
-      rules = await getConfigRules();
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load rules';
-    } finally {
-      loading = false;
-    }
-  }
+	async function loadData() {
+		loading = true;
+		error = null;
+		try {
+			rules = await getConfigRules();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load rules';
+		} finally {
+			loading = false;
+		}
+	}
 
-  async function handleSaveRule(rule: Omit<Rule, 'normalized'>) {
-    try {
-      if (editingRule) {
-        await updateRule(editingRule.name, rule);
-        toast.success('Rule saved');
-      } else {
-        await createRule(rule);
-        toast.success('Rule created');
-      }
-      await loadData();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to save rule');
-    }
-  }
+	async function handleToggleEnabled(index: number) {
+		const updated = rules.map((r, i) => (i === index ? { ...r, enabled: !r.enabled } : r));
+		try {
+			rules = await updateConfigRules(updated);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to update rule';
+		}
+	}
 
-  async function handleDeleteRule(name: string) {
-    if (!confirm(`Delete rule "${name}"?`)) return;
+	async function handleDeleteRule(index: number) {
+		const ruleName = rules[index]?.name;
+		if (!confirm(`Delete rule "${ruleName}"?`)) return;
 
-    deletingRule = name;
-    try {
-      await deleteRule(name);
-      await loadData();
-      toast.success('Rule deleted');
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to delete rule';
-    } finally {
-      deletingRule = null;
-    }
-  }
+		const updated = rules.filter((_, i) => i !== index);
+		try {
+			rules = await updateConfigRules(updated);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to delete rule';
+		}
+	}
 
-  async function handleToggleEnabled(rule: Rule) {
-    try {
-      const newEnabled = !rule.enabled;
-      await updateRule(rule.name, { ...rule, enabled: newEnabled });
-      await loadData();
-      toast.success(newEnabled ? 'Rule enabled' : 'Rule disabled');
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to update rule';
-    }
-  }
+	function openEditor(index: number | null = null) {
+		editingIndex = index;
+		if (index !== null && rules[index]) {
+			const rule = rules[index];
+			editorName = rule.name;
+			editorEnabled = rule.enabled;
+			editorPriority = rule.priority;
+		} else {
+			editorName = '';
+			editorEnabled = true;
+			editorPriority = rules.length > 0 ? Math.max(...rules.map((r) => r.priority)) + 1 : 1;
+		}
+		editorOpen = true;
+	}
 
-  function openEditor(rule: Rule | null = null) {
-    editingRule = rule;
-    editorOpen = true;
-  }
+	async function handleSaveRule() {
+		if (!editorName.trim()) return;
 
-  function formatAction(action: Action): string {
-    switch (action.type) {
-      case 'dv_convert':
-        return `Convert DV to Profile ${action.target_profile}`;
-      case 'remux':
-        return `Remux to ${action.container.toUpperCase()}`;
-      case 'add_compat_audio':
-        return `Add ${action.target_codec} from ${action.source_codec}`;
-      case 'strip_tracks':
-        const parts = [];
-        if (action.track_types.length) parts.push(`types: ${action.track_types.join(', ')}`);
-        if (action.languages.length) parts.push(`langs: ${action.languages.join(', ')}`);
-        return `Strip tracks (${parts.join('; ') || 'all'})`;
-      case 'exec':
-        return `Exec: ${action.command}`;
-      default:
-        return 'Unknown action';
-    }
-  }
+		const updatedRule: Rule = {
+			id: editingIndex !== null && rules[editingIndex] ? rules[editingIndex].id : '',
+			name: editorName.trim(),
+			enabled: editorEnabled,
+			priority: editorPriority,
+			match_conditions: editingIndex !== null && rules[editingIndex] ? rules[editingIndex].match_conditions : {},
+			actions: editingIndex !== null && rules[editingIndex] ? rules[editingIndex].actions : []
+		};
 
-  function formatConditions(rule: Rule): string[] {
-    const conditions: string[] = [];
-    const match = rule.match_conditions;
+		let updated: Rule[];
+		if (editingIndex !== null) {
+			updated = rules.map((r, i) => (i === editingIndex ? updatedRule : r));
+		} else {
+			updated = [...rules, updatedRule];
+		}
 
-    if (match.codecs.length) {
-      conditions.push(`Codec: ${match.codecs.join(', ')}`);
-    }
-    if (match.containers.length) {
-      conditions.push(`Container: ${match.containers.join(', ')}`);
-    }
-    if (match.hdr_formats.length) {
-      conditions.push(`HDR: ${match.hdr_formats.join(', ')}`);
-    }
-    if (match.dolby_vision_profiles.length) {
-      conditions.push(`DV Profile: ${match.dolby_vision_profiles.join(', ')}`);
-    }
-    if (match.audio_codecs.length) {
-      conditions.push(`Audio: ${match.audio_codecs.join(', ')}`);
-    }
-    if (match.min_resolution) {
-      conditions.push(`Min Res: ${match.min_resolution.width}x${match.min_resolution.height}`);
-    }
-    if (match.max_resolution) {
-      conditions.push(`Max Res: ${match.max_resolution.width}x${match.max_resolution.height}`);
-    }
+		try {
+			rules = await updateConfigRules(updated);
+			editorOpen = false;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to save rule';
+		}
+	}
 
-    return conditions;
-  }
+	function formatConditions(rule: Rule): string[] {
+		const conditions: string[] = [];
+		const match = rule.match_conditions;
+		if (!match) return conditions;
 
-  onMount(() => {
-    loadData();
-  });
+		for (const [key, value] of Object.entries(match)) {
+			if (Array.isArray(value) && value.length > 0) {
+				conditions.push(`${key}: ${value.join(', ')}`);
+			} else if (value && typeof value === 'object') {
+				conditions.push(`${key}: ${JSON.stringify(value)}`);
+			} else if (value) {
+				conditions.push(`${key}: ${value}`);
+			}
+		}
+
+		return conditions;
+	}
+
+	function formatAction(action: Record<string, unknown>): string {
+		const type = action.type as string;
+		if (!type) return 'Unknown action';
+		return type.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+	}
+
+	onMount(() => {
+		loadData();
+	});
 </script>
 
 <div class="space-y-6">
-  <div class="flex items-center justify-between">
-    <h1 class="text-2xl font-bold">Rules</h1>
-    <div class="flex items-center gap-2">
-      <Button variant="default" size="sm" onclick={() => openEditor()}>
-        <Plus class="h-4 w-4 mr-2" />
-        New Rule
-      </Button>
-      <Button variant="outline" size="sm" onclick={loadData} disabled={loading}>
-        <RefreshCw class="h-4 w-4 mr-2 {loading ? 'animate-spin' : ''}" />
-        Refresh
-      </Button>
-    </div>
-  </div>
+	<div class="flex items-center justify-between">
+		<h1 class="text-2xl font-bold">Rules</h1>
+		<div class="flex items-center gap-2">
+			<Button variant="default" size="sm" onclick={() => openEditor()}>
+				<Plus class="mr-2 h-4 w-4" />
+				New Rule
+			</Button>
+			<Button variant="outline" size="sm" onclick={loadData} disabled={loading}>
+				<RefreshCw class="mr-2 h-4 w-4 {loading ? 'animate-spin' : ''}" />
+				Refresh
+			</Button>
+		</div>
+	</div>
 
-  {#if error}
-    <div class="bg-destructive/10 text-destructive p-4 rounded-md">
-      {error}
-    </div>
-  {/if}
+	{#if error}
+		<div class="rounded-md bg-destructive/10 p-4 text-destructive">
+			{error}
+		</div>
+	{/if}
 
-  {#if loading}
-    <div class="text-center py-12 text-muted-foreground">
-      <RefreshCw class="h-8 w-8 mx-auto mb-2 animate-spin" />
-      <p>Loading rules...</p>
-    </div>
-  {:else if rules.length === 0}
-    <Card>
-      <CardContent class="py-12">
-        <div class="text-center text-muted-foreground">
-          <BookOpen class="h-12 w-12 mx-auto mb-4 opacity-50" />
-          <p class="text-lg font-medium">No rules configured</p>
-          <p class="text-sm mt-2">Click "New Rule" to create your first processing rule</p>
-        </div>
-      </CardContent>
-    </Card>
-  {:else}
-    <div class="space-y-4">
-      {#each rules.sort((a, b) => b.priority - a.priority) as rule, index}
-        <Card class={rule.enabled ? '' : 'opacity-60'}>
-          <CardHeader>
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-3">
-                <div class="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary font-bold text-sm">
-                  {index + 1}
-                </div>
-                <div>
-                  <CardTitle class="text-lg flex items-center gap-2">
-                    {rule.name}
-                    <button onclick={() => handleToggleEnabled(rule)}>
-                      {#if rule.enabled}
-                        <Badge variant="default" class="bg-green-500 cursor-pointer">
-                          <CheckCircle class="h-3 w-3 mr-1" />
-                          Active
-                        </Badge>
-                      {:else}
-                        <Badge variant="secondary" class="cursor-pointer">
-                          <XCircle class="h-3 w-3 mr-1" />
-                          Disabled
-                        </Badge>
-                      {/if}
-                    </button>
-                  </CardTitle>
-                  <CardDescription>Priority: {rule.priority}</CardDescription>
-                </div>
-              </div>
-              <div class="flex items-center gap-2">
-                <Button variant="ghost" size="icon" onclick={() => openEditor(rule)} title="Edit">
-                  <Pencil class="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onclick={() => handleDeleteRule(rule.name)}
-                  disabled={deletingRule === rule.name}
-                  title="Delete"
-                >
-                  <Trash2 class="h-4 w-4 {deletingRule === rule.name ? 'animate-pulse' : ''}" />
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div class="grid md:grid-cols-2 gap-6">
-              <!-- Match Conditions -->
-              <div class="space-y-3">
-                <h4 class="font-medium text-sm text-muted-foreground uppercase tracking-wide">
-                  Match Conditions
-                </h4>
-                {#if formatConditions(rule).length === 0}
-                  <p class="text-sm text-muted-foreground italic">Matches all files</p>
-                {:else}
-                  <ul class="space-y-1">
-                    {#each formatConditions(rule) as condition}
-                      <li class="flex items-center gap-2 text-sm">
-                        <ChevronRight class="h-4 w-4 text-muted-foreground" />
-                        {condition}
-                      </li>
-                    {/each}
-                  </ul>
-                {/if}
-              </div>
+	<!-- Editor dialog -->
+	{#if editorOpen}
+		<Card class="border-primary">
+			<CardHeader>
+				<CardTitle>{editingIndex !== null ? 'Edit Rule' : 'New Rule'}</CardTitle>
+			</CardHeader>
+			<CardContent>
+				<div class="space-y-4">
+					<div class="space-y-2">
+						<label for="rule-name" class="text-sm font-medium">Name</label>
+						<Input id="rule-name" bind:value={editorName} placeholder="Rule name" />
+					</div>
+					<div class="space-y-2">
+						<label for="rule-priority" class="text-sm font-medium">Priority</label>
+						<Input
+							id="rule-priority"
+							type="number"
+							bind:value={editorPriority}
+						/>
+					</div>
+					<label class="flex items-center gap-2">
+						<input type="checkbox" bind:checked={editorEnabled} class="h-4 w-4" />
+						<span class="text-sm font-medium">Enabled</span>
+					</label>
+					<div class="flex gap-2">
+						<Button onclick={handleSaveRule}>
+							<Save class="mr-2 h-4 w-4" />
+							Save
+						</Button>
+						<Button variant="outline" onclick={() => (editorOpen = false)}>
+							<X class="mr-2 h-4 w-4" />
+							Cancel
+						</Button>
+					</div>
+				</div>
+			</CardContent>
+		</Card>
+	{/if}
 
-              <!-- Actions -->
-              <div class="space-y-3">
-                <h4 class="font-medium text-sm text-muted-foreground uppercase tracking-wide">
-                  Actions ({rule.actions.length})
-                </h4>
-                <ol class="space-y-2">
-                  {#each rule.actions as action, i}
-                    <li class="flex items-center gap-2 text-sm">
-                      <span class="flex items-center justify-center w-5 h-5 rounded-full bg-secondary text-secondary-foreground text-xs">
-                        {i + 1}
-                      </span>
-                      <span>{formatAction(action)}</span>
-                    </li>
-                  {/each}
-                </ol>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      {/each}
-    </div>
+	{#if loading}
+		<div class="py-12 text-center text-muted">
+			<RefreshCw class="mx-auto mb-2 h-8 w-8 animate-spin" />
+			<p>Loading rules...</p>
+		</div>
+	{:else if rules.length === 0}
+		<Card>
+			<CardContent class="py-12">
+				<div class="text-center text-muted">
+					<BookOpen class="mx-auto mb-4 h-12 w-12 opacity-50" />
+					<p class="text-lg font-medium">No rules configured</p>
+					<p class="mt-2 text-sm">Click "New Rule" to create your first processing rule</p>
+				</div>
+			</CardContent>
+		</Card>
+	{:else}
+		<div class="space-y-4">
+			{#each rules.sort((a, b) => b.priority - a.priority) as rule, index}
+				<Card class={rule.enabled ? '' : 'opacity-60'}>
+					<CardHeader>
+						<div class="flex items-center justify-between">
+							<div class="flex items-center gap-3">
+								<div
+									class="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary"
+								>
+									{index + 1}
+								</div>
+								<div>
+									<CardTitle class="flex items-center gap-2 text-lg">
+										{rule.name}
+										<button onclick={() => handleToggleEnabled(index)}>
+											{#if rule.enabled}
+												<Badge variant="default" class="cursor-pointer bg-green-500">
+													<CheckCircle class="mr-1 h-3 w-3" />
+													Active
+												</Badge>
+											{:else}
+												<Badge variant="secondary" class="cursor-pointer">
+													<XCircle class="mr-1 h-3 w-3" />
+													Disabled
+												</Badge>
+											{/if}
+										</button>
+									</CardTitle>
+									<CardDescription>Priority: {rule.priority}</CardDescription>
+								</div>
+							</div>
+							<div class="flex items-center gap-2">
+								<Button
+									variant="ghost"
+									size="icon"
+									onclick={() => openEditor(index)}
+									title="Edit"
+								>
+									<Pencil class="h-4 w-4" />
+								</Button>
+								<Button
+									variant="ghost"
+									size="icon"
+									onclick={() => handleDeleteRule(index)}
+									title="Delete"
+								>
+									<Trash2 class="h-4 w-4" />
+								</Button>
+							</div>
+						</div>
+					</CardHeader>
+					<CardContent>
+						<div class="grid gap-6 md:grid-cols-2">
+							<div class="space-y-3">
+								<h4 class="text-sm font-medium uppercase tracking-wide text-muted">
+									Match Conditions
+								</h4>
+								{#if formatConditions(rule).length === 0}
+									<p class="text-sm italic text-muted">Matches all files</p>
+								{:else}
+									<ul class="space-y-1">
+										{#each formatConditions(rule) as condition}
+											<li class="flex items-center gap-2 text-sm">
+												<ChevronRight class="h-4 w-4 text-muted" />
+												{condition}
+											</li>
+										{/each}
+									</ul>
+								{/if}
+							</div>
 
-    <Card class="bg-muted/50">
-      <CardContent class="py-4">
-        <p class="text-sm text-muted-foreground text-center">
-          {rules.length} rule{rules.length === 1 ? '' : 's'} configured •
-          {rules.filter(r => r.enabled).length} active •
-          Changes are saved automatically
-        </p>
-      </CardContent>
-    </Card>
-  {/if}
+							<div class="space-y-3">
+								<h4 class="text-sm font-medium uppercase tracking-wide text-muted">
+									Actions ({rule.actions.length})
+								</h4>
+								<ol class="space-y-2">
+									{#each rule.actions as action, i}
+										<li class="flex items-center gap-2 text-sm">
+											<span
+												class="flex h-5 w-5 items-center justify-center rounded-full bg-secondary text-xs text-foreground"
+											>
+												{i + 1}
+											</span>
+											<span>{formatAction(action)}</span>
+										</li>
+									{/each}
+								</ol>
+							</div>
+						</div>
+					</CardContent>
+				</Card>
+			{/each}
+		</div>
+	{/if}
 </div>
-
-<RuleEditor
-  bind:open={editorOpen}
-  rule={editingRule}
-  onSave={handleSaveRule}
-  onClose={() => { editingRule = null; }}
-/>

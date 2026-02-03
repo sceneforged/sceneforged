@@ -1,31 +1,34 @@
-# Git
-.git
-.gitignore
-
 # Build artifacts
 target/
 ui/node_modules/
-ui/build/
 ui/.svelte-kit/
+ui/build/
 
-# IDE
-.idea/
+# Version control
+.git/
+.gitignore
+
+# IDE and editor files
 .vscode/
+.idea/
 *.swp
 *.swo
+*~
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
-
-# Local config
-config.toml
-sceneforged-state.json
-
-# Docker
+# Docker files (avoid recursive builds)
 Dockerfile
 docker-compose.yml
 .dockerignore
+
+# Documentation and CI
+*.md
+.github/
+LICENSE
+
+# Environment and secrets
+.env
+.env.*

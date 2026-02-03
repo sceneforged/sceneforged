@@ -1,26 +1,28 @@
-version: '3.8'
-
 services:
   sceneforged:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        COMMIT_SHA: ${COMMIT_SHA:-dev}
+    image: sceneforged:latest
     container_name: sceneforged
+    restart: unless-stopped
     ports:
       - "8080:8080"
     volumes:
-      - ./config.toml:/config/config.toml:ro
-      - ./data:/data
-      - /path/to/media:/media:rw
+      - ./config:/config
+      - sceneforged-data:/data
+      - /path/to/media:/media
     environment:
-      - RUST_LOG=info
-    restart: unless-stopped
+      - RUST_LOG=${RUST_LOG:-info}
+      - SCENEFORGED_CONFIG=/config/config.toml
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 5s
+      retries: 3
 
-# Example with Radarr/Sonarr
-# services:
-#   sceneforged:
-#     ...
-#   radarr:
-#     image: lscr.io/linuxserver/radarr:latest
-#     ...
-#   sonarr:
-#     image: lscr.io/linuxserver/sonarr:latest
-#     ...
+volumes:
+  sceneforged-data:

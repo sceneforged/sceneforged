@@ -1,35 +1,24 @@
-# Build artifacts
+# Rust
 /target/
-**/target/
+**/*.rs.bk
+Cargo.lock
+
+# Node / SvelteKit
+node_modules/
+.svelte-kit/
+build/
+dist/
+.env
+.env.*
+!.env.example
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+*~
+.DS_Store
 
 # OS
-.DS_Store
 Thumbs.db
-
-# Logs
-*.log
-
-# Local config and state
-config.toml
-sceneforged-state.json
-
-# Node.js / UI
-**/ui/node_modules/
-**/ui/build/
-**/ui/.svelte-kit/
-**/ui/.env
-**/ui/.env.local
-
-# Test artifacts
-/coverage/
-*.profraw
-*.profdata
-
-# Benchmarks
-/criterion/

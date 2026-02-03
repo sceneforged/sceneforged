@@ -1,24 +1,21 @@
 <script lang="ts">
-  import { cn } from '$lib/utils';
-  import type { Snippet } from 'svelte';
-  import type { HTMLAttributes } from 'svelte/elements';
+	import { cn } from '$lib/utils';
+	import type { Snippet } from 'svelte';
+	import type { HTMLAttributes } from 'svelte/elements';
 
-  interface Props extends HTMLAttributes<HTMLDivElement> {
-    class?: string;
-    children?: Snippet;
-  }
+	interface Props extends HTMLAttributes<HTMLDivElement> {
+		children?: Snippet;
+		class?: string;
+	}
 
-  let { class: className, children, ...restProps }: Props = $props();
+	let { children, class: className, ...restProps }: Props = $props();
 </script>
 
 <div
-  class={cn(
-    'rounded-xl border border-[var(--border)] bg-[var(--card)] text-[var(--card-foreground)] shadow',
-    className
-  )}
-  {...restProps}
+	class={cn('rounded-lg border border-border bg-card text-foreground shadow-sm', className)}
+	{...restProps}
 >
-  {#if children}
-    {@render children()}
-  {/if}
+	{#if children}
+		{@render children()}
+	{/if}
 </div>

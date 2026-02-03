@@ -1,1 +1,1 @@
-export { default as MediaCardSkeleton } from './MediaCardSkeleton.svelte';
+export { default as Skeleton } from './Skeleton.svelte';

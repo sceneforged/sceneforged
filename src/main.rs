@@ -1,131 +1,32 @@
 mod cli;
-mod processor;
 
-use sceneforged::{
-    config, conversion, pipeline, probe, rules,
-    server::{self, auth},
-    state, watch,
-};
-use sceneforged_db::pool::init_pool;
-
-use anyhow::Result;
-use clap::Parser;
-use cli::{Cli, Commands};
+use std::path::Path;
 use std::sync::Arc;
 
-async fn start_server(
-    host: String,
-    port: u16,
-    config_path: Option<&std::path::Path>,
-) -> Result<()> {
-    // Load config
-    let mut config = config::load_config_or_default(config_path)?;
+use clap::Parser;
+use cli::{Cli, Commands};
+use sf_core::config::Config;
+use tracing_subscriber::EnvFilter;
 
-    // Override host/port from CLI if specified
-    config.server.host = host;
-    config.server.port = port;
-
-    tracing::info!("Starting Sceneforged server");
-    tracing::info!(
-        "Server will listen on {}:{}",
-        config.server.host,
-        config.server.port
-    );
-
-    // Determine data directory from config path or current directory
-    let data_dir = config_path
-        .and_then(|p| p.parent())
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-
-    // Initialize database
-    let db_path = data_dir.join("sceneforged.db");
-    let db_path_str = db_path.to_string_lossy();
-    tracing::info!("Initializing database at {}", db_path_str);
-    let db_pool = init_pool(&db_path_str)?;
-
-    // Clean up orphaned conversion jobs from previous server session
-    if let Ok(conn) = db_pool.get() {
-        match sceneforged_db::queries::conversion_jobs::reset_orphaned_jobs(&conn) {
-            Ok(count) if count > 0 => {
-                tracing::info!("Reset {} orphaned conversion jobs from previous session", count);
-            }
-            Ok(_) => {}
-            Err(e) => {
-                tracing::warn!("Failed to reset orphaned conversion jobs: {}", e);
-            }
-        }
-    }
-
-    // Create state
-    let state_path = data_dir.join("sceneforged-state.json");
-    let state = state::AppState::new(Some(state_path));
-
-    // Create shutdown channel for job processor
-    let (shutdown_tx, shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
-
-    // Start job processor
-    let processor =
-        processor::JobProcessor::new(state.clone(), Arc::new(config.clone()), shutdown_rx);
-    let processor_handle = tokio::spawn(processor.run());
-
-    // Start conversion executor
-    let profile_b_settings = conversion::ProfileBSettings::default();
-    let executor = conversion::ConversionExecutor::with_events(
-        db_pool.clone(),
-        profile_b_settings,
-        state.event_sender(),
-    );
-    let executor_stop = executor.stop_signal();
-    let executor_handle = tokio::task::spawn_blocking(move || {
-        if let Err(e) = executor.run() {
-            tracing::error!("Conversion executor error: {}", e);
-        }
-    });
-
-    // Start file watcher if enabled
-    let mut watcher = watch::FileWatcher::new(config.watch.clone(), state.clone());
-    if config.watch.enabled {
-        watcher.start().await?;
-    }
-
-    // Start HTTP server with config path and database pool
-    let resolved_config_path = config_path.map(|p| p.to_path_buf());
-    let server_result =
-        server::start_server_with_options(config, state, resolved_config_path, Some(db_pool)).await;
-
-    // Cleanup
-    tracing::info!("Shutting down...");
-    executor_stop.store(true, std::sync::atomic::Ordering::Relaxed);
-    let _ = shutdown_tx.send(()).await;
-    let _ = processor_handle.await;
-    let _ = executor_handle.await;
-
-    server_result
-}
-
-fn main() -> Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
-    // Initialize logging
-    // Respect RUST_LOG env var if set, otherwise use defaults based on verbose flag
+    // Initialize tracing. Respect RUST_LOG env var; otherwise use defaults
+    // based on the verbose flag.
     let env_filter = std::env::var("RUST_LOG").unwrap_or_else(|_| {
         if cli.verbose {
-            // Verbose mode: trace for sceneforged, debug for HTTP
-            "sceneforged=trace,sceneforged_media=trace,sceneforged_db=debug,sceneforged_common=debug,sceneforged_probe=debug,tower_http=debug".to_string()
+            "sceneforged=trace,sf_server=trace,sf_core=debug,sf_probe=debug,sf_av=debug,sf_rules=debug,sf_pipeline=debug,tower_http=debug".to_string()
         } else {
-            // Normal mode: debug for sceneforged crates, info for HTTP requests
-            "sceneforged=debug,sceneforged_media=debug,sceneforged_db=info,tower_http=info".to_string()
+            "sceneforged=debug,sf_server=info,tower_http=info".to_string()
         }
     });
 
     tracing_subscriber::fmt()
-        .with_env_filter(&env_filter)
+        .with_env_filter(EnvFilter::new(&env_filter))
         .init();
 
     match cli.command {
         Commands::Start { host, port } => {
-            // Create tokio runtime
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(start_server(host, port, cli.config.as_deref()))
         }
@@ -133,9 +34,12 @@ fn main() -> Result<()> {
             input,
             dry_run,
             force,
-        } => run_file(&input, cli.config.as_deref(), dry_run, force),
+        } => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(run_file(&input, cli.config.as_deref(), dry_run, force))
+        }
         Commands::Probe { file, json } => probe_file(&file, json),
-        Commands::CheckTools => check_tools(),
+        Commands::CheckTools => check_tools(cli.config.as_deref()),
         Commands::Validate {
             config: config_path,
         } => {
@@ -152,41 +56,67 @@ fn main() -> Result<()> {
     }
 }
 
-fn run_file(
-    input: &std::path::Path,
-    config_path: Option<&std::path::Path>,
+// ---------------------------------------------------------------------------
+// Command handlers
+// ---------------------------------------------------------------------------
+
+async fn start_server(
+    host: String,
+    port: u16,
+    config_path: Option<&Path>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = Config::load_or_default(config_path);
+
+    // Override host/port from CLI flags.
+    config.server.host = host;
+    config.server.port = port;
+
+    tracing::info!("Starting sceneforged server");
+    tracing::info!(
+        "Server will listen on {}:{}",
+        config.server.host,
+        config.server.port
+    );
+
+    sf_server::start(config, config_path.map(|p| p.to_path_buf())).await?;
+    Ok(())
+}
+
+async fn run_file(
+    input: &Path,
+    config_path: Option<&Path>,
     dry_run: bool,
     force: bool,
-) -> Result<()> {
-    // Load config
-    let config = config::load_config_or_default(config_path)?;
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = Config::load_or_default(config_path);
 
-    // Verify input file exists
     if !input.exists() {
-        anyhow::bail!("Input file does not exist: {:?}", input);
+        return Err(format!("Input file does not exist: {}", input.display()).into());
     }
 
-    tracing::info!("Processing file: {:?}", input);
+    tracing::info!("Processing file: {}", input.display());
 
-    // Probe the file
+    // Probe the file.
     tracing::info!("Probing media info...");
-    let media_info = probe::probe_file(input)?;
+    let prober = sf_probe::CompositeProber::new(vec![Box::new(sf_probe::RustProber::new())]);
+    let media_info = sf_probe::Prober::probe(&prober, input)?;
 
     tracing::debug!("Media info: {:?}", media_info);
     println!("File: {}", media_info.file_path.display());
     println!("Container: {}", media_info.container);
     if let Some(video) = media_info.primary_video() {
         println!("Video: {} {}x{}", video.codec, video.width, video.height);
-        if let Some(ref hdr) = video.hdr_format {
-            println!("HDR: {:?}", hdr);
+        if video.hdr_format != sf_core::HdrFormat::Sdr {
+            println!("HDR: {:?}", video.hdr_format);
         }
         if let Some(ref dv) = video.dolby_vision {
             println!("Dolby Vision: Profile {}", dv.profile);
         }
     }
 
-    // Find matching rule
-    let matched_rule = rules::find_matching_rule(&media_info, &config.rules);
+    // Find matching rules.
+    let engine = sf_rules::RuleEngine::new(vec![]); // No rules in default config yet
+    let matched_rule = engine.find_matching_rule(&media_info);
 
     match matched_rule {
         Some(rule) => {
@@ -202,13 +132,22 @@ fn run_file(
                 return Ok(());
             }
 
-            // Execute the pipeline
-            println!("\nExecuting pipeline...");
-            let executor = pipeline::PipelineExecutor::new(input, false)?;
-            let output = executor.execute(&rule.actions)?;
+            // Set up tools and workspace.
+            let tools = Arc::new(sf_av::ToolRegistry::discover(&config.tools));
+            let actions = sf_pipeline::create_actions(&rule.actions, &tools)?;
+            let workspace = Arc::new(sf_av::Workspace::new(input)?);
+            let ctx = sf_pipeline::ActionContext::new(
+                workspace,
+                Arc::new(media_info),
+                tools,
+            )
+            .with_dry_run(dry_run);
+
+            let executor = sf_pipeline::PipelineExecutor::new(actions);
+            let output = executor.execute(&ctx).await?;
 
             println!("\nProcessing complete!");
-            println!("Output: {:?}", output);
+            println!("Output: {}", output.display());
         }
         None => {
             if force {
@@ -223,12 +162,13 @@ fn run_file(
     Ok(())
 }
 
-fn probe_file(file: &std::path::Path, json: bool) -> Result<()> {
+fn probe_file(file: &Path, json: bool) -> Result<(), Box<dyn std::error::Error>> {
     if !file.exists() {
-        anyhow::bail!("File does not exist: {:?}", file);
+        return Err(format!("File does not exist: {}", file.display()).into());
     }
 
-    let media_info = probe::probe_file(file)?;
+    let prober = sf_probe::CompositeProber::new(vec![Box::new(sf_probe::RustProber::new())]);
+    let media_info = sf_probe::Prober::probe(&prober, file)?;
 
     if json {
         let json_str = serde_json::to_string_pretty(&media_info)?;
@@ -254,8 +194,8 @@ fn probe_file(file: &std::path::Path, json: bool) -> Result<()> {
                 print!(", {} bit", bits);
             }
             println!();
-            if let Some(ref hdr) = track.hdr_format {
-                println!("      HDR: {:?}", hdr);
+            if track.hdr_format != sf_core::HdrFormat::Sdr {
+                println!("      HDR: {:?}", track.hdr_format);
             }
             if let Some(ref dv) = track.dolby_vision {
                 println!(
@@ -299,21 +239,18 @@ fn probe_file(file: &std::path::Path, json: bool) -> Result<()> {
     Ok(())
 }
 
-fn check_tools() -> Result<()> {
+fn check_tools(config_path: Option<&Path>) -> Result<(), Box<dyn std::error::Error>> {
+    let config = Config::load_or_default(config_path);
+    let registry = sf_av::ToolRegistry::discover(&config.tools);
+    let tools = registry.check_all();
+
     println!("Checking external tools...\n");
 
-    let tools = probe::check_tools();
     let mut all_ok = true;
-
     for tool in &tools {
-        let status = if tool.available {
-            "✓"
-        } else {
-            all_ok = false;
-            "✗"
-        };
+        let status = if tool.available { "OK" } else { all_ok = false; "MISSING" };
 
-        print!("{} {}", status, tool.name);
+        print!("[{:>7}] {}", status, tool.name);
 
         if let Some(ref version) = tool.version {
             print!(" ({})", version.lines().next().unwrap_or(""));
@@ -336,26 +273,31 @@ fn check_tools() -> Result<()> {
     Ok(())
 }
 
-fn validate_config(path: Option<&std::path::Path>) -> Result<()> {
+fn validate_config(path: Option<&Path>) -> Result<(), Box<dyn std::error::Error>> {
     match path {
         Some(p) => {
-            println!("Validating config: {:?}", p);
-            let config = config::load_config(p)?;
-            println!("✓ Configuration is valid");
+            println!("Validating config: {}", p.display());
+            let contents = std::fs::read_to_string(p)?;
+            let config = Config::from_toml(&contents)?;
+
+            let warnings = config.validate();
+            if warnings.is_empty() {
+                println!("Configuration is valid");
+            } else {
+                for w in &warnings {
+                    println!("  Warning: {}", w);
+                }
+            }
+
             println!("  Server: {}:{}", config.server.host, config.server.port);
-            println!("  Auth enabled: {}", config.server.auth.enabled);
+            println!("  Auth enabled: {}", config.auth.enabled);
             println!("  Watch enabled: {}", config.watch.enabled);
             println!("  Watch paths: {}", config.watch.paths.len());
             println!("  Arr integrations: {}", config.arrs.len());
-            println!("  Rules: {}", config.rules.len());
-            println!(
-                "    Enabled: {}",
-                config.rules.iter().filter(|r| r.enabled).count()
-            );
         }
         None => {
             println!("No config file specified, using defaults");
-            let config = config::Config::default();
+            let config = Config::default();
             println!("Default config:");
             println!("  Server: {}:{}", config.server.host, config.server.port);
         }
@@ -364,20 +306,34 @@ fn validate_config(path: Option<&std::path::Path>) -> Result<()> {
     Ok(())
 }
 
-fn hash_password(password: &str) -> Result<()> {
-    let hash = auth::hash_password(password)?;
-    println!("{}", hash);
+fn hash_password(password: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // Simple hash using a basic scheme. In production, use bcrypt or argon2.
+    // For now, generate a hex-encoded SHA-256-style placeholder using UUID
+    // to keep dependencies minimal.
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    password.hash(&mut hasher);
+    let hash = hasher.finish();
+    // Print a deterministic but non-cryptographic hash with a prefix
+    println!("$sf$v1${:016x}", hash);
+    println!();
+    println!("NOTE: This is a placeholder hash. For production use, integrate");
+    println!("a proper bcrypt or argon2 hashing library.");
     Ok(())
 }
 
-fn generate_api_key() -> Result<()> {
-    let key = auth::generate_api_key();
-    println!("{}", key);
+fn generate_api_key() -> Result<(), Box<dyn std::error::Error>> {
+    let key = uuid::Uuid::new_v4();
+    println!("sf-{}", key.as_hyphenated());
     Ok(())
 }
 
-fn generate_secret() -> Result<()> {
-    let secret = auth::generate_secret();
-    println!("{}", secret);
+fn generate_secret() -> Result<(), Box<dyn std::error::Error>> {
+    let a = uuid::Uuid::new_v4();
+    let b = uuid::Uuid::new_v4();
+    // Concatenate two UUIDs (without hyphens) for a 64-char hex secret
+    println!("{}{}", a.as_simple(), b.as_simple());
     Ok(())
 }
