@@ -101,7 +101,7 @@
   const adminNav = [
     { href: '/admin', icon: LayoutDashboard, label: 'Dashboard' },
     { href: '/admin/libraries', icon: LibraryIcon, label: 'Libraries' },
-    { href: '/history', icon: History, label: 'History' },
+    { href: '/admin/jobs', icon: History, label: 'Jobs' },
     { href: '/settings', icon: Settings, label: 'Settings' },
   ];
 

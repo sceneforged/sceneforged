@@ -6,14 +6,6 @@
   import { Badge } from '$lib/components/ui/badge';
   import { Button } from '$lib/components/ui/button';
   import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-  } from '$lib/components/ui/table';
-  import {
     Library,
     HardDrive,
     Radio,
@@ -21,91 +13,50 @@
     Activity,
     RefreshCw,
     Loader2,
-    CheckCircle,
-    XCircle,
-    History,
     FolderOpen,
     Settings,
-    ExternalLink,
+    Briefcase,
   } from 'lucide-svelte';
-  import { Progress } from '$lib/components/ui/progress';
-  import { getAdminDashboard, formatBytes, batchConvert, getHistory, formatJobSource, getConversionJobs, cancelConversionJob } from '$lib/api';
-  import { runningJobs, queuedJobs, jobHistory, activeJobs } from '$lib/stores/jobs.svelte';
+  import { getAdminDashboard, formatBytes, batchConvert, getConversionJobs } from '$lib/api';
+  import { runningJobs, queuedJobs, activeJobs } from '$lib/stores/jobs.svelte';
   import { subscribe as subscribeToEvents } from '$lib/services/events.svelte';
   import StatsCard from '$lib/components/StatsCard.svelte';
   import StreamCard from '$lib/components/StreamCard.svelte';
-  import ConversionCard from '$lib/components/ConversionCard.svelte';
-  import type { DashboardResponse, Job, ConversionJob, AppEvent } from '$lib/types';
+  import type { DashboardResponse, ConversionJob, AppEvent } from '$lib/types';
 
   let loading = $state(true);
   let error = $state<string | null>(null);
   let data = $state<DashboardResponse | null>(null);
-  let recentJobs = $state<Job[]>([]);
-  let conversionJobs = $state<ConversionJob[]>([]);
+  let conversionJobCount = $state(0);
   let refreshInterval: ReturnType<typeof setInterval> | null = null;
   let unsubscribeEvents: (() => void) | null = null;
-
-  // Active conversion jobs (queued or running)
-  const activeConversionJobs = $derived(
-    conversionJobs.filter(j => j.status === 'queued' || j.status === 'running')
-  );
 
   // Batch conversion state
   let selectedStreamIds = $state<SvelteSet<string>>(new SvelteSet());
   let targetProfile = $state<'A' | 'B' | 'C'>('B');
   let converting = $state(false);
 
+  // Total active jobs across both systems
+  const totalActiveJobs = $derived(
+    $runningJobs.length + $queuedJobs.length + conversionJobCount
+  );
+
   // Format large numbers with commas
   function formatNumber(num: number): string {
     return num.toLocaleString();
   }
 
-  // Format seconds into human-readable duration
-  function formatDuration(secs: number | null | undefined): string {
-    if (secs == null || secs <= 0) return '-';
-    const s = Math.round(secs);
-    if (s < 60) return `${s}s`;
-    const m = Math.floor(s / 60);
-    const rs = s % 60;
-    if (m < 60) return `${m}m ${rs}s`;
-    const h = Math.floor(m / 60);
-    const rm = m % 60;
-    return `${h}h ${rm}m`;
-  }
-
-  // Format date for display
-  function formatDate(dateStr: string | null): string {
-    if (!dateStr) return '-';
-    return new Date(dateStr).toLocaleString();
-  }
-
-  // Get status badge info
-  function getStatusBadge(status: string) {
-    switch (status) {
-      case 'completed':
-        return { variant: 'default' as const, icon: CheckCircle, class: 'bg-green-500' };
-      case 'failed':
-        return { variant: 'destructive' as const, icon: XCircle, class: '' };
-      case 'running':
-        return { variant: 'secondary' as const, icon: Activity, class: 'bg-blue-500' };
-      case 'queued':
-        return { variant: 'outline' as const, icon: Clock, class: '' };
-      default:
-        return { variant: 'outline' as const, icon: Clock, class: '' };
-    }
-  }
-
   async function loadData() {
     try {
       error = null;
-      const [dashboardData, historyData, conversionData] = await Promise.all([
+      const [dashboardData, conversionData] = await Promise.all([
         getAdminDashboard(),
-        getHistory(10),
         getConversionJobs().catch(() => [] as ConversionJob[]),
       ]);
       data = dashboardData;
-      recentJobs = historyData;
-      conversionJobs = conversionData;
+      conversionJobCount = conversionData.filter(
+        j => j.status === 'queued' || j.status === 'running'
+      ).length;
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load dashboard';
     } finally {
@@ -115,49 +66,25 @@
 
   async function handleRefresh() {
     loading = true;
-    // Also refresh the jobs stores
     await Promise.all([
       loadData(),
       activeJobs.refresh(),
-      jobHistory.refresh(10)
     ]);
   }
 
   // Handle admin events for real-time updates
   function handleAdminEvent(event: AppEvent): void {
-    // Refresh dashboard stats when jobs complete
-    if (event.event_type === 'job_completed' || event.event_type === 'job_failed') {
-      // Update recent jobs list
-      if (event.event_type === 'job_completed') {
-        recentJobs = [event.job, ...recentJobs].slice(0, 10);
-      }
-    }
-
-    // Handle conversion job events
-    if (event.event_type === 'conversion_job_progress') {
-      // Update progress inline without re-fetching
-      conversionJobs = conversionJobs.map(j =>
-        j.id === event.job_id
-          ? { ...j, progress_pct: event.progress_pct, encode_fps: event.encode_fps, eta_secs: event.eta_secs, elapsed_secs: event.elapsed_secs, status: 'running' }
-          : j
-      );
-    } else if (event.event_type === 'conversion_job_created') {
-      getConversionJobs().then(jobs => { conversionJobs = jobs; }).catch(() => {});
-    } else if (event.event_type === 'conversion_job_completed') {
-      conversionJobs = conversionJobs.filter(j => j.id !== event.job_id);
-      loadData(); // Refresh stats
-    } else if (event.event_type === 'conversion_job_failed') {
-      conversionJobs = conversionJobs.map(j =>
-        j.id === event.job_id
-          ? { ...j, status: 'failed', error_message: event.error }
-          : j
-      );
-    } else if (event.event_type === 'conversion_job_cancelled') {
-      conversionJobs = conversionJobs.filter(j => j.id !== event.job_id);
-    }
-
-    // Refresh on library changes
-    if (event.event_type.startsWith('library_') || event.event_type.startsWith('item_')) {
+    // Refresh stats on job/library changes
+    if (
+      event.event_type === 'job_completed' ||
+      event.event_type === 'job_failed' ||
+      event.event_type === 'conversion_job_completed' ||
+      event.event_type === 'conversion_job_failed' ||
+      event.event_type === 'conversion_job_created' ||
+      event.event_type === 'conversion_job_cancelled' ||
+      event.event_type.startsWith('library_') ||
+      event.event_type.startsWith('item_')
+    ) {
       loadData();
     }
   }
@@ -177,21 +104,9 @@
     if (!data?.streams) return;
 
     if (selectedStreamIds.size === data.streams.length) {
-      // Deselect all
       selectedStreamIds = new SvelteSet();
     } else {
-      // Select all
       selectedStreamIds = new SvelteSet(data.streams.map(s => s.id));
-    }
-  }
-
-  async function handleCancelConversion(jobId: string) {
-    try {
-      await cancelConversionJob(jobId);
-      conversionJobs = conversionJobs.filter(j => j.id !== jobId);
-      toast.success('Conversion job cancelled');
-    } catch (e) {
-      toast.error('Failed to cancel conversion job');
     }
   }
 
@@ -200,7 +115,6 @@
 
     converting = true;
     try {
-      // Get item IDs from selected streams
       const selectedStreams = data.streams.filter(s => selectedStreamIds.has(s.id));
       const itemIds = selectedStreams.map(s => String(s.item_id));
 
@@ -210,7 +124,6 @@
         `Batch conversion started: ${response.job_ids.length} job${response.job_ids.length !== 1 ? 's' : ''} created`
       );
 
-      // Clear selection after successful conversion
       selectedStreamIds = new SvelteSet();
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Failed to start batch conversion';
@@ -222,11 +135,7 @@
 
   onMount(async () => {
     await loadData();
-
-    // Subscribe to admin events for real-time updates
     unsubscribeEvents = subscribeToEvents('admin', handleAdminEvent);
-
-    // Auto-refresh dashboard stats every 30 seconds
     refreshInterval = setInterval(loadData, 30000);
   });
 
@@ -261,7 +170,6 @@
   {/if}
 
   {#if loading && !data}
-    <!-- Loading state -->
     <div class="flex items-center justify-center py-20">
       <RefreshCw class="w-8 h-8 animate-spin text-muted-foreground" />
     </div>
@@ -283,11 +191,13 @@
         label="Active Streams"
         value={data.streams.length}
       />
-      <StatsCard
-        icon={Clock}
-        label="Queue"
-        value={data.queue.queued + data.queue.running}
-      />
+      <a href="/admin/jobs" class="block">
+        <StatsCard
+          icon={Activity}
+          label="Active Jobs"
+          value={totalActiveJobs}
+        />
+      </a>
     </div>
 
     <!-- Active Streams Section -->
@@ -369,193 +279,6 @@
       </CardContent>
     </Card>
 
-    <!-- Active Jobs Section -->
-    <Card class="mb-6">
-      <CardHeader>
-        <div class="flex items-center justify-between">
-          <CardTitle class="flex items-center gap-2">
-            <Activity class="h-5 w-5" />
-            Active Jobs
-            {#if $runningJobs.length + activeConversionJobs.length > 0}
-              <Badge variant="secondary">{$runningJobs.length + activeConversionJobs.length}</Badge>
-            {/if}
-          </CardTitle>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {#if $runningJobs.length === 0 && activeConversionJobs.length === 0}
-          <div class="text-center py-8 text-muted-foreground">
-            <Activity class="h-12 w-12 mx-auto mb-2 opacity-50" />
-            <p>No jobs currently processing</p>
-          </div>
-        {:else}
-          <div class="space-y-4">
-            {#each $runningJobs as job (job.id)}
-              <ConversionCard {job} />
-            {/each}
-            {#each activeConversionJobs as cjob (cjob.id)}
-              <div class="space-y-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors">
-                <div class="flex items-start justify-between">
-                  <div class="space-y-1 flex-1 min-w-0">
-                    <h3 class="font-semibold text-sm">
-                      Conversion Job
-                    </h3>
-                    <p class="text-xs text-muted-foreground truncate">
-                      Item: {cjob.item_id}
-                    </p>
-                  </div>
-                  <div class="flex items-center gap-2 ml-2">
-                    <Badge variant="secondary" class={cjob.status === 'running' ? 'bg-blue-500 text-white' : ''}>
-                      {#if cjob.status === 'running'}
-                        <Activity class="h-3 w-3 mr-1 animate-pulse" />
-                      {:else}
-                        <Clock class="h-3 w-3 mr-1" />
-                      {/if}
-                      {cjob.status}
-                    </Badge>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      class="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                      onclick={() => handleCancelConversion(cjob.id)}
-                    >
-                      <XCircle class="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-                {#if cjob.status === 'running' || cjob.progress_pct > 0}
-                  <div class="space-y-1">
-                    <div class="flex justify-between text-xs">
-                      <span class="text-muted-foreground">
-                        {#if cjob.encode_fps}
-                          {cjob.encode_fps.toFixed(1)} fps
-                        {:else}
-                          Encoding...
-                        {/if}
-                      </span>
-                      <span class="font-medium">{cjob.progress_pct.toFixed(1)}%</span>
-                    </div>
-                    <Progress value={cjob.progress_pct} max={100} />
-                    <div class="flex justify-between text-xs text-muted-foreground">
-                      <span>Elapsed: {formatDuration(cjob.elapsed_secs)}</span>
-                      {#if cjob.eta_secs != null && cjob.eta_secs > 0}
-                        <span>ETA: {formatDuration(cjob.eta_secs)}</span>
-                      {/if}
-                    </div>
-                  </div>
-                {/if}
-                {#if cjob.error_message}
-                  <p class="text-xs text-destructive">{cjob.error_message}</p>
-                {/if}
-              </div>
-            {/each}
-          </div>
-        {/if}
-      </CardContent>
-    </Card>
-
-    <!-- Queue Section -->
-    <Card class="mb-6">
-      <CardHeader>
-        <CardTitle class="flex items-center gap-2">
-          <Clock class="h-5 w-5" />
-          Queue
-          {#if $queuedJobs.length > 0}
-            <Badge variant="outline">{$queuedJobs.length} pending</Badge>
-          {/if}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {#if $queuedJobs.length === 0}
-          <div class="text-center py-8 text-muted-foreground">
-            <Clock class="h-12 w-12 mx-auto mb-2 opacity-50" />
-            <p>No items waiting for conversion</p>
-          </div>
-        {:else}
-          <div class="space-y-2">
-            {#each $queuedJobs.slice(0, 5) as job (job.id)}
-              <div class="flex items-center justify-between p-3 border rounded-lg">
-                <div class="flex-1 min-w-0">
-                  <p class="font-medium truncate" title={job.file_path}>
-                    {job.file_name}
-                  </p>
-                  <p class="text-sm text-muted-foreground">
-                    Rule: {job.rule_name ?? 'N/A'}
-                  </p>
-                </div>
-                <Badge variant="outline">Queued</Badge>
-              </div>
-            {/each}
-            {#if $queuedJobs.length > 5}
-              <p class="text-sm text-muted-foreground text-center pt-2">
-                And {$queuedJobs.length - 5} more...
-              </p>
-            {/if}
-          </div>
-        {/if}
-      </CardContent>
-    </Card>
-
-    <!-- Recent Jobs Section -->
-    <Card class="mb-6">
-      <CardHeader>
-        <div class="flex items-center justify-between">
-          <CardTitle class="flex items-center gap-2">
-            <History class="h-5 w-5" />
-            Recent Jobs
-          </CardTitle>
-          <Button variant="ghost" size="sm" href="/history">
-            View All
-            <ExternalLink class="h-4 w-4 ml-2" />
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {#if recentJobs.length === 0}
-          <div class="text-center py-8 text-muted-foreground">
-            <History class="h-12 w-12 mx-auto mb-2 opacity-50" />
-            <p>No recent jobs</p>
-          </div>
-        {:else}
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>File</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Rule</TableHead>
-                <TableHead>Source</TableHead>
-                <TableHead>Completed</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {#each recentJobs as job (job.id)}
-                {@const statusInfo = getStatusBadge(job.status)}
-                <TableRow>
-                  <TableCell class="font-medium truncate max-w-xs">
-                    <span title={job.file_path}>{job.file_name}</span>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={statusInfo.variant} class={statusInfo.class}>
-                      {#if statusInfo.icon}
-                        {@const StatusIcon = statusInfo.icon}
-                        <StatusIcon class="h-3 w-3 mr-1" />
-                      {/if}
-                      {job.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{job.rule_name ?? '-'}</TableCell>
-                  <TableCell>{formatJobSource(job.source)}</TableCell>
-                  <TableCell class="text-muted-foreground">
-                    {formatDate(job.completed_at)}
-                  </TableCell>
-                </TableRow>
-              {/each}
-            </TableBody>
-          </Table>
-        {/if}
-      </CardContent>
-    </Card>
-
     <!-- Quick Links Section -->
     <Card class="mb-6">
       <CardHeader>
@@ -570,9 +293,9 @@
             <Library class="h-6 w-6" />
             <span>Libraries</span>
           </Button>
-          <Button variant="outline" class="h-auto py-4 flex-col gap-2" href="/history">
-            <History class="h-6 w-6" />
-            <span>Job History</span>
+          <Button variant="outline" class="h-auto py-4 flex-col gap-2" href="/admin/jobs">
+            <Briefcase class="h-6 w-6" />
+            <span>Jobs</span>
           </Button>
           <Button variant="outline" class="h-auto py-4 flex-col gap-2" href="/rules">
             <Settings class="h-6 w-6" />
@@ -586,7 +309,7 @@
       </CardContent>
     </Card>
 
-    <!-- Processing Rules Section (Hardcoded Display) -->
+    <!-- Processing Rules Section -->
     <Card>
       <CardHeader>
         <CardTitle class="flex items-center gap-2">

@@ -350,7 +350,15 @@
                       {/if}
                       {cjob.status}
                     </Badge>
-                    <span class="text-xs text-muted-foreground">ID: {cjob.id.slice(0, 8)}...</span>
+                    <span class="text-xs text-muted-foreground">
+                      {#if cjob.source_video_codec || cjob.source_audio_codec}
+                        {(cjob.source_video_codec ?? '?').toUpperCase()}/{(cjob.source_audio_codec ?? '?').toUpperCase()}
+                        {#if cjob.source_resolution}({cjob.source_resolution}){/if}
+                        &#8594; H264/AAC .mp4
+                      {:else}
+                        Converting to universal
+                      {/if}
+                    </span>
                   </div>
                   {#if cjob.status === 'running' || cjob.progress_pct > 0}
                     <div class="space-y-1">

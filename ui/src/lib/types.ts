@@ -313,6 +313,11 @@ export interface ConversionJob {
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
+  item_name: string | null;
+  source_video_codec: string | null;
+  source_audio_codec: string | null;
+  source_resolution: string | null;
+  source_container: string | null;
 }
 
 // Unified SSE event type with category routing

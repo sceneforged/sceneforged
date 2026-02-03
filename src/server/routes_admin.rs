@@ -600,6 +600,16 @@ pub struct ConversionJobResponse {
     pub started_at: Option<String>,
     /// When the job completed
     pub completed_at: Option<String>,
+    /// Item name (resolved from items table)
+    pub item_name: Option<String>,
+    /// Source video codec
+    pub source_video_codec: Option<String>,
+    /// Source audio codec
+    pub source_audio_codec: Option<String>,
+    /// Source resolution (e.g. "1920x1080")
+    pub source_resolution: Option<String>,
+    /// Source container format
+    pub source_container: Option<String>,
 }
 
 /// List conversion jobs.
@@ -636,18 +646,45 @@ pub async fn list_conversion_jobs(State(ctx): State<AppContext>) -> impl IntoRes
         Ok(jobs) => {
             let response: Vec<ConversionJobResponse> = jobs
                 .into_iter()
-                .map(|j| ConversionJobResponse {
-                    id: j.id,
-                    item_id: j.item_id.to_string(),
-                    source_file_id: j.source_file_id.to_string(),
-                    status: j.status.to_string(),
-                    progress_pct: j.progress_pct,
-                    encode_fps: j.encode_fps,
-                    output_path: j.output_path,
-                    error_message: j.error_message,
-                    created_at: j.created_at.to_rfc3339(),
-                    started_at: j.started_at.map(|t| t.to_rfc3339()),
-                    completed_at: j.completed_at.map(|t| t.to_rfc3339()),
+                .map(|j| {
+                    // Look up item name
+                    let item_name = sceneforged_db::queries::items::get_item(&conn, j.item_id)
+                        .ok()
+                        .flatten()
+                        .map(|item| item.name);
+
+                    // Look up source file details
+                    let source_file = sceneforged_db::queries::media_files::get_media_file(&conn, j.source_file_id)
+                        .ok();
+
+                    let source_video_codec = source_file.as_ref().and_then(|f| f.video_codec.clone());
+                    let source_audio_codec = source_file.as_ref().and_then(|f| f.audio_codec.clone());
+                    let source_resolution = source_file.as_ref().and_then(|f| {
+                        match (f.width, f.height) {
+                            (Some(w), Some(h)) => Some(format!("{}x{}", w, h)),
+                            _ => None,
+                        }
+                    });
+                    let source_container = source_file.as_ref().map(|f| f.container.clone());
+
+                    ConversionJobResponse {
+                        id: j.id,
+                        item_id: j.item_id.to_string(),
+                        source_file_id: j.source_file_id.to_string(),
+                        status: j.status.to_string(),
+                        progress_pct: j.progress_pct,
+                        encode_fps: j.encode_fps,
+                        output_path: j.output_path,
+                        error_message: j.error_message,
+                        created_at: j.created_at.to_rfc3339(),
+                        started_at: j.started_at.map(|t| t.to_rfc3339()),
+                        completed_at: j.completed_at.map(|t| t.to_rfc3339()),
+                        item_name,
+                        source_video_codec,
+                        source_audio_codec,
+                        source_resolution,
+                        source_container,
+                    }
                 })
                 .collect();
             Json(response).into_response()
