@@ -5,11 +5,11 @@
 use crate::probe::MediaInfo;
 use crate::state::AppEvent;
 use anyhow::{Context, Result};
-use sceneforged_common::{FileRole, Profile};
+use sceneforged_common::{FileRole, MediaFileId, Profile};
 use sceneforged_db::{
     models::ConversionStatus,
     pool::DbPool,
-    queries::{conversion_jobs, media_files},
+    queries::{conversion_jobs, hls_cache, media_files},
 };
 use std::path::{Path, PathBuf};
 use std::io::{BufRead, BufReader};
@@ -255,16 +255,54 @@ impl ConversionExecutor {
                     }
 
                     // Register output as universal file
-                    if let Err(e) = self.register_universal_file(&conn, job.item_id, &output_path) {
-                        error!("Failed to register universal file: {}", e);
+                    match self.register_universal_file(&conn, job.item_id, &output_path) {
+                        Ok(media_file_id) => {
+                            // Precompute HLS cache for the new Profile B file.
+                            // Profile B is only valid when HLS cache is populated.
+                            match sceneforged_media::precompute_hls(&output_path) {
+                                Ok(hls) => {
+                                    let segment_map_bytes = bincode::serialize(&hls.segment_map)
+                                        .unwrap_or_default();
+
+                                    let hls_entry = hls_cache::HlsCacheEntry {
+                                        media_file_id,
+                                        init_segment: hls.init_segment,
+                                        segment_count: hls.segment_map.segments.len() as u32,
+                                        segment_map: segment_map_bytes,
+                                    };
+
+                                    if let Err(e) = hls_cache::store(&conn, &hls_entry) {
+                                        error!("Failed to store HLS cache for {}: {}", media_file_id, e);
+                                    } else {
+                                        info!(
+                                            "Stored HLS cache for converted file {} ({} segments)",
+                                            media_file_id,
+                                            hls_entry.segment_count
+                                        );
+                                        // Only broadcast playback_available after HLS cache is stored
+                                        self.broadcast(AppEvent::playback_available(
+                                            job.item_id.to_string(),
+                                        ));
+                                    }
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "HLS precomputation failed for converted file {:?}: {}",
+                                        output_path, e
+                                    );
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to register universal file: {}", e);
+                        }
                     }
 
-                    // Broadcast completion events
+                    // Broadcast conversion completion (always, even if HLS cache failed)
                     self.broadcast(AppEvent::conversion_job_completed(
                         job.id.clone(),
                         job.item_id.to_string(),
                     ));
-                    self.broadcast(AppEvent::playback_available(job.item_id.to_string()));
                 }
                 Err(e) => {
                     error!("Conversion failed: {} - {}", job.id, e);
@@ -473,12 +511,14 @@ impl ConversionExecutor {
     }
 
     /// Register the converted file as a universal media file.
+    ///
+    /// Returns the new media file's ID for subsequent HLS cache storage.
     fn register_universal_file(
         &self,
         conn: &rusqlite::Connection,
         item_id: sceneforged_common::ItemId,
         output_path: &Path,
-    ) -> Result<()> {
+    ) -> Result<MediaFileId> {
         let file_size = std::fs::metadata(output_path)?.len() as i64;
 
         // Create media file entry with Profile::B (universal playback profile)
@@ -513,7 +553,7 @@ impl ConversionExecutor {
             media_file.id, item_id
         );
 
-        Ok(())
+        Ok(media_file.id)
     }
 
     /// Process a single job (useful for testing).
@@ -558,7 +598,21 @@ impl ConversionExecutor {
         ) {
             Ok(()) => {
                 conversion_jobs::complete_job(&conn, job_id, &output_path.to_string_lossy())?;
-                self.register_universal_file(&conn, job.item_id, &output_path)?;
+                let media_file_id = self.register_universal_file(&conn, job.item_id, &output_path)?;
+
+                // Precompute and store HLS cache for the new Profile B file
+                let hls = sceneforged_media::precompute_hls(&output_path)
+                    .context("HLS precomputation failed for converted file")?;
+                let segment_map_bytes = bincode::serialize(&hls.segment_map)
+                    .map_err(|e| anyhow::anyhow!("Failed to serialize segment map: {}", e))?;
+                let hls_entry = hls_cache::HlsCacheEntry {
+                    media_file_id,
+                    init_segment: hls.init_segment,
+                    segment_count: hls.segment_map.segments.len() as u32,
+                    segment_map: segment_map_bytes,
+                };
+                hls_cache::store(&conn, &hls_entry)?;
+
                 Ok(())
             }
             Err(e) => {

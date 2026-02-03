@@ -4,6 +4,9 @@ use super::{Atom, AtomType, HandlerType, Mp4File, SampleTableBuilder, TrackInfo}
 use crate::Result;
 use std::io::{Read, Seek, SeekFrom};
 
+/// Maximum allowed atom data size (64 MB) to prevent OOM on malformed files.
+const MAX_ATOM_DATA_SIZE: u64 = 64 * 1024 * 1024;
+
 /// MP4 file reader.
 pub struct Mp4Reader<R> {
     reader: R,
@@ -99,6 +102,21 @@ impl<R: Read + Seek> Mp4Reader<R> {
         Ok(atoms)
     }
 
+    /// Read and validate atom data, rejecting oversized atoms.
+    fn read_atom_data(&mut self, atom: &Atom) -> Result<Vec<u8>> {
+        let size = atom.data_size();
+        if size > MAX_ATOM_DATA_SIZE {
+            return Err(crate::Error::InvalidMp4(format!(
+                "Atom {} data size {} exceeds maximum {}",
+                atom.atom_type, size, MAX_ATOM_DATA_SIZE
+            )));
+        }
+        self.reader.seek(SeekFrom::Start(atom.data_offset))?;
+        let mut data = vec![0u8; size as usize];
+        self.reader.read_exact(&mut data)?;
+        Ok(data)
+    }
+
     /// Parse moov atom.
     fn parse_moov(&mut self, moov: &Atom, mp4: &mut Mp4File) -> Result<()> {
         let children = self.read_atoms(moov.data_offset, moov.data_offset + moov.data_size())?;
@@ -130,10 +148,7 @@ impl<R: Read + Seek> Mp4Reader<R> {
 
     /// Parse mvhd (movie header).
     fn parse_mvhd(&mut self, atom: &Atom, mp4: &mut Mp4File) -> Result<()> {
-        self.reader.seek(SeekFrom::Start(atom.data_offset))?;
-
-        let mut data = vec![0u8; atom.data_size() as usize];
-        self.reader.read_exact(&mut data)?;
+        let data = self.read_atom_data(atom)?;
 
         if data.is_empty() {
             return Ok(());
@@ -183,10 +198,7 @@ impl<R: Read + Seek> Mp4Reader<R> {
 
     /// Parse tkhd (track header).
     fn parse_tkhd(&mut self, atom: &Atom, track: &mut TrackInfo) -> Result<()> {
-        self.reader.seek(SeekFrom::Start(atom.data_offset))?;
-
-        let mut data = vec![0u8; atom.data_size() as usize];
-        self.reader.read_exact(&mut data)?;
+        let data = self.read_atom_data(atom)?;
 
         if data.is_empty() {
             return Ok(());
@@ -244,10 +256,7 @@ impl<R: Read + Seek> Mp4Reader<R> {
 
     /// Parse mdhd (media header).
     fn parse_mdhd(&mut self, atom: &Atom, track: &mut TrackInfo) -> Result<()> {
-        self.reader.seek(SeekFrom::Start(atom.data_offset))?;
-
-        let mut data = vec![0u8; atom.data_size() as usize];
-        self.reader.read_exact(&mut data)?;
+        let data = self.read_atom_data(atom)?;
 
         if data.is_empty() {
             return Ok(());
@@ -277,10 +286,7 @@ impl<R: Read + Seek> Mp4Reader<R> {
 
     /// Parse hdlr (handler) atom.
     fn parse_hdlr(&mut self, atom: &Atom, track: &mut TrackInfo) -> Result<()> {
-        self.reader.seek(SeekFrom::Start(atom.data_offset))?;
-
-        let mut data = vec![0u8; atom.data_size() as usize];
-        self.reader.read_exact(&mut data)?;
+        let data = self.read_atom_data(atom)?;
 
         if data.len() >= 12 {
             track.handler_type = HandlerType::from_bytes([data[8], data[9], data[10], data[11]]);
@@ -344,10 +350,7 @@ impl<R: Read + Seek> Mp4Reader<R> {
 
     /// Parse stts (decoding time to sample).
     fn parse_stts(&mut self, atom: &Atom, builder: &mut SampleTableBuilder) -> Result<()> {
-        self.reader.seek(SeekFrom::Start(atom.data_offset))?;
-
-        let mut data = vec![0u8; atom.data_size() as usize];
-        self.reader.read_exact(&mut data)?;
+        let data = self.read_atom_data(atom)?;
 
         if data.len() < 8 {
             return Ok(());
@@ -382,10 +385,7 @@ impl<R: Read + Seek> Mp4Reader<R> {
 
     /// Parse stss (sync sample).
     fn parse_stss(&mut self, atom: &Atom, builder: &mut SampleTableBuilder) -> Result<()> {
-        self.reader.seek(SeekFrom::Start(atom.data_offset))?;
-
-        let mut data = vec![0u8; atom.data_size() as usize];
-        self.reader.read_exact(&mut data)?;
+        let data = self.read_atom_data(atom)?;
 
         if data.len() < 8 {
             return Ok(());
@@ -414,10 +414,7 @@ impl<R: Read + Seek> Mp4Reader<R> {
 
     /// Parse stsc (sample to chunk).
     fn parse_stsc(&mut self, atom: &Atom, builder: &mut SampleTableBuilder) -> Result<()> {
-        self.reader.seek(SeekFrom::Start(atom.data_offset))?;
-
-        let mut data = vec![0u8; atom.data_size() as usize];
-        self.reader.read_exact(&mut data)?;
+        let data = self.read_atom_data(atom)?;
 
         if data.len() < 8 {
             return Ok(());
@@ -458,10 +455,7 @@ impl<R: Read + Seek> Mp4Reader<R> {
 
     /// Parse stsz (sample size).
     fn parse_stsz(&mut self, atom: &Atom, builder: &mut SampleTableBuilder) -> Result<()> {
-        self.reader.seek(SeekFrom::Start(atom.data_offset))?;
-
-        let mut data = vec![0u8; atom.data_size() as usize];
-        self.reader.read_exact(&mut data)?;
+        let data = self.read_atom_data(atom)?;
 
         if data.len() < 12 {
             return Ok(());
@@ -496,10 +490,7 @@ impl<R: Read + Seek> Mp4Reader<R> {
 
     /// Parse stco (chunk offset, 32-bit).
     fn parse_stco(&mut self, atom: &Atom, builder: &mut SampleTableBuilder) -> Result<()> {
-        self.reader.seek(SeekFrom::Start(atom.data_offset))?;
-
-        let mut data = vec![0u8; atom.data_size() as usize];
-        self.reader.read_exact(&mut data)?;
+        let data = self.read_atom_data(atom)?;
 
         if data.len() < 8 {
             return Ok(());
@@ -528,10 +519,7 @@ impl<R: Read + Seek> Mp4Reader<R> {
 
     /// Parse co64 (chunk offset, 64-bit).
     fn parse_co64(&mut self, atom: &Atom, builder: &mut SampleTableBuilder) -> Result<()> {
-        self.reader.seek(SeekFrom::Start(atom.data_offset))?;
-
-        let mut data = vec![0u8; atom.data_size() as usize];
-        self.reader.read_exact(&mut data)?;
+        let data = self.read_atom_data(atom)?;
 
         if data.len() < 8 {
             return Ok(());
@@ -564,10 +552,7 @@ impl<R: Read + Seek> Mp4Reader<R> {
 
     /// Parse ctts (composition time to sample).
     fn parse_ctts(&mut self, atom: &Atom, builder: &mut SampleTableBuilder) -> Result<()> {
-        self.reader.seek(SeekFrom::Start(atom.data_offset))?;
-
-        let mut data = vec![0u8; atom.data_size() as usize];
-        self.reader.read_exact(&mut data)?;
+        let data = self.read_atom_data(atom)?;
 
         if data.len() < 8 {
             return Ok(());
@@ -612,10 +597,7 @@ impl<R: Read + Seek> Mp4Reader<R> {
 
     /// Parse stsd (sample description) - extract codec config.
     fn parse_stsd(&mut self, atom: &Atom, track: &mut TrackInfo) -> Result<()> {
-        self.reader.seek(SeekFrom::Start(atom.data_offset))?;
-
-        let mut data = vec![0u8; atom.data_size() as usize];
-        self.reader.read_exact(&mut data)?;
+        let data = self.read_atom_data(atom)?;
 
         if data.len() < 16 {
             return Ok(());
@@ -632,8 +614,33 @@ impl<R: Read + Seek> Mp4Reader<R> {
             track.sample_rate = Some(sample_rate);
         }
 
-        // The full stsd parsing for codec data (avcC, etc.) would go here
-        // For now, we leave codec_data as None
+        // Extract codec configuration data for video tracks
+        if track.handler_type.is_video() && data.len() > 94 {
+            // Scan child boxes after the sample entry header
+            let mut pos = 94;
+            while pos + 8 <= data.len() {
+                let box_size = u32::from_be_bytes([
+                    data[pos],
+                    data[pos + 1],
+                    data[pos + 2],
+                    data[pos + 3],
+                ]) as usize;
+                let box_type = &data[pos + 4..pos + 8];
+
+                if box_size < 8 || pos + box_size > data.len() {
+                    break;
+                }
+
+                // Extract avcC or hvcC box contents (excluding the box header)
+                if box_type == b"avcC" || box_type == b"hvcC" {
+                    let config_data = data[pos + 8..pos + box_size].to_vec();
+                    track.codec_data = Some(config_data);
+                    break;
+                }
+
+                pos += box_size;
+            }
+        }
 
         Ok(())
     }

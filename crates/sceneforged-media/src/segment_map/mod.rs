@@ -11,6 +11,7 @@ use crate::mp4::SampleEntry;
 
 /// A single HLS segment definition.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 pub struct Segment {
     /// Segment index (0-based).
     pub index: u32,
@@ -39,6 +40,7 @@ impl Segment {
 
 /// Precomputed segment map for HLS serving.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 pub struct SegmentMap {
     /// Media timescale (samples per second).
     pub timescale: u32,

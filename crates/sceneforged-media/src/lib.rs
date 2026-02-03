@@ -30,10 +30,12 @@ pub mod error;
 pub mod fmp4;
 pub mod hls;
 pub mod mp4;
+pub mod precompute;
 pub mod segment_map;
 
 pub use error::{Error, Result};
 pub use fmp4::InitSegment;
 pub use hls::{HlsPlaylist, MediaPlaylist};
 pub use mp4::Mp4File;
+pub use precompute::{precompute_hls, HlsPrecomputed};
 pub use segment_map::SegmentMap;

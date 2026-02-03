@@ -45,6 +45,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "profile_system",
         sql: include_str!("004_profile_system.sql"),
     },
+    Migration {
+        version: 5,
+        name: "hls_cache",
+        sql: include_str!("005_hls_cache.sql"),
+    },
 ];
 
 /// Initialize the migrations table if it doesn't exist

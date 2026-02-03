@@ -165,8 +165,8 @@ impl SegmentMapBuilder {
 
         // Calculate duration
         let end_time = end
-            .map(|s| s.dts + s.size as u64) // Approximate end time
-            .unwrap_or(0);
+            .map(|s| s.dts)
+            .unwrap_or(start_time_ticks);
         let duration_ticks = end_time.saturating_sub(start_time_ticks);
         let duration_secs = if self.timescale > 0 {
             duration_ticks as f64 / self.timescale as f64

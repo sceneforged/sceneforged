@@ -10,6 +10,7 @@
 
 /// A resolved sample entry with all information needed for serving.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 pub struct SampleEntry {
     /// Sample index (0-based).
     pub index: u32,
@@ -34,6 +35,7 @@ impl SampleEntry {
 
 /// Sample table containing decoded sample information.
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 pub struct SampleTable {
     /// Sample count.
     pub sample_count: u32,

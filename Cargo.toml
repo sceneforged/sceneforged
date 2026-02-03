@@ -58,13 +58,14 @@ walkdir = "2"
 rayon = "1"
 num_cpus = "1"
 reqwest = { version = "0.11", features = ["json"] }
+bincode = "1"
 
 [dependencies]
 # Sceneforged libraries
 sceneforged-av = { workspace = true, features = ["all", "tracing", "pure-rust-probe"] }
 sceneforged-common = { workspace = true }
 sceneforged-db = { workspace = true }
-sceneforged-media = { workspace = true }
+sceneforged-media = { workspace = true, features = ["serialize"] }
 sceneforged-parser = { workspace = true }
 
 # CLI
@@ -110,6 +111,7 @@ tempfile = { workspace = true }
 async-trait = "0.1"
 parking_lot = "0.12"
 walkdir = { workspace = true }
+bincode = { workspace = true }
 regex = "1"
 dashmap = "6"
 rusqlite = { workspace = true }

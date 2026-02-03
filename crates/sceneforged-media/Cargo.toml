@@ -6,8 +6,14 @@ license.workspace = true
 repository.workspace = true
 description = "MP4/MKV parsing, fMP4 serialization, HLS segment maps for sceneforged"
 
+[features]
+default = []
+serialize = ["dep:serde", "dep:bincode"]
+
 [dependencies]
 sceneforged-common = { path = "../sceneforged-common" }
 
 bytes = "1"
 thiserror = { workspace = true }
+serde = { workspace = true, features = ["derive"], optional = true }
+bincode = { workspace = true, optional = true }

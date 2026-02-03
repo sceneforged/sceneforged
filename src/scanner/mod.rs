@@ -16,7 +16,7 @@ use sceneforged_common::{
 use sceneforged_db::{
     models::Item,
     pool::DbPool,
-    queries::{conversion_jobs, items, libraries, media_files},
+    queries::{conversion_jobs, hls_cache, items, libraries, media_files},
 };
 use std::sync::Arc;
 use std::path::{Path, PathBuf};
@@ -253,17 +253,35 @@ impl Scanner {
         // Classify the media file into a profile
         let mut classification = self.classifier.classify(&media_info);
 
-        // If classifier says Profile B but qualifier says it doesn't serve as universal,
-        // downgrade to Profile C. Profile B means "can serve as universal without conversion",
-        // so if it fails any qualification check (faststart, keyframes, etc.), it's Profile C.
-        if classification.profile == Profile::B && !qualification.serves_as_universal {
-            debug!(
-                "Downgrading {:?} from Profile B to C: {}",
-                path,
-                qualification.disqualification_reasons.join(", ")
-            );
-            classification.profile = Profile::C;
-        }
+        // If classifier says Profile B and qualifier agrees, attempt HLS precomputation.
+        // Profile B is ONLY assigned when HLS cache is successfully populated.
+        let serves_as_universal = if classification.profile == Profile::B && qualification.serves_as_universal {
+            match sceneforged_media::precompute_hls(path) {
+                Ok(hls) => {
+                    // HLS precomputation succeeded - will store cache after media file creation
+                    debug!("HLS precomputation succeeded for {:?}", path);
+                    Some(hls)
+                }
+                Err(e) => {
+                    warn!(
+                        "HLS precomputation failed for {:?}, downgrading to Profile C: {}",
+                        path, e
+                    );
+                    classification.profile = Profile::C;
+                    None
+                }
+            }
+        } else {
+            if classification.profile == Profile::B && !qualification.serves_as_universal {
+                debug!(
+                    "Downgrading {:?} from Profile B to C: {}",
+                    path,
+                    qualification.disqualification_reasons.join(", ")
+                );
+                classification.profile = Profile::C;
+            }
+            None
+        };
 
         // Create media file entry
         let media_file = media_files::create_media_file(
@@ -284,6 +302,29 @@ impl Scanner {
             classification.can_be_profile_b,
         )?;
 
+        // If HLS precomputation succeeded, store the cache alongside the profile.
+        // This ensures the invariant: Profile B <-> HLS cache exists.
+        let has_hls_cache = if let Some(hls) = serves_as_universal {
+            let segment_map_bytes = bincode::serialize(&hls.segment_map)
+                .map_err(|e| anyhow::anyhow!("Failed to serialize segment map: {}", e))?;
+
+            let hls_entry = hls_cache::HlsCacheEntry {
+                media_file_id: media_file.id,
+                init_segment: hls.init_segment,
+                segment_count: hls.segment_map.segments.len() as u32,
+                segment_map: segment_map_bytes,
+            };
+            hls_cache::store(&conn, &hls_entry)?;
+            info!(
+                "Stored HLS cache for {:?} ({} segments)",
+                path,
+                hls_entry.segment_count
+            );
+            true
+        } else {
+            false
+        };
+
         // Update media file with probe metadata
         let video = media_info.video_tracks.first();
         let audio = media_info.audio_tracks.first();
@@ -300,15 +341,15 @@ impl Scanner {
                 .map(|d| (d.as_secs_f64() * 10_000_000.0) as i64),
             None, // bit_rate
             video.and_then(|v| v.hdr_format.as_ref()).is_some(),
-            qualification.serves_as_universal,
+            has_hls_cache, // serves_as_universal only true when HLS cache populated
             qualification.has_faststart,
             qualification.keyframe_interval_secs,
         )?;
 
-        // Queue conversion job if file doesn't qualify as universal
+        // Queue conversion job if file doesn't have HLS cache (not Profile B)
         // Only auto-convert Profile C content (not Profile A which is 4K/HDR)
         // Profile A content should only be converted manually through the UI
-        let needs_conversion = !qualification.serves_as_universal;
+        let needs_conversion = !has_hls_cache;
         if needs_conversion && classification.profile != Profile::A {
             // Check if there's already an active job for this item
             if conversion_jobs::get_active_job_for_item(&conn, item.id)?.is_none() {
@@ -344,13 +385,13 @@ impl Scanner {
 
         info!(
             "Added file: {:?} (serves_as_universal: {}, needs_conversion: {})",
-            path, qualification.serves_as_universal, needs_conversion
+            path, has_hls_cache, needs_conversion
         );
 
         Ok(ScanResult {
             item_id: item.id,
             media_file_id: media_file.id,
-            serves_as_universal: qualification.serves_as_universal,
+            serves_as_universal: has_hls_cache,
             needs_conversion,
             item,
         })

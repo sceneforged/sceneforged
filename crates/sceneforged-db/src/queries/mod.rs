@@ -7,11 +7,13 @@
 //! - items: Item CRUD, hierarchy, and search
 //! - media_files: Media file management (source, universal, extra)
 //! - conversion_jobs: Conversion job tracking
+//! - hls_cache: Precomputed HLS streaming data
 //! - playback: User playback data and favorites
 //! - sync: InfuseSync delta sync operations
 
 pub mod auth_tokens;
 pub mod conversion_jobs;
+pub mod hls_cache;
 pub mod items;
 pub mod libraries;
 pub mod media_files;

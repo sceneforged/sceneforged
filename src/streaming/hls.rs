@@ -5,9 +5,12 @@
 //! # Zero-Copy Optimization
 //!
 //! Media segments use a streaming approach to minimize memory copies:
-//! - moof header is generated once and converted to Bytes
+//! - Pre-built moof header is loaded from DB and converted to Bytes
 //! - File data is streamed directly via ReaderStream
 //! - The two streams are chained, avoiding buffer concatenation
+//!
+//! All HLS data (init segments, segment maps with pre-built moof headers)
+//! is precomputed and stored in the `hls_cache` DB table for zero-parse serving.
 
 use axum::{
     body::Body,
@@ -18,28 +21,13 @@ use axum::{
 use bytes::Bytes;
 use futures::stream::{self, StreamExt};
 use sceneforged_common::ids::MediaFileId;
-use sceneforged_db::queries::media_files;
-use sceneforged_media::{
-    hls::{MediaPlaylist, StreamInfo},
-    mp4::Mp4File,
-    segment_map::SegmentMapBuilder,
-};
+use sceneforged_db::queries::{hls_cache, media_files};
+use sceneforged_media::hls::{MediaPlaylist, StreamInfo};
 use std::io::SeekFrom;
-use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
 
-use super::segment_cache::SegmentCache;
 use crate::server::AppContext;
-
-/// Get a shared segment cache from AppContext (uses global static for now).
-fn get_segment_cache() -> Arc<SegmentCache> {
-    use std::sync::OnceLock;
-    static CACHE: OnceLock<Arc<SegmentCache>> = OnceLock::new();
-    CACHE
-        .get_or_init(|| Arc::new(SegmentCache::default()))
-        .clone()
-}
 
 /// Serve HLS master playlist (for adaptive bitrate).
 pub async fn master_playlist(
@@ -86,6 +74,8 @@ pub async fn master_playlist(
 }
 
 /// Serve HLS media playlist (segment list).
+///
+/// Loads precomputed segment map from the `hls_cache` DB table.
 pub async fn media_playlist(
     State(ctx): State<AppContext>,
     Path(media_file_id): Path<String>,
@@ -96,32 +86,19 @@ pub async fn media_playlist(
         .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     let conn = pool.get().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    // Parse ID
     let uuid = media_file_id
         .parse::<uuid::Uuid>()
         .map_err(|_| StatusCode::BAD_REQUEST)?;
     let id = MediaFileId::from(uuid);
 
-    // Get media file info
-    let media_file = media_files::get_media_file(&conn, id).map_err(|_| StatusCode::NOT_FOUND)?;
+    // Load precomputed segment map from DB
+    let cache_entry = hls_cache::get(&conn, id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    let file_path = std::path::Path::new(&media_file.file_path);
-
-    let segment_cache = get_segment_cache();
-
-    // Get or compute segment map
-    let segment_map = segment_cache
-        .get_or_insert(&media_file_id, file_path, |path| {
-            let mp4 = Mp4File::open(path).ok()?;
-            let video_track = mp4.video_track.as_ref()?;
-            Some(
-                SegmentMapBuilder::new()
-                    .timescale(video_track.timescale)
-                    .target_duration(6.0)
-                    .build(&video_track.sample_table),
-            )
-        })
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let segment_map: sceneforged_media::segment_map::SegmentMap =
+        bincode::deserialize(&cache_entry.segment_map)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Generate media playlist with relative URLs to avoid 0.0.0.0 bind address issues
     let playlist = MediaPlaylist::from_segment_map(&segment_map, "/api", &media_file_id);
@@ -136,6 +113,8 @@ pub async fn media_playlist(
 }
 
 /// Serve HLS init segment (ftyp + moov).
+///
+/// Loads precomputed init segment from the `hls_cache` DB table.
 pub async fn init_segment(
     State(ctx): State<AppContext>,
     Path(media_file_id): Path<String>,
@@ -146,33 +125,15 @@ pub async fn init_segment(
         .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     let conn = pool.get().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    // Parse ID
     let uuid = media_file_id
         .parse::<uuid::Uuid>()
         .map_err(|_| StatusCode::BAD_REQUEST)?;
     let id = MediaFileId::from(uuid);
 
-    // Get media file
-    let media_file = media_files::get_media_file(&conn, id).map_err(|_| StatusCode::NOT_FOUND)?;
-
-    let file_path = std::path::Path::new(&media_file.file_path);
-
-    // Parse MP4 to get init segment data
-    let mp4 = Mp4File::open(file_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    // Build init segment
-    let video_track = mp4.video_track.as_ref().ok_or(StatusCode::NOT_FOUND)?;
-
-    let mut init_builder = sceneforged_media::fmp4::InitSegmentBuilder::new()
-        .timescale(video_track.timescale)
-        .duration(video_track.duration);
-
-    if let (Some(width), Some(height)) = (video_track.width, video_track.height) {
-        init_builder = init_builder.dimensions(width, height);
-    }
-
-    let init_segment = init_builder.build();
-    let init_data = init_segment.data;
+    // Load precomputed init segment from DB
+    let init_data = hls_cache::get_init_segment(&conn, id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
     Ok(Response::builder()
         .status(StatusCode::OK)
@@ -184,8 +145,8 @@ pub async fn init_segment(
 
 /// Serve HLS media segment.
 ///
-/// Uses zero-copy streaming: moof header is sent first, then file data is streamed
-/// directly without buffering the entire segment in memory.
+/// Uses zero-copy streaming: pre-built moof header is loaded from DB, then file
+/// data is streamed directly without buffering the entire segment in memory.
 pub async fn media_segment(
     State(ctx): State<AppContext>,
     Path((media_file_id, segment_index_str)): Path<(String, String)>,
@@ -202,57 +163,36 @@ pub async fn media_segment(
         .parse()
         .map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    // Parse ID
     let uuid = media_file_id
         .parse::<uuid::Uuid>()
         .map_err(|_| StatusCode::BAD_REQUEST)?;
     let id = MediaFileId::from(uuid);
 
-    // Get media file
+    // Get media file for the file path
     let media_file = media_files::get_media_file(&conn, id).map_err(|_| StatusCode::NOT_FOUND)?;
-
     let file_path = std::path::Path::new(&media_file.file_path);
-    let segment_cache = get_segment_cache();
 
-    // Get segment map
-    let segment_map = segment_cache
-        .get_or_insert(&media_file_id, file_path, |path| {
-            let mp4 = Mp4File::open(path).ok()?;
-            let video_track = mp4.video_track.as_ref()?;
-            Some(
-                SegmentMapBuilder::new()
-                    .timescale(video_track.timescale)
-                    .target_duration(6.0)
-                    .build(&video_track.sample_table),
-            )
-        })
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Load precomputed segment map from DB
+    let cache_entry = hls_cache::get(&conn, id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
-    // Get segment info
+    let segment_map: sceneforged_media::segment_map::SegmentMap =
+        bincode::deserialize(&cache_entry.segment_map)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     let segment = segment_map
         .get_segment(segment_index)
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    // Build moof + mdat header (this is the only part we need to generate)
-    let mp4 = Mp4File::open(file_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let video_track = mp4.video_track.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    // Get pre-built moof+mdat header
+    let moof_mdat_header = segment
+        .moof_data
+        .as_ref()
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Get samples for this segment
-    let samples: Vec<_> = (segment.start_sample..segment.end_sample)
-        .filter_map(|i| video_track.sample_table.get(i))
-        .cloned()
-        .collect();
-
-    // Calculate base media decode time
-    let base_decode_time = samples.first().map(|s| s.dts).unwrap_or(0);
-
-    let moof_builder = sceneforged_media::fmp4::MoofBuilder::new(segment_index + 1, 1)
-        .base_media_decode_time(base_decode_time);
-
-    // Build moof header (small, ~100-500 bytes typically)
-    let moof_mdat_header = moof_builder.build(&samples);
     let header_len = moof_mdat_header.len();
-    let header_bytes = Bytes::from(moof_mdat_header);
+    let header_bytes = Bytes::from(moof_mdat_header.clone());
 
     // Calculate total content length for Content-Length header
     let total_size = header_len as u64 + segment.data_size;
@@ -269,8 +209,7 @@ pub async fn media_segment(
     // Create bounded reader for just this segment's data
     let segment_reader = file.take(segment.data_size);
 
-    // Stream: first the moof header, then the file data
-    // This avoids the extend_from_slice copy!
+    // Stream: first the pre-built moof header, then the file data
     let header_stream = stream::once(async move { Ok::<_, std::io::Error>(header_bytes) });
     let file_stream = ReaderStream::new(segment_reader);
 
