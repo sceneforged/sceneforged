@@ -9,6 +9,7 @@ pub mod prober;
 pub mod qualifier;
 
 use crate::config::Config;
+use crate::metadata::queue::{EnrichmentJob, EnrichmentQueue};
 use crate::state::AppEvent;
 use anyhow::Result;
 use sceneforged_common::{
@@ -39,6 +40,7 @@ pub struct Scanner {
     classifier: ProfileClassifier,
     identifier: MediaIdentifier,
     event_tx: Option<broadcast::Sender<AppEvent>>,
+    enrichment_queue: Option<Arc<EnrichmentQueue>>,
 }
 
 /// Result of scanning a single file.
@@ -76,6 +78,7 @@ impl Scanner {
             classifier: ProfileClassifier::new(),
             identifier: MediaIdentifier::new(),
             event_tx: None,
+            enrichment_queue: None,
         }
     }
 
@@ -93,7 +96,14 @@ impl Scanner {
             classifier: ProfileClassifier::new(),
             identifier: MediaIdentifier::new(),
             event_tx: Some(event_tx),
+            enrichment_queue: None,
         }
+    }
+
+    /// Set the enrichment queue for background metadata lookups after scanning.
+    pub fn with_enrichment_queue(mut self, queue: Arc<EnrichmentQueue>) -> Self {
+        self.enrichment_queue = Some(queue);
+        self
     }
 
     /// Broadcast an event if the event sender is configured.
@@ -179,6 +189,21 @@ impl Scanner {
                     if result.serves_as_universal {
                         self.broadcast(AppEvent::playback_available(result.item_id.to_string()));
                     }
+                    // Queue metadata enrichment if available
+                    if let Some(ref queue) = self.enrichment_queue {
+                        let job = EnrichmentJob {
+                            item_id: result.item.id,
+                            title: result.item.name.clone(),
+                            year: result.item.production_year.and_then(|y| u16::try_from(y).ok()),
+                            media_type,
+                        };
+                        let queue = queue.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = queue.submit(job).await {
+                                warn!("Failed to queue enrichment: {}", e);
+                            }
+                        });
+                    }
                     results.push(result);
                 }
                 Err(e) => {
@@ -215,11 +240,7 @@ impl Scanner {
             MediaType::Movies => ItemKind::Movie,
             MediaType::TvShows => {
                 // Use parsed info to refine - if we have season/episode, it's an episode
-                if identification.season.is_some() || identification.episode.is_some() {
-                    ItemKind::Episode
-                } else {
-                    ItemKind::Episode // Default to episode for TV library
-                }
+                ItemKind::Episode
             }
             MediaType::Music => ItemKind::Audio,
         };
@@ -416,7 +437,7 @@ impl Scanner {
                 track
                     .dolby_vision
                     .as_ref()
-                    .map_or(false, |dv| dv.profile == 7)
+                    .is_some_and(|dv| dv.profile == 7)
             });
 
             if has_dv_profile_7 {

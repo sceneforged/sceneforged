@@ -6,7 +6,7 @@
 
 mod moof;
 
-pub use moof::MoofBuilder;
+pub use moof::{build_multi_track_moof, MoofBuilder, TrackFragment};
 
 use bytes::{BufMut, BytesMut};
 
@@ -37,6 +37,7 @@ pub struct InitSegmentBuilder {
     video_codec: Option<Vec<u8>>, // avcC or hvcC
     has_audio: bool,
     audio_timescale: u32,
+    audio_duration: u64,
     audio_channels: u16,
     audio_sample_rate: u32,
     audio_codec: Option<Vec<u8>>, // esds
@@ -53,6 +54,7 @@ impl InitSegmentBuilder {
             video_codec: None,
             has_audio: false,
             audio_timescale: 48000,
+            audio_duration: 0,
             audio_channels: 2,
             audio_sample_rate: 48000,
             audio_codec: None,
@@ -85,11 +87,24 @@ impl InitSegmentBuilder {
     }
 
     /// Add audio track.
-    pub fn with_audio(mut self, timescale: u32, channels: u16, sample_rate: u32) -> Self {
+    pub fn with_audio(
+        mut self,
+        timescale: u32,
+        channels: u16,
+        sample_rate: u32,
+        duration: u64,
+    ) -> Self {
         self.has_audio = true;
         self.audio_timescale = timescale;
+        self.audio_duration = duration;
         self.audio_channels = channels;
         self.audio_sample_rate = sample_rate;
+        self
+    }
+
+    /// Set audio codec configuration (esds box contents).
+    pub fn audio_codec(mut self, data: Vec<u8>) -> Self {
+        self.audio_codec = Some(data);
         self
     }
 
@@ -222,7 +237,17 @@ impl InitSegmentBuilder {
         buf.put_u64(0); // modification time
         buf.put_u32(track_id);
         buf.put_u32(0); // reserved
-        buf.put_u64(self.duration);
+        // tkhd duration is in movie timescale (mvhd timescale)
+        let tkhd_duration = if is_video {
+            self.duration
+        } else if self.audio_timescale > 0 {
+            // Convert audio duration from audio timescale to movie timescale
+            (self.audio_duration as f64 / self.audio_timescale as f64 * self.timescale as f64)
+                as u64
+        } else {
+            self.duration
+        };
+        buf.put_u64(tkhd_duration);
         buf.put_u64(0); // reserved
         buf.put_u16(0); // layer
         buf.put_u16(0); // alternate group
@@ -254,7 +279,7 @@ impl InitSegmentBuilder {
         buf.put_slice(b"mdia");
 
         // mdhd
-        self.write_mdhd(buf, self.timescale);
+        self.write_mdhd(buf, self.timescale, self.duration);
 
         // hdlr
         self.write_hdlr(buf, b"vide", b"VideoHandler");
@@ -273,7 +298,7 @@ impl InitSegmentBuilder {
         buf.put_slice(b"mdia");
 
         // mdhd
-        self.write_mdhd(buf, self.audio_timescale);
+        self.write_mdhd(buf, self.audio_timescale, self.audio_duration);
 
         // hdlr
         self.write_hdlr(buf, b"soun", b"SoundHandler");
@@ -286,7 +311,7 @@ impl InitSegmentBuilder {
         buf[mdia_start..mdia_start + 4].copy_from_slice(&size_bytes);
     }
 
-    fn write_mdhd(&self, buf: &mut BytesMut, timescale: u32) {
+    fn write_mdhd(&self, buf: &mut BytesMut, timescale: u32, duration: u64) {
         let size = 44; // version 1
         buf.put_u32(size);
         buf.put_slice(b"mdhd");
@@ -295,7 +320,7 @@ impl InitSegmentBuilder {
         buf.put_u64(0); // creation time
         buf.put_u64(0); // modification time
         buf.put_u32(timescale);
-        buf.put_u64(self.duration);
+        buf.put_u64(duration);
         buf.put_u16(0x55C4); // language: und
         buf.put_u16(0); // pre_defined
     }

@@ -8,6 +8,7 @@
   import MediaCard from '$lib/components/MediaCard.svelte';
   import Button from '$lib/components/ui/button/button.svelte';
   import Input from '$lib/components/ui/input/input.svelte';
+  import { MediaCardSkeleton } from '$lib/components/ui';
   import { Search, Library as LibraryIcon, Loader2, ArrowLeft } from 'lucide-svelte';
 
   const libraryId = $derived($page.params.libraryId!);
@@ -179,9 +180,11 @@
 
   <!-- Content -->
   {#if loading && items.length === 0}
-    <!-- Loading state -->
-    <div class="flex items-center justify-center py-20">
-      <Loader2 class="w-8 h-8 animate-spin text-muted-foreground" />
+    <!-- Loading skeleton grid -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+      {#each Array(12) as _}
+        <MediaCardSkeleton />
+      {/each}
     </div>
   {:else if error}
     <!-- Error state -->

@@ -36,7 +36,7 @@ pub mod config;
 pub mod model;
 pub mod output;
 
-mod lexer;
+pub mod lexer;
 mod parser;
 
 #[cfg(all(target_arch = "wasm32", feature = "wasm"))]

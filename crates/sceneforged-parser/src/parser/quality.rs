@@ -254,15 +254,13 @@ pub fn extract(lexer: &Lexer, release: &mut ParsedRelease) {
                             *text,
                         ));
                     }
-                } else if upper == "8K" {
-                    if release.resolution.is_none() {
-                        release.resolution = Some(ParsedField::new(
-                            Resolution::_4320p,
-                            Confidence::HIGH,
-                            (span.start, span.end),
-                            *text,
-                        ));
-                    }
+                } else if upper == "8K" && release.resolution.is_none() {
+                    release.resolution = Some(ParsedField::new(
+                        Resolution::_4320p,
+                        Confidence::HIGH,
+                        (span.start, span.end),
+                        *text,
+                    ));
                 }
             }
             _ => {}

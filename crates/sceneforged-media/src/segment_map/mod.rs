@@ -23,10 +23,19 @@ pub struct Segment {
     pub duration_secs: f64,
     /// Start time in seconds (from beginning of file).
     pub start_time_secs: f64,
-    /// Byte ranges in the source file: `(offset, length)`.
+    /// Video byte ranges in the source file: `(offset, length)`.
     /// Contiguous samples are coalesced into single ranges.
     /// Interleaved files (e.g. FFmpeg output) will have multiple ranges.
     pub byte_ranges: Vec<(u64, u32)>,
+    /// Audio byte ranges in the source file: `(offset, length)`.
+    #[cfg_attr(feature = "serialize", serde(default))]
+    pub audio_byte_ranges: Vec<(u64, u32)>,
+    /// Audio start sample index (in audio track's sample table).
+    #[cfg_attr(feature = "serialize", serde(default))]
+    pub audio_start_sample: Option<u32>,
+    /// Audio end sample index (exclusive).
+    #[cfg_attr(feature = "serialize", serde(default))]
+    pub audio_end_sample: Option<u32>,
     /// Pre-built moof box for this segment (if available).
     pub moof_data: Option<Vec<u8>>,
 }
@@ -37,9 +46,15 @@ impl Segment {
         self.end_sample - self.start_sample
     }
 
-    /// Total size of sample data in this segment.
+    /// Total size of sample data in this segment (video + audio).
     pub fn data_size(&self) -> u64 {
-        self.byte_ranges.iter().map(|(_, len)| *len as u64).sum()
+        let video: u64 = self.byte_ranges.iter().map(|(_, len)| *len as u64).sum();
+        let audio: u64 = self
+            .audio_byte_ranges
+            .iter()
+            .map(|(_, len)| *len as u64)
+            .sum();
+        video + audio
     }
 }
 
@@ -144,6 +159,9 @@ mod tests {
                     duration_secs: 5.0,
                     start_time_secs: 0.0,
                     byte_ranges: vec![(0, 1000)],
+                    audio_byte_ranges: Vec::new(),
+                    audio_start_sample: None,
+                    audio_end_sample: None,
                     moof_data: None,
                 },
                 Segment {
@@ -153,6 +171,9 @@ mod tests {
                     duration_secs: 5.0,
                     start_time_secs: 5.0,
                     byte_ranges: vec![(1000, 1000)],
+                    audio_byte_ranges: Vec::new(),
+                    audio_start_sample: None,
+                    audio_end_sample: None,
                     moof_data: None,
                 },
             ],

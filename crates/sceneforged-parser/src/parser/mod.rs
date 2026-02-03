@@ -17,6 +17,7 @@ use crate::model::{Confidence, MediaType, ParsedField, ParsedRelease};
 ///
 /// This is a convenience function that uses default configuration.
 /// For custom configuration, use [`parse_with_config`].
+#[allow(dead_code)]
 pub fn parse(input: &str) -> ParsedRelease {
     parse_with_config(input, &ParserConfig::default())
 }

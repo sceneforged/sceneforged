@@ -57,7 +57,7 @@ impl MediaIdentifier {
             source_str: parsed.source.as_ref().map(|s| (**s).to_string()),
             release_group: parsed.release_group.as_ref().map(|g| (**g).clone()),
             scene_release_name: parsed.release_title.clone(),
-            parser_media_type: (*parsed.media_type).clone(),
+            parser_media_type: *parsed.media_type,
             parsed,
         }
     }

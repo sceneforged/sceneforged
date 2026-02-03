@@ -4,6 +4,7 @@
   import { Film, Tv, Music, FolderOpen, Star, Play, Check, Clock } from 'lucide-svelte';
   import Badge from './ui/badge/badge.svelte';
   import ProfileBadge from './ProfileBadge.svelte';
+  import ProgressiveImage from './ProgressiveImage.svelte';
   import { goto } from '$app/navigation';
 
   interface Props {
@@ -91,6 +92,9 @@
       ? Math.min(100, (playbackPosition / item.runtime_ticks) * 100)
       : 0
   );
+
+  // Find primary image from item images
+  const primaryImage = $derived(item.images?.find(img => img.image_type === 'primary'));
 </script>
 
 <div
@@ -102,8 +106,17 @@
     class="relative aspect-[2/3] bg-muted flex items-center justify-center overflow-hidden w-full cursor-pointer"
     onclick={handlePosterClick}
   >
-    <!-- Placeholder icon -->
-    <Icon class="w-16 h-16 text-muted-foreground/30" />
+    <!-- Poster image or placeholder icon -->
+    {#if primaryImage}
+      <ProgressiveImage
+        imageId={primaryImage.id}
+        alt={item.name}
+        size="medium"
+        class="absolute inset-0 h-full w-full"
+      />
+    {:else}
+      <Icon class="w-16 h-16 text-muted-foreground/30" />
+    {/if}
 
     <!-- Play overlay on hover (only show if web-playable) -->
     {#if isWebPlayable}

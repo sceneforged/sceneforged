@@ -80,10 +80,8 @@ impl OutputFormat for SonarrFormat {
         // Extract video codec
         let codec = if let Some(ref encoder) = release.video_encoder {
             Some(format!("{:?}", **encoder))
-        } else if let Some(ref standard) = release.video_standard {
-            Some(format!("{:?}", **standard))
         } else {
-            None
+            release.video_standard.as_ref().map(|standard| format!("{:?}", **standard))
         };
 
         // Extract source

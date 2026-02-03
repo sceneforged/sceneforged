@@ -42,6 +42,8 @@ fn create_radarr_context() -> AppContext {
         jellyfins: vec![],
         tools: Default::default(),
         conversion: ConversionConfig::default(),
+        metadata: Default::default(),
+        images: Default::default(),
     };
 
     AppContext {
@@ -55,6 +57,8 @@ fn create_radarr_context() -> AppContext {
         db_pool: None,
         session_manager: None,
         conversion_manager: None,
+        image_service: None,
+        enrichment_queue: None,
     }
 }
 
@@ -77,6 +81,8 @@ fn create_sonarr_context() -> AppContext {
         jellyfins: vec![],
         tools: Default::default(),
         conversion: ConversionConfig::default(),
+        metadata: Default::default(),
+        images: Default::default(),
     };
 
     AppContext {
@@ -90,6 +96,8 @@ fn create_sonarr_context() -> AppContext {
         db_pool: None,
         session_manager: None,
         conversion_manager: None,
+        image_service: None,
+        enrichment_queue: None,
     }
 }
 
@@ -243,6 +251,8 @@ async fn test_webhook_disabled_arr() {
         jellyfins: vec![],
         tools: Default::default(),
         conversion: ConversionConfig::default(),
+        metadata: Default::default(),
+        images: Default::default(),
     };
 
     let ctx = AppContext {
@@ -256,6 +266,8 @@ async fn test_webhook_disabled_arr() {
         db_pool: None,
         session_manager: None,
         conversion_manager: None,
+        image_service: None,
+        enrichment_queue: None,
     };
 
     let app = create_router(ctx, None);

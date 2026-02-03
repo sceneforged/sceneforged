@@ -14,6 +14,7 @@
 pub mod auth_tokens;
 pub mod conversion_jobs;
 pub mod hls_cache;
+pub mod images;
 pub mod items;
 pub mod libraries;
 pub mod media_files;

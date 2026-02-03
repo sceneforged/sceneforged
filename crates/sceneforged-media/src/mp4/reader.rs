@@ -606,12 +606,44 @@ impl<R: Read + Seek> Mp4Reader<R> {
         // Skip version/flags (4) and entry count (4)
         // Then parse first sample entry
 
-        // For audio, extract channel count and sample rate
-        if track.handler_type.is_audio() && data.len() >= 36 {
-            let channels = u16::from_be_bytes([data[24], data[25]]);
-            let sample_rate = u32::from_be_bytes([data[32], data[33], data[34], data[35]]) >> 16;
+        // For audio, extract channel count, sample rate, and esds codec config
+        if track.handler_type.is_audio() && data.len() >= 44 {
+            // AudioSampleEntry layout (after stsd header[8] + box header[8] + SampleEntry[8]):
+            // [24..26] version, [26..28] revision, [28..32] vendor
+            // [32..34] channelCount, [34..36] sampleSize
+            // [36..38] compressionID, [38..40] packetSize
+            // [40..44] sampleRate (16.16 fixed-point)
+            let channels = u16::from_be_bytes([data[32], data[33]]);
+            let sample_rate = u32::from_be_bytes([data[40], data[41], data[42], data[43]]) >> 16;
             track.channels = Some(channels);
             track.sample_rate = Some(sample_rate);
+
+            // Scan child boxes after the fixed AudioSampleEntry fields for esds
+            let mut pos = 44;
+            while pos + 8 <= data.len() {
+                let box_size = u32::from_be_bytes([
+                    data[pos],
+                    data[pos + 1],
+                    data[pos + 2],
+                    data[pos + 3],
+                ]) as usize;
+                let box_type = &data[pos + 4..pos + 8];
+
+                if box_size < 8 || pos + box_size > data.len() {
+                    break;
+                }
+
+                if box_type == b"esds" {
+                    // esds is a FullBox: include version/flags after box header
+                    if box_size > 12 {
+                        let config_data = data[pos + 8..pos + box_size].to_vec();
+                        track.codec_data = Some(config_data);
+                    }
+                    break;
+                }
+
+                pos += box_size;
+            }
         }
 
         // Extract codec configuration data for video tracks

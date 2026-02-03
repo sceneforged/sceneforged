@@ -74,19 +74,17 @@ impl ConversionManager {
         // Check each file to see what conversions are possible
         for file in &files {
             // Check if this file can be converted to Profile A
-            if file.can_be_profile_a && !current_profiles.contains(&Profile::A) {
-                if !viable_targets.contains(&Profile::A) {
-                    viable_targets.push(Profile::A);
-                }
+            if file.can_be_profile_a && !current_profiles.contains(&Profile::A)
+                && !viable_targets.contains(&Profile::A) {
+                viable_targets.push(Profile::A);
             }
 
             // Check if this file can be converted to Profile B
             // Allow conversion if no file serves as universal, even if a file
             // is classified as Profile B (it may not have faststart/proper keyframes)
-            if file.can_be_profile_b && !has_universal_file {
-                if !viable_targets.contains(&Profile::B) {
-                    viable_targets.push(Profile::B);
-                }
+            if file.can_be_profile_b && !has_universal_file
+                && !viable_targets.contains(&Profile::B) {
+                viable_targets.push(Profile::B);
             }
         }
 

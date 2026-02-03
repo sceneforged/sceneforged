@@ -15,6 +15,6 @@ fn main() {
             "  Episodes: {:?}",
             result.episodes.iter().map(|e| e.value).collect::<Vec<_>>()
         );
-        println!("");
+        println!();
     }
 }

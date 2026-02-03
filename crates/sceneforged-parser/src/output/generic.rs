@@ -51,7 +51,7 @@ impl OutputFormat for GenericFormat {
 
         // Media type
         if *release.media_type != crate::model::MediaType::Unknown {
-            parts.push(format!("[{}]", format!("{:?}", *release.media_type)));
+            parts.push(format!("[{:?}]", *release.media_type));
         }
 
         // Season and episode info for TV

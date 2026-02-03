@@ -31,6 +31,8 @@ fn create_test_context() -> AppContext {
         db_pool: None,
         session_manager: None,
         conversion_manager: None,
+        image_service: None,
+        enrichment_queue: None,
     }
 }
 
@@ -50,6 +52,8 @@ fn create_test_context_with_config(config: Config) -> AppContext {
         db_pool: None,
         session_manager: None,
         conversion_manager: None,
+        image_service: None,
+        enrichment_queue: None,
     }
 }
 

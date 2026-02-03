@@ -73,6 +73,9 @@ export {
 // Separator
 export { Separator } from './separator';
 
+// Skeleton
+export { MediaCardSkeleton } from './skeleton';
+
 // Table
 export {
   Table,

@@ -5,6 +5,8 @@
 pub mod arr;
 pub mod config;
 pub mod conversion;
+pub mod images;
+pub mod metadata;
 pub mod notifications;
 pub mod pipeline;
 pub mod probe;

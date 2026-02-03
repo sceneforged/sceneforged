@@ -3,6 +3,126 @@
 use crate::mp4::SampleEntry;
 use bytes::{BufMut, BytesMut};
 
+/// A track's fragment data for multi-track moof building.
+pub struct TrackFragment<'a> {
+    /// Track ID (1-based).
+    pub track_id: u32,
+    /// Base media decode time for this track's fragment.
+    pub base_media_decode_time: u64,
+    /// Samples in this fragment.
+    pub samples: &'a [SampleEntry],
+}
+
+/// Build a moof+mdat header for multiple tracks (e.g. video + audio).
+///
+/// The mdat data layout is: track1 data, then track2 data, etc.
+/// Each trun's data_offset points to where its track's data starts in the mdat.
+/// The caller must stream byte ranges in the same order (track1 ranges, then track2 ranges).
+pub fn build_multi_track_moof(sequence_number: u32, tracks: &[TrackFragment<'_>]) -> Vec<u8> {
+    let total_samples: usize = tracks.iter().map(|t| t.samples.len()).sum();
+    let mut buf = BytesMut::with_capacity(256 + total_samples * 16);
+
+    let moof_start = buf.len();
+    buf.put_u32(0); // placeholder moof size
+    buf.put_slice(b"moof");
+
+    // mfhd
+    buf.put_u32(16);
+    buf.put_slice(b"mfhd");
+    buf.put_u32(0); // version/flags
+    buf.put_u32(sequence_number);
+
+    // Write all trafs, collecting data_offset placeholder positions
+    let mut data_offset_positions: Vec<usize> = Vec::with_capacity(tracks.len());
+
+    for track in tracks {
+        let traf_start = buf.len();
+        buf.put_u32(0); // placeholder traf size
+        buf.put_slice(b"traf");
+
+        // tfhd
+        buf.put_u32(16);
+        buf.put_slice(b"tfhd");
+        buf.put_u32(0x020000); // default-base-is-moof
+        buf.put_u32(track.track_id);
+
+        // tfdt
+        buf.put_u32(20);
+        buf.put_slice(b"tfdt");
+        buf.put_u32(0x01000000); // version 1
+        buf.put_u64(track.base_media_decode_time);
+
+        // trun
+        let flags: u32 = 0x000001 | 0x000200 | 0x000400 | 0x000800;
+        let trun_size = 12 + 4 + 4 + track.samples.len() * 12;
+        buf.put_u32(trun_size as u32);
+        buf.put_slice(b"trun");
+        buf.put_u32(0x01000000 | flags); // version 1
+        buf.put_u32(track.samples.len() as u32);
+
+        // data_offset placeholder
+        data_offset_positions.push(buf.len());
+        buf.put_u32(0);
+
+        for sample in track.samples {
+            buf.put_u32(sample.size);
+            let sample_flags = if sample.is_keyframe {
+                0x02000000u32
+            } else {
+                0x01010000u32
+            };
+            buf.put_u32(sample_flags);
+            buf.put_i32(sample.cts_offset);
+        }
+
+        // Update traf size
+        let traf_size = buf.len() - traf_start;
+        let size_bytes = (traf_size as u32).to_be_bytes();
+        buf[traf_start..traf_start + 4].copy_from_slice(&size_bytes);
+    }
+
+    // Update moof size
+    let moof_size = buf.len() - moof_start;
+    let size_bytes = (moof_size as u32).to_be_bytes();
+    buf[moof_start..moof_start + 4].copy_from_slice(&size_bytes);
+
+    // Calculate total data size across all tracks
+    let total_data_size: u64 = tracks
+        .iter()
+        .flat_map(|t| t.samples.iter())
+        .map(|s| s.size as u64)
+        .sum();
+
+    // Determine mdat header size
+    let mdat_header_size: u64 = if total_data_size + 8 > u32::MAX as u64 {
+        16
+    } else {
+        8
+    };
+
+    // Fix up data_offsets: each track's data starts after all previous tracks' data
+    let mut data_start = moof_size as u64 + mdat_header_size;
+    for (i, track) in tracks.iter().enumerate() {
+        let offset_bytes = (data_start as i32).to_be_bytes();
+        buf[data_offset_positions[i]..data_offset_positions[i] + 4]
+            .copy_from_slice(&offset_bytes);
+        let track_data_size: u64 = track.samples.iter().map(|s| s.size as u64).sum();
+        data_start += track_data_size;
+    }
+
+    // Write mdat header
+    if total_data_size + 8 > u32::MAX as u64 {
+        buf.put_u32(1);
+        buf.put_slice(b"mdat");
+        buf.put_u64(total_data_size + 16);
+    } else {
+        buf.put_u32((total_data_size + 8) as u32);
+        buf.put_slice(b"mdat");
+    }
+
+    buf.to_vec()
+}
+
 /// Builder for creating moof boxes for HLS segments.
 pub struct MoofBuilder {
     sequence_number: u32,
@@ -117,11 +237,11 @@ impl MoofBuilder {
         // 0x000800: sample-composition-time-offset-present
         let flags = 0x000001 | 0x000200 | 0x000400 | 0x000800;
 
-        let header_size = 12 + 4 + samples.len() * 12; // Each sample: size(4) + flags(4) + cts_offset(4)
+        let header_size = 12 + 4 + 4 + samples.len() * 12; // box(8) + ver/flags(4) + count(4) + data_offset(4) + samples * (size(4) + flags(4) + cts_offset(4))
 
         buf.put_u32(header_size as u32);
         buf.put_slice(b"trun");
-        buf.put_u32(flags); // version 0
+        buf.put_u32(0x01000000 | flags); // version 1 (signed CTS offsets)
         buf.put_u32(samples.len() as u32);
 
         // Data offset: offset from start of moof to start of mdat data

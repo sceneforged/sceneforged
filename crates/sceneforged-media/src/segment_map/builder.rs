@@ -193,6 +193,9 @@ impl SegmentMapBuilder {
             duration_secs,
             start_time_secs,
             byte_ranges,
+            audio_byte_ranges: Vec::new(),
+            audio_start_sample: None,
+            audio_end_sample: None,
             moof_data: None,
         }
     }

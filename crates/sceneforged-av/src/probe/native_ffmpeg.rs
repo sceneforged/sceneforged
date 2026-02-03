@@ -178,7 +178,7 @@ fn detect_hdr_info(
     stream: &ffmpeg::format::stream::Stream,
 ) -> (Option<HdrFormat>, Option<DolbyVisionInfo>) {
     // 1. Check coded_side_data on codec parameters for DOVI configuration record.
-    //    In FFmpeg 8.0+, stream-level side_data moved to AVCodecParameters::coded_side_data.
+    //    In FFmpeg 7.0+, stream-level side_data moved to AVCodecParameters::coded_side_data.
     if let Some(dv) = read_dovi_from_coded_side_data(stream) {
         return (Some(HdrFormat::DolbyVision), Some(dv));
     }

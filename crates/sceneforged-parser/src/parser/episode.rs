@@ -92,7 +92,7 @@ pub fn extract(lexer: &Lexer, release: &mut ParsedRelease) {
                                             if is_range {
                                                 if let Some(&start) = episodes.last() {
                                                     // Sanity check: end shouldn't be too far from start
-                                                    if end_ep >= start && end_ep <= start + 50 {
+                                                    if (start..=start + 50).contains(&end_ep) {
                                                         for ep in start..=end_ep {
                                                             if !episodes.contains(&ep) {
                                                                 episodes.push(ep);
@@ -180,7 +180,7 @@ pub fn extract(lexer: &Lexer, release: &mut ParsedRelease) {
                                 if let Token::Number(num_text) = tokens[idx + 2].0 {
                                     if let Ok(episode) = num_text.parse::<u16>() {
                                         // Make sure it's a reasonable episode number (1-999)
-                                        if episode >= 1 && episode <= 999 {
+                                        if (1..=999).contains(&episode) {
                                             // Found s06.01 format
                                             if !release.seasons.iter().any(|s| **s == season) {
                                                 release.seasons.push(ParsedField::new(
@@ -246,56 +246,56 @@ pub fn extract(lexer: &Lexer, release: &mut ParsedRelease) {
                                         // Check for S01.Ep.01 or S01.E.01 pattern (Ep/E followed by dot and number)
                                         else if idx + 4 < tokens.len() {
                                             let ep_upper = ep_text.to_uppercase();
-                                            if ep_upper == "EP" || ep_upper == "E" {
-                                                if matches!(
+                                            if (ep_upper == "EP" || ep_upper == "E")
+                                                && matches!(
                                                     tokens[idx + 3].0,
                                                     Token::Dot | Token::Hyphen | Token::Underscore
-                                                ) {
-                                                    if let Token::Number(num_text) =
-                                                        tokens[idx + 4].0
+                                                )
+                                            {
+                                                if let Token::Number(num_text) =
+                                                    tokens[idx + 4].0
+                                                {
+                                                    if let Ok(episode) = num_text.parse::<u16>()
                                                     {
-                                                        if let Ok(episode) = num_text.parse::<u16>()
+                                                        // Found S01.Ep.01 or S01.E.01 format
+                                                        if !release
+                                                            .seasons
+                                                            .iter()
+                                                            .any(|s| **s == season)
                                                         {
-                                                            // Found S01.Ep.01 or S01.E.01 format
-                                                            if !release
-                                                                .seasons
-                                                                .iter()
-                                                                .any(|s| **s == season)
-                                                            {
-                                                                release.seasons.push(
-                                                                    ParsedField::new(
-                                                                        season,
-                                                                        Confidence::CERTAIN,
-                                                                        (span.start, span.end),
-                                                                        *text,
-                                                                    ),
-                                                                );
-                                                            }
-                                                            if !release
-                                                                .episodes
-                                                                .iter()
-                                                                .any(|e| **e == episode)
-                                                            {
-                                                                release.episodes.push(
-                                                                    ParsedField::new(
-                                                                        episode,
-                                                                        Confidence::CERTAIN,
-                                                                        (
-                                                                            tokens[idx + 4].1.start,
-                                                                            tokens[idx + 4].1.end,
-                                                                        ),
-                                                                        num_text,
-                                                                    ),
-                                                                );
-                                                            }
-                                                            release.media_type = ParsedField::new(
-                                                                MediaType::Tv,
-                                                                Confidence::CERTAIN,
-                                                                (span.start, span.end),
-                                                                *text,
+                                                            release.seasons.push(
+                                                                ParsedField::new(
+                                                                    season,
+                                                                    Confidence::CERTAIN,
+                                                                    (span.start, span.end),
+                                                                    *text,
+                                                                ),
                                                             );
-                                                            found_episode = true;
                                                         }
+                                                        if !release
+                                                            .episodes
+                                                            .iter()
+                                                            .any(|e| **e == episode)
+                                                        {
+                                                            release.episodes.push(
+                                                                ParsedField::new(
+                                                                    episode,
+                                                                    Confidence::CERTAIN,
+                                                                    (
+                                                                        tokens[idx + 4].1.start,
+                                                                        tokens[idx + 4].1.end,
+                                                                    ),
+                                                                    num_text,
+                                                                ),
+                                                            );
+                                                        }
+                                                        release.media_type = ParsedField::new(
+                                                            MediaType::Tv,
+                                                            Confidence::CERTAIN,
+                                                            (span.start, span.end),
+                                                            *text,
+                                                        );
+                                                        found_episode = true;
                                                     }
                                                 }
                                             }
@@ -667,33 +667,71 @@ pub fn extract(lexer: &Lexer, release: &mut ParsedRelease) {
                     if let Some(idx) = token_idx {
                         // Look for Dot + Number/Year pattern (Cap.201 or Cap.1901)
                         // Note: 4-digit numbers like 1901 are tokenized as Year, not Number
-                        if idx + 2 < tokens.len() {
-                            if matches!(tokens[idx + 1].0, Token::Dot) {
-                                // Get the number text from either Number or Year token
-                                let num_text = match tokens[idx + 2].0 {
-                                    Token::Number(t) => Some(t),
-                                    Token::Year(t) => Some(t),
-                                    _ => None,
-                                };
+                        if idx + 2 < tokens.len()
+                            && matches!(tokens[idx + 1].0, Token::Dot)
+                        {
+                            // Get the number text from either Number or Year token
+                            let num_text = match tokens[idx + 2].0 {
+                                Token::Number(t) => Some(t),
+                                Token::Year(t) => Some(t),
+                                _ => None,
+                            };
 
-                                if let Some(num_text) = num_text {
-                                    // Parse as compressed episode (201 -> S02E01, 1901 -> S19E01)
-                                    if let Some((season, episode)) =
-                                        parse_compressed_episode(num_text)
-                                    {
-                                        // Cap.### is authoritative - clear any Temporada season and set from Cap
-                                        release.seasons.clear();
-                                        release.seasons.push(ParsedField::new(
-                                            season,
+                            if let Some(num_text) = num_text {
+                                // Parse as compressed episode (201 -> S02E01, 1901 -> S19E01)
+                                if let Some((season, episode)) =
+                                    parse_compressed_episode(num_text)
+                                {
+                                    // Cap.### is authoritative - clear any Temporada season and set from Cap
+                                    release.seasons.clear();
+                                    release.seasons.push(ParsedField::new(
+                                        season,
+                                        Confidence::CERTAIN,
+                                        (tokens[idx + 2].1.start, tokens[idx + 2].1.end),
+                                        num_text,
+                                    ));
+                                    if !release.episodes.iter().any(|e| **e == episode) {
+                                        release.episodes.push(ParsedField::new(
+                                            episode,
                                             Confidence::CERTAIN,
                                             (tokens[idx + 2].1.start, tokens[idx + 2].1.end),
                                             num_text,
                                         ));
-                                        if !release.episodes.iter().any(|e| **e == episode) {
-                                            release.episodes.push(ParsedField::new(
-                                                episode,
+                                    }
+                                    release.media_type = ParsedField::new(
+                                        MediaType::Tv,
+                                        Confidence::HIGH,
+                                        (span.start, tokens[idx + 2].1.end),
+                                        "",
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Dutch "Se" (Season abbreviation) - e.g., "Se.3" for Season 3
+                if upper == "SE" {
+                    let token_idx = tokens
+                        .iter()
+                        .position(|(_, s)| s.start == span.start && s.end == span.end);
+
+                    if let Some(idx) = token_idx {
+                        // Look for Dot + Number pattern (Se.3)
+                        if idx + 2 < tokens.len()
+                            && matches!(tokens[idx + 1].0, Token::Dot)
+                        {
+                            if let Token::Number(num_text) = tokens[idx + 2].0 {
+                                if let Ok(season) = num_text.parse::<u16>() {
+                                    if (1..=99).contains(&season) {
+                                        if !release.seasons.iter().any(|s| **s == season) {
+                                            release.seasons.push(ParsedField::new(
+                                                season,
                                                 Confidence::CERTAIN,
-                                                (tokens[idx + 2].1.start, tokens[idx + 2].1.end),
+                                                (
+                                                    tokens[idx + 2].1.start,
+                                                    tokens[idx + 2].1.end,
+                                                ),
                                                 num_text,
                                             ));
                                         }
@@ -710,44 +748,6 @@ pub fn extract(lexer: &Lexer, release: &mut ParsedRelease) {
                     }
                 }
 
-                // Dutch "Se" (Season abbreviation) - e.g., "Se.3" for Season 3
-                if upper == "SE" {
-                    let token_idx = tokens
-                        .iter()
-                        .position(|(_, s)| s.start == span.start && s.end == span.end);
-
-                    if let Some(idx) = token_idx {
-                        // Look for Dot + Number pattern (Se.3)
-                        if idx + 2 < tokens.len() {
-                            if matches!(tokens[idx + 1].0, Token::Dot) {
-                                if let Token::Number(num_text) = tokens[idx + 2].0 {
-                                    if let Ok(season) = num_text.parse::<u16>() {
-                                        if season >= 1 && season <= 99 {
-                                            if !release.seasons.iter().any(|s| **s == season) {
-                                                release.seasons.push(ParsedField::new(
-                                                    season,
-                                                    Confidence::CERTAIN,
-                                                    (
-                                                        tokens[idx + 2].1.start,
-                                                        tokens[idx + 2].1.end,
-                                                    ),
-                                                    num_text,
-                                                ));
-                                            }
-                                            release.media_type = ParsedField::new(
-                                                MediaType::Tv,
-                                                Confidence::HIGH,
-                                                (span.start, tokens[idx + 2].1.end),
-                                                "",
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
                 // Dutch "afl" (Episode abbreviation) - e.g., "afl.3" for Episode 3
                 // Can also handle ranges like "afl.2-3-4" for episodes [2,3,4]
                 if upper == "AFL" {
@@ -757,29 +757,29 @@ pub fn extract(lexer: &Lexer, release: &mut ParsedRelease) {
 
                     if let Some(idx) = token_idx {
                         // Look for Dot + Number pattern (afl.3)
-                        if idx + 2 < tokens.len() {
-                            if matches!(tokens[idx + 1].0, Token::Dot) {
-                                if let Token::Number(num_text) = tokens[idx + 2].0 {
-                                    if let Ok(episode) = num_text.parse::<u16>() {
-                                        if episode >= 1 && episode <= 9999 {
-                                            if !release.episodes.iter().any(|e| **e == episode) {
-                                                release.episodes.push(ParsedField::new(
-                                                    episode,
-                                                    Confidence::CERTAIN,
-                                                    (
-                                                        tokens[idx + 2].1.start,
-                                                        tokens[idx + 2].1.end,
-                                                    ),
-                                                    num_text,
-                                                ));
-                                            }
-                                            release.media_type = ParsedField::new(
-                                                MediaType::Tv,
-                                                Confidence::HIGH,
-                                                (span.start, tokens[idx + 2].1.end),
-                                                "",
-                                            );
+                        if idx + 2 < tokens.len()
+                            && matches!(tokens[idx + 1].0, Token::Dot)
+                        {
+                            if let Token::Number(num_text) = tokens[idx + 2].0 {
+                                if let Ok(episode) = num_text.parse::<u16>() {
+                                    if (1..=9999).contains(&episode) {
+                                        if !release.episodes.iter().any(|e| **e == episode) {
+                                            release.episodes.push(ParsedField::new(
+                                                episode,
+                                                Confidence::CERTAIN,
+                                                (
+                                                    tokens[idx + 2].1.start,
+                                                    tokens[idx + 2].1.end,
+                                                ),
+                                                num_text,
+                                            ));
                                         }
+                                        release.media_type = ParsedField::new(
+                                            MediaType::Tv,
+                                            Confidence::HIGH,
+                                            (span.start, tokens[idx + 2].1.end),
+                                            "",
+                                        );
                                     }
                                 }
                             }
@@ -810,8 +810,9 @@ pub fn extract(lexer: &Lexer, release: &mut ParsedRelease) {
                             matches!(t, Token::SeasonEpisode(_) | Token::SeasonEpisodeX(_))
                         });
 
-                        if !has_words_before && !has_explicit_episode && idx + 2 < tokens.len() {
-                            if matches!(tokens[idx + 1].0, Token::Hyphen) {
+                        if !has_words_before && !has_explicit_episode && idx + 2 < tokens.len()
+                            && matches!(tokens[idx + 1].0, Token::Hyphen)
+                        {
                                 if let Token::Number(ep_text) = tokens[idx + 2].0 {
                                     // Episode must be exactly 2 digits (e.g., "02" not "7")
                                     // This distinguishes "11-02" (daily) from "24-7" (title)
@@ -820,10 +821,8 @@ pub fn extract(lexer: &Lexer, release: &mut ParsedRelease) {
                                             (text.parse::<u16>(), ep_text.parse::<u16>())
                                         {
                                             // Sanity check: reasonable season/episode values
-                                            if season >= 1
-                                                && season <= 99
-                                                && episode >= 1
-                                                && episode <= 99
+                                            if (1..=99).contains(&season)
+                                                && (1..=99).contains(&episode)
                                             {
                                                 // Verify there's content after (not just "11-02")
                                                 let has_content_after = tokens
@@ -860,7 +859,6 @@ pub fn extract(lexer: &Lexer, release: &mut ParsedRelease) {
                                         }
                                     }
                                 }
-                            }
                         }
                     }
                 }
@@ -1093,7 +1091,7 @@ pub fn extract_embedded_episode(text: &str) -> Option<(&str, u16, Vec<u16>)> {
                     if let (Ok(season), Ok(episode)) =
                         (season_str.parse::<u16>(), episode_str.parse::<u16>())
                     {
-                        if season >= 1 && season <= 99 && episode >= 1 && episode <= 9999 {
+                        if (1..=99).contains(&season) && (1..=9999).contains(&episode) {
                             // Only valid if there's a prefix (the 's' isn't at position 0)
                             // This distinguishes "zoos01e11" from "s01e11"
                             if i > 0 {
@@ -1112,12 +1110,13 @@ pub fn extract_embedded_episode(text: &str) -> Option<(&str, u16, Vec<u16>)> {
 }
 
 /// Parse daily episode format (e.g., "11-02" -> season 11, episode 2).
+#[allow(dead_code)]
 fn parse_daily_episode(text: &str) -> Option<(u16, u16)> {
     let parts: Vec<&str> = text.split('-').collect();
     if parts.len() == 2 {
         if let (Ok(season), Ok(episode)) = (parts[0].parse::<u16>(), parts[1].parse::<u16>()) {
             // Sanity check: season and episode should be reasonable
-            if season >= 1 && season <= 99 && episode >= 1 && episode <= 99 {
+            if (1..=99).contains(&season) && (1..=99).contains(&episode) {
                 return Some((season, episode));
             }
         }
@@ -1160,7 +1159,7 @@ fn parse_compressed_episode(text: &str) -> Option<(u16, u16)> {
         let episode = num % 100;
 
         // Season should be 1-9, episode should be 1-99
-        if season >= 1 && season <= 9 && episode >= 1 && episode <= 99 {
+        if (1..=9).contains(&season) && (1..=99).contains(&episode) {
             return Some((season, episode));
         }
     } else if text.len() == 4 {
@@ -1173,7 +1172,7 @@ fn parse_compressed_episode(text: &str) -> Option<(u16, u16)> {
         let episode = episode_str.parse::<u16>().ok()?;
 
         // Season should be 1-99, episode should be 1-99
-        if season >= 1 && season <= 99 && episode >= 1 && episode <= 99 {
+        if (1..=99).contains(&season) && (1..=99).contains(&episode) {
             return Some((season, episode));
         }
     }

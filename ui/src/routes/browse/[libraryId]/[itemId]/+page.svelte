@@ -69,6 +69,14 @@
     return backdrop?.path ?? null;
   });
 
+  // Get backdrop image URL if available
+  const backdropImage = $derived.by(() => {
+    if (!item?.images) return null;
+    const backdrop = item.images.find(img => img.image_type === 'backdrop');
+    if (!backdrop) return null;
+    return `/api/images/${backdrop.id}?size=large`;
+  });
+
   // Get director(s) from people
   const directors = $derived.by(() => {
     if (!item?.people) return [];
@@ -187,7 +195,19 @@
   <title>{item?.name ?? 'Loading...'} - Sceneforged</title>
 </svelte:head>
 
-<div class="container mx-auto py-6 px-4">
+{#if !loading && !error && item && backdropImage}
+  <!-- Hero backdrop -->
+  <div class="relative w-full h-[400px] -mb-32 overflow-hidden">
+    <img
+      src={backdropImage}
+      alt=""
+      class="absolute inset-0 w-full h-full object-cover"
+    />
+    <div class="absolute inset-0 bg-gradient-to-t from-background via-background/80 to-transparent"></div>
+  </div>
+{/if}
+
+<div class="container mx-auto py-6 px-4 relative">
   <!-- Back button -->
   <Button variant="ghost" class="mb-4" onclick={handleBack}>
     <ArrowLeft class="w-4 h-4 mr-2" />

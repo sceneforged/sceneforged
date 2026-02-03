@@ -23,6 +23,12 @@ pub struct Config {
 
     #[serde(default)]
     pub conversion: ConversionConfig,
+
+    #[serde(default)]
+    pub metadata: MetadataConfig,
+
+    #[serde(default)]
+    pub images: ImageConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -371,4 +377,68 @@ pub struct ToolsConfig {
 
     #[serde(default)]
     pub dovi_tool_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MetadataConfig {
+    /// Whether to automatically enrich items with metadata after scanning
+    pub auto_enrich: bool,
+
+    /// Provider-specific configuration
+    pub providers: ProvidersConfig,
+}
+
+fn default_auto_enrich() -> bool {
+    true
+}
+
+impl Default for MetadataConfig {
+    fn default() -> Self {
+        Self {
+            auto_enrich: default_auto_enrich(),
+            providers: ProvidersConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProvidersConfig {
+    /// TMDB configuration (optional — metadata disabled if absent)
+    #[serde(default)]
+    pub tmdb: Option<TmdbConfig>,
+    // Future: tvdb, fanart, omdb
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TmdbConfig {
+    /// TMDB API key (v3 auth)
+    pub api_key: String,
+
+    /// Language for metadata results (default: "en-US")
+    #[serde(default = "default_language")]
+    pub language: String,
+}
+
+fn default_language() -> String {
+    "en-US".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ImageConfig {
+    /// Directory to store downloaded images
+    pub storage_dir: PathBuf,
+}
+
+fn default_image_storage_dir() -> PathBuf {
+    PathBuf::from("./data/images")
+}
+
+impl Default for ImageConfig {
+    fn default() -> Self {
+        Self {
+            storage_dir: default_image_storage_dir(),
+        }
+    }
 }

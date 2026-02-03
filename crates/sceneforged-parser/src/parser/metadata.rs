@@ -145,15 +145,14 @@ pub fn extract_with_config(lexer: &Lexer, release: &mut ParsedRelease, config: &
                 if matches!(
                     lower.as_str(),
                     "mkv" | "mp4" | "avi" | "m4v" | "ts" | "m2ts"
-                ) {
-                    if release.container.is_none() {
-                        release.container = Some(ParsedField::new(
-                            lower.clone(),
-                            Confidence::CERTAIN,
-                            (span.start, span.end),
-                            *text,
-                        ));
-                    }
+                ) && release.container.is_none()
+                {
+                    release.container = Some(ParsedField::new(
+                        lower.clone(),
+                        Confidence::CERTAIN,
+                        (span.start, span.end),
+                        *text,
+                    ));
                 }
 
                 // Check for REMUX quality modifier
@@ -263,26 +262,24 @@ pub fn extract_with_config(lexer: &Lexer, release: &mut ParsedRelease, config: &
                         if checksum.len() == 8
                             && checksum.chars().all(|c| c.is_ascii_hexdigit())
                             && release.file_checksum.is_none()
+                            && i + 2 < tokens.len()
+                            && matches!(tokens[i + 2].0, Token::BracketClose)
                         {
-                            if i + 2 < tokens.len()
-                                && matches!(tokens[i + 2].0, Token::BracketClose)
-                            {
-                                release.file_checksum = Some(ParsedField::new(
-                                    checksum.to_uppercase(),
-                                    Confidence::CERTAIN,
+                            release.file_checksum = Some(ParsedField::new(
+                                checksum.to_uppercase(),
+                                Confidence::CERTAIN,
+                                (checksum_span.start, checksum_span.end),
+                                *checksum,
+                            ));
+
+                            // CRC32 is a strong indicator of anime
+                            if *release.media_type == crate::model::MediaType::Unknown {
+                                release.media_type = ParsedField::new(
+                                    crate::model::MediaType::Anime,
+                                    Confidence::HIGH,
                                     (checksum_span.start, checksum_span.end),
                                     *checksum,
-                                ));
-
-                                // CRC32 is a strong indicator of anime
-                                if *release.media_type == crate::model::MediaType::Unknown {
-                                    release.media_type = ParsedField::new(
-                                        crate::model::MediaType::Anime,
-                                        Confidence::HIGH,
-                                        (checksum_span.start, checksum_span.end),
-                                        *checksum,
-                                    );
-                                }
+                                );
                             }
                         }
                     }
@@ -301,34 +298,31 @@ pub fn extract_with_config(lexer: &Lexer, release: &mut ParsedRelease, config: &
         let mut i = tokens.len();
         while i > 0 {
             i -= 1;
-            match &tokens[i].0 {
-                Token::BracketClose => {
-                    // Found closing bracket, look for opening bracket and word before it
-                    if i >= 2 {
-                        // Check if we have [Word] pattern
-                        if let Token::Word(_bracket_word) = &tokens[i - 1].0 {
-                            if let Token::BracketOpen = &tokens[i - 2].0 {
-                                // Found [word] at the end, now look for Hyphen-Word before it
-                                if i >= 4 {
-                                    if let Token::Word(group_name) = &tokens[i - 3].0 {
-                                        if let Token::Hyphen = &tokens[i - 4].0 {
-                                            // Found -GROUP[word] pattern
-                                            let group_span = &tokens[i - 3].1;
-                                            release.release_group = Some(ParsedField::new(
-                                                group_name.to_string(),
-                                                Confidence::HIGH,
-                                                (group_span.start, group_span.end),
-                                                *group_name,
-                                            ));
-                                            break;
-                                        }
+            if let Token::BracketClose = &tokens[i].0 {
+                // Found closing bracket, look for opening bracket and word before it
+                if i >= 2 {
+                    // Check if we have [Word] pattern
+                    if let Token::Word(_bracket_word) = &tokens[i - 1].0 {
+                        if let Token::BracketOpen = &tokens[i - 2].0 {
+                            // Found [word] at the end, now look for Hyphen-Word before it
+                            if i >= 4 {
+                                if let Token::Word(group_name) = &tokens[i - 3].0 {
+                                    if let Token::Hyphen = &tokens[i - 4].0 {
+                                        // Found -GROUP[word] pattern
+                                        let group_span = &tokens[i - 3].1;
+                                        release.release_group = Some(ParsedField::new(
+                                            group_name.to_string(),
+                                            Confidence::HIGH,
+                                            (group_span.start, group_span.end),
+                                            *group_name,
+                                        ));
+                                        break;
                                     }
                                 }
                             }
                         }
                     }
                 }
-                _ => {}
             }
         }
     }

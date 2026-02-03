@@ -71,8 +71,10 @@ async fn start_server(
 
     // Start conversion executor
     let converted_dir = data_dir.join("converted");
-    let mut profile_b_settings = conversion::ProfileBSettings::default();
-    profile_b_settings.output_dir = converted_dir;
+    let profile_b_settings = conversion::ProfileBSettings {
+        output_dir: converted_dir,
+        ..Default::default()
+    };
     let executor = conversion::ConversionExecutor::with_events(
         db_pool.clone(),
         profile_b_settings,

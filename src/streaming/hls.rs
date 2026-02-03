@@ -206,9 +206,11 @@ pub async fn media_segment(
     // Stream: first the pre-built moof header, then file data from byte ranges
     let header_stream = stream::once(async move { Ok::<_, std::io::Error>(header_bytes) });
 
-    let byte_ranges = segment.byte_ranges.clone();
+    // Chain video byte ranges followed by audio byte ranges (matching moof data_offset layout)
+    let mut all_ranges = segment.byte_ranges.clone();
+    all_ranges.extend_from_slice(&segment.audio_byte_ranges);
     let file_stream = stream::unfold(
-        (file, byte_ranges.into_iter(), 0u32),
+        (file, all_ranges.into_iter(), 0u32),
         |(mut file, mut ranges, remaining)| async move {
             const CHUNK_SIZE: u32 = 64 * 1024;
 

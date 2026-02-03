@@ -1,5 +1,10 @@
 use crate::config::{ArrConfig, Config, ConversionConfig, JellyfinConfig, Rule};
 use crate::conversion::ConversionManager;
+use crate::images::{ImageService, ImageStorage};
+use crate::metadata::enrichment::EnrichmentService;
+use crate::metadata::providers::TmdbProvider;
+use crate::metadata::queue::EnrichmentQueue;
+use crate::metadata::registry::ProviderRegistry;
 use crate::state::AppState;
 use crate::streaming::{self, start_cleanup_task, SessionManager};
 use anyhow::{Context, Result};
@@ -27,6 +32,7 @@ pub mod openapi;
 pub mod routes_admin;
 pub mod routes_api;
 pub mod routes_config;
+pub mod routes_images;
 pub mod routes_library;
 pub mod routes_playback;
 pub mod routes_sse;
@@ -53,6 +59,10 @@ pub struct AppContext {
     pub session_manager: Option<Arc<SessionManager>>,
     /// Conversion manager for profile conversions
     pub conversion_manager: Option<Arc<ConversionManager>>,
+    /// Image service for serving and managing stored images
+    pub image_service: Option<Arc<ImageService>>,
+    /// Enrichment queue for background metadata fetching (requires TMDB config)
+    pub enrichment_queue: Option<Arc<EnrichmentQueue>>,
 }
 
 /// Create the Axum router with all routes
@@ -116,6 +126,7 @@ fn api_routes(ctx: &AppContext) -> Router<AppContext> {
         .merge(routes_sse::sse_routes())
         .merge(routes_config::config_routes())
         .merge(routes_library::library_routes())
+        .merge(routes_images::image_routes())
         .merge(routes_playback::playback_routes())
         .merge(routes_admin::admin_routes());
 
@@ -179,6 +190,46 @@ pub async fn start_server_with_options(
         .as_ref()
         .map(|pool| Arc::new(ConversionManager::new(pool.clone())));
 
+    // Initialize image service and enrichment queue if database is available
+    let (image_service, enrichment_queue) = if let Some(ref pool) = db_pool {
+        let storage = ImageStorage::new(config.images.storage_dir.clone());
+        let img_service = ImageService::new(storage, pool.clone());
+
+        let eq = if let Some(ref tmdb_config) = config.metadata.providers.tmdb {
+            let tmdb_provider = TmdbProvider::new(
+                tmdb_config.api_key.clone(),
+                tmdb_config.language.clone(),
+            );
+            let mut registry = ProviderRegistry::new();
+            registry.register(Arc::new(tmdb_provider));
+
+            let enrichment_service = EnrichmentService::new(
+                registry,
+                ImageService::new(
+                    ImageStorage::new(config.images.storage_dir.clone()),
+                    pool.clone(),
+                ),
+                pool.clone(),
+            );
+
+            let event_tx = state.event_sender();
+            let queue = EnrichmentQueue::new(
+                Arc::new(enrichment_service),
+                pool.clone(),
+                event_tx,
+            );
+            tracing::info!("Metadata enrichment queue initialized (TMDB provider configured)");
+            Some(Arc::new(queue))
+        } else {
+            tracing::info!("No TMDB config found; metadata enrichment disabled");
+            None
+        };
+
+        (Some(Arc::new(img_service)), eq)
+    } else {
+        (None, None)
+    };
+
     let ctx = AppContext {
         state,
         rules: Arc::new(RwLock::new(config.rules.clone())),
@@ -190,6 +241,8 @@ pub async fn start_server_with_options(
         db_pool,
         session_manager,
         conversion_manager,
+        image_service,
+        enrichment_queue,
     };
 
     let app = create_router(ctx, config.server.static_dir.clone());

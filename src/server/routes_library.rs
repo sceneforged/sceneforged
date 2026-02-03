@@ -597,13 +597,17 @@ pub async fn scan_library(
     let state = ctx.state.clone();
     let config = ctx.config.clone();
     let event_tx = ctx.state.event_sender();
+    let enrichment_queue = ctx.enrichment_queue.clone();
     let lib_id_clone = library_id.clone();
 
     tokio::spawn(async move {
         // Run the blocking scan in a blocking task
         // Scanner broadcasts ItemAdded and LibraryScanProgress events during scan
         let scan_result = tokio::task::spawn_blocking(move || {
-            let scanner = Scanner::with_events(pool, config, event_tx);
+            let mut scanner = Scanner::with_events(pool, config, event_tx);
+            if let Some(queue) = enrichment_queue {
+                scanner = scanner.with_enrichment_queue(queue);
+            }
             scanner.scan_library(id)
         })
         .await;

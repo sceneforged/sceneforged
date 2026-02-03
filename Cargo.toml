@@ -109,6 +109,7 @@ tokio-util = { version = "0.7", features = ["io"] }
 futures = "0.3"
 tempfile = { workspace = true }
 async-trait = "0.1"
+governor = "0.6"
 parking_lot = "0.12"
 walkdir = { workspace = true }
 bincode = { workspace = true }
@@ -116,6 +117,7 @@ regex = "1"
 dashmap = "6"
 rusqlite = { workspace = true }
 bytes = { workspace = true }
+image = { workspace = true }
 
 # OpenAPI documentation
 utoipa = { version = "5", features = ["axum_extras", "uuid"] }

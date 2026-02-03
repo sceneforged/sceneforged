@@ -64,8 +64,9 @@ pub fn extract_with_config(lexer: &Lexer, release: &mut ParsedRelease, config: &
                     .iter()
                     .any(|(t, _)| matches!(t, Token::SeasonEpisode(_) | Token::SeasonEpisodeX(_)));
 
-                if !has_explicit_episode && idx + 2 < tokens.len() {
-                    if matches!(tokens[idx + 1].0, Token::Hyphen) {
+                if !has_explicit_episode && idx + 2 < tokens.len()
+                    && matches!(tokens[idx + 1].0, Token::Hyphen)
+                {
                         if let Token::Number(ep_text) = tokens[idx + 2].0 {
                             // Episode must be exactly 2 digits (e.g., "02" not "7")
                             if ep_text.len() == 2 {
@@ -73,7 +74,7 @@ pub fn extract_with_config(lexer: &Lexer, release: &mut ParsedRelease, config: &
                                 if let (Ok(season), Ok(episode)) =
                                     (num_text.parse::<u16>(), ep_text.parse::<u16>())
                                 {
-                                    if season >= 1 && season <= 99 && episode >= 1 && episode <= 99
+                                    if (1..=99).contains(&season) && (1..=99).contains(&episode)
                                     {
                                         // Daily format at start - title is empty
                                         return;
@@ -81,7 +82,6 @@ pub fn extract_with_config(lexer: &Lexer, release: &mut ParsedRelease, config: &
                                 }
                             }
                         }
-                    }
                 }
             }
         }
@@ -155,7 +155,7 @@ pub fn extract_with_config(lexer: &Lexer, release: &mut ParsedRelease, config: &
                     // e.g., "Show.Part.Two.720p" - no year after, so it's TV episode
                     let followed_by_year = remaining
                         .get(1)
-                        .map_or(false, |(t, _)| matches!(t, Token::Year(_)));
+                        .is_some_and(|(t, _)| matches!(t, Token::Year(_)));
 
                     if is_episode_marker && !followed_by_year {
                         title_end_idx = Some(i);
@@ -336,7 +336,6 @@ pub fn extract_with_config(lexer: &Lexer, release: &mut ParsedRelease, config: &
                             title_parts.push(" ".to_string());
                         }
                         title_parts.push(prefix.to_string());
-                        prev_end = span.start + prefix.len();
                         last_span = Some(std::ops::Range {
                             start: span.start,
                             end: span.start + prefix.len(),
@@ -413,10 +412,10 @@ pub fn extract_with_config(lexer: &Lexer, release: &mut ParsedRelease, config: &
                     } else {
                         // Check if this looks like a compressed episode number (3-4 digits)
                         // Numbers like 103, 113, 1013, 0308 look like compressed episodes
-                        if text.len() == 3 && num >= 100 && num <= 999 {
+                        if text.len() == 3 && (100..=999).contains(&num) {
                             let season = num / 100;
                             let episode = num % 100;
-                            if season >= 1 && season <= 9 && episode >= 1 && episode <= 99 {
+                            if (1..=9).contains(&season) && (1..=99).contains(&episode) {
                                 // This is a compressed episode, stop here
                                 break;
                             }
@@ -426,7 +425,7 @@ pub fn extract_with_config(lexer: &Lexer, release: &mut ParsedRelease, config: &
                             if let (Ok(season), Ok(episode)) =
                                 (text[0..2].parse::<u16>(), text[2..4].parse::<u16>())
                             {
-                                if season >= 1 && season <= 99 && episode >= 1 && episode <= 99 {
+                                if (1..=99).contains(&season) && (1..=99).contains(&episode) {
                                     // This is a compressed episode, stop here
                                     break;
                                 }

@@ -515,7 +515,7 @@ impl ConversionExecutor {
             // Try to read stderr for error details
             let stderr_output = child.stderr.take().map(|stderr| {
                 let reader = BufReader::new(stderr);
-                reader.lines().filter_map(|l| l.ok()).last().unwrap_or_default()
+                reader.lines().map_while(Result::ok).last().unwrap_or_default()
             });
             let err_msg = stderr_output.unwrap_or_else(|| format!("exit code {}", status));
             anyhow::bail!("FFmpeg failed: {}", err_msg);
