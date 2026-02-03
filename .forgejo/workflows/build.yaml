@@ -1,0 +1,59 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: docker
+    container:
+      image: docker:cli
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
+    steps:
+      - name: Install git
+        run: apk add --no-cache git
+
+      - name: Checkout
+        run: |
+          git clone --depth 1 http://forgejo:3000/${{ github.repository }}.git .
+          git checkout ${{ github.sha }}
+
+      - name: Build Docker Image
+        run: |
+          DOCKER_BUILDKIT=1 docker build \
+            --build-arg COMMIT_SHA=${{ github.sha }} \
+            -t ike:3002/dallas/sceneforged:latest .
+          docker tag ike:3002/dallas/sceneforged:latest ike:3002/dallas/sceneforged:${{ github.sha }}
+
+      - name: Login to Registry
+        run: |
+          echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login ike:3002 -u ${{ secrets.REGISTRY_USERNAME }} --password-stdin
+
+      - name: Push to Registry
+        run: |
+          docker push ike:3002/dallas/sceneforged:latest
+          docker push ike:3002/dallas/sceneforged:${{ github.sha }}
+
+      - name: Deploy
+        run: |
+          # Stop and remove existing container
+          docker stop sceneforged || true
+          docker rm sceneforged || true
+          # Start new container with same config as compose
+          docker run -d \
+            --name sceneforged \
+            --restart unless-stopped \
+            --network media \
+            -p 8080:8080 \
+            -e TZ=Europe/London \
+            -e RUST_LOG=info \
+            -v /opt/docker-config/sceneforged:/config:rw \
+            -v /mnt/data/Public/Media/Movies/Movies:/media/movies:rw \
+            -v /mnt/data/Public/Media/Movies/Movies-Theater:/media/movies-theater:rw \
+            -v /mnt/data/Public/Media/Movies/Re-Cuts:/media/recuts:rw \
+            -v /mnt/data/Public/Media/TV:/media/tv:rw \
+            -v /mnt/data/downloads/synced:/downloads:rw \
+            ike:3002/dallas/sceneforged:latest
