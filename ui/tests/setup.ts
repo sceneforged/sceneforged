@@ -36,6 +36,8 @@ beforeEach(() => {
 export function mockFetchResponse<T>(data: T): void {
   (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
     ok: true,
+    status: 200,
+    headers: new Headers({ 'content-type': 'application/json' }),
     json: async () => data,
     text: async () => JSON.stringify(data),
   });

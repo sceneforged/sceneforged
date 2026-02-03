@@ -228,6 +228,8 @@ describe('API client functions', () => {
     it('succeeds on valid deletion', async () => {
       (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         ok: true,
+        status: 204,
+        headers: new Headers(),
         json: async () => ({}),
       });
 
