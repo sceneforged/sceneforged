@@ -152,7 +152,7 @@ impl Default for ServerConfig {
         Self {
             host: "0.0.0.0".into(),
             port: 8080,
-            static_dir: None,
+            static_dir: Some(PathBuf::from("/app/static")),
         }
     }
 }
@@ -328,6 +328,7 @@ mod tests {
         let cfg = Config::default();
         assert_eq!(cfg.server.host, "0.0.0.0");
         assert_eq!(cfg.server.port, 8080);
+        assert_eq!(cfg.server.static_dir, Some(PathBuf::from("/app/static")));
         assert!(!cfg.auth.enabled);
         assert_eq!(cfg.conversion.video_crf, 15);
         assert_eq!(cfg.conversion.video_preset, "slow");
