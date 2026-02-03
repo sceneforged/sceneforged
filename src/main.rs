@@ -78,16 +78,21 @@ async fn start_server(
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Initialize logging based on verbose flag
-    if cli.verbose {
-        tracing_subscriber::fmt()
-            .with_env_filter("sceneforged=debug")
-            .init();
-    } else {
-        tracing_subscriber::fmt()
-            .with_env_filter("sceneforged=info")
-            .init();
-    }
+    // Initialize logging
+    // Respect RUST_LOG env var if set, otherwise use defaults based on verbose flag
+    let env_filter = std::env::var("RUST_LOG").unwrap_or_else(|_| {
+        if cli.verbose {
+            // Verbose mode: debug for all sceneforged crates, info for HTTP
+            "sceneforged=debug,sceneforged_media=debug,sceneforged_db=debug,sceneforged_common=debug,sceneforged_probe=debug,tower_http=debug".to_string()
+        } else {
+            // Normal mode: info for sceneforged crates, warn for HTTP (less noisy)
+            "sceneforged=info,sceneforged_media=info,sceneforged_db=info,tower_http=warn".to_string()
+        }
+    });
+
+    tracing_subscriber::fmt()
+        .with_env_filter(&env_filter)
+        .init();
 
     match cli.command {
         Commands::Start { host, port } => {
