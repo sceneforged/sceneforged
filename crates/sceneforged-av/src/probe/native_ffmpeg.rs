@@ -177,37 +177,18 @@ fn detect_hdr_info(
     video: &ffmpeg::decoder::Video,
     stream: &ffmpeg::format::stream::Stream,
 ) -> (Option<HdrFormat>, Option<DolbyVisionInfo>) {
-    // Check color transfer characteristic for HDR
+    // 1. Check coded_side_data on codec parameters for DOVI configuration record.
+    //    In FFmpeg 8.0+, stream-level side_data moved to AVCodecParameters::coded_side_data.
+    if let Some(dv) = read_dovi_from_coded_side_data(stream) {
+        return (Some(HdrFormat::DolbyVision), Some(dv));
+    }
+
+    // 2. Fall back to color transfer characteristics for HDR10/HLG
     let transfer = video.color_transfer_characteristic();
     let primaries = video.color_primaries();
 
-    // Check for Dolby Vision in side data
-    // FFmpeg exposes DV config through side data, but it's complex to parse
-    // For now, we detect based on color characteristics
-
     let transfer_str = format!("{:?}", transfer).to_lowercase();
     let primaries_str = format!("{:?}", primaries).to_lowercase();
-
-    // Check stream metadata for Dolby Vision hints
-    let has_dovi_hint = stream.metadata().iter().any(|(k, v)| {
-        let k_lower = k.to_lowercase();
-        let v_lower = v.to_lowercase();
-        k_lower.contains("dovi") || v_lower.contains("dolby vision")
-    });
-
-    if has_dovi_hint {
-        return (
-            Some(HdrFormat::DolbyVision),
-            Some(DolbyVisionInfo {
-                profile: 0, // Would need to parse side data for actual profile
-                level: None,
-                rpu_present: true,
-                el_present: false,
-                bl_present: true,
-                bl_compatibility_id: None,
-            }),
-        );
-    }
 
     // PQ transfer = HDR10 or HDR10+
     if transfer_str.contains("smpte2084") || transfer_str.contains("pq") {
@@ -225,6 +206,79 @@ fn detect_hdr_info(
     (None, None)
 }
 
+/// Read Dolby Vision configuration from AVCodecParameters::coded_side_data.
+///
+/// The safe `ffmpeg-the-third` wrapper doesn't expose `coded_side_data` yet (marked TODO),
+/// so we access the raw `AVCodecParameters` struct fields via unsafe FFI.
+fn read_dovi_from_coded_side_data(
+    stream: &ffmpeg::format::stream::Stream,
+) -> Option<DolbyVisionInfo> {
+    let params_ptr = stream.parameters().as_ptr();
+
+    // SAFETY: params_ptr is guaranteed non-null by ParametersRef. We read two fields
+    // (coded_side_data pointer and nb_coded_side_data count) from the valid AVCodecParameters.
+    let (side_data_ptr, count) = unsafe {
+        let nb = (*params_ptr).nb_coded_side_data;
+        let ptr = (*params_ptr).coded_side_data;
+        if nb <= 0 || ptr.is_null() {
+            return None;
+        }
+        (ptr, nb as usize)
+    };
+
+    let dovi_conf_type = ffmpeg::ffi::AVPacketSideDataType::AV_PKT_DATA_DOVI_CONF;
+
+    for i in 0..count {
+        // SAFETY: We're iterating within the bounds [0, nb_coded_side_data).
+        // Each element is a valid AVPacketSideData struct.
+        let sd = unsafe { &*side_data_ptr.add(i) };
+        if sd.type_ == dovi_conf_type && !sd.data.is_null() && sd.size >= 4 {
+            // SAFETY: data is non-null with at least `sd.size` bytes.
+            let data = unsafe { std::slice::from_raw_parts(sd.data, sd.size) };
+            if let Some((profile, level, rpu, el, bl, compat_id)) = parse_dovi_config(data) {
+                return Some(DolbyVisionInfo {
+                    profile,
+                    level: Some(level),
+                    rpu_present: rpu,
+                    el_present: el,
+                    bl_present: bl,
+                    bl_compatibility_id: Some(compat_id),
+                });
+            }
+        }
+    }
+
+    None
+}
+
+/// Parse a DOVI configuration record (dvcC/dvvC box format).
+///
+/// Layout (first 5 bytes):
+/// - byte 0: dv_version_major
+/// - byte 1: dv_version_minor
+/// - byte 2: (profile << 1) | (level >> 5)
+/// - byte 3: (level << 3) | (rpu_flag << 2) | (el_flag << 1) | bl_flag
+/// - byte 4: (bl_compatibility_id << 4) | ...
+fn parse_dovi_config(data: &[u8]) -> Option<(u8, u8, bool, bool, bool, u8)> {
+    if data.len() < 4 {
+        return None;
+    }
+    let profile = (data[2] >> 1) & 0x7F;
+    let level = ((data[2] & 0x01) << 5) | ((data[3] >> 3) & 0x1F);
+    let rpu = (data[3] & 0x04) != 0;
+    let el = (data[3] & 0x02) != 0;
+    let bl = (data[3] & 0x01) != 0;
+    let compat_id = if data.len() > 4 {
+        (data[4] >> 4) & 0x0F
+    } else {
+        0
+    };
+    if profile > 10 {
+        return None;
+    }
+    Some((profile, level, rpu, el, bl, compat_id))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,5 +288,72 @@ mod tests {
         // Just verify initialization doesn't panic
         init_ffmpeg();
         init_ffmpeg(); // Should be idempotent
+    }
+
+    #[test]
+    fn test_parse_dovi_config_profile7() {
+        // Profile 7, level 6, RPU=true, EL=true, BL=true, compat_id=6
+        // byte 2: (7 << 1) | (6 >> 5) = 14 | 0 = 0x0E
+        // byte 3: (6 << 3) | (1 << 2) | (1 << 1) | 1 = 48 | 4 | 2 | 1 = 0x37
+        // byte 4: (6 << 4) = 0x60
+        let data = [1, 0, 0x0E, 0x37, 0x60];
+        let result = parse_dovi_config(&data);
+        assert!(result.is_some());
+        let (profile, level, rpu, el, bl, compat_id) = result.unwrap();
+        assert_eq!(profile, 7);
+        assert_eq!(level, 6);
+        assert!(rpu);
+        assert!(el);
+        assert!(bl);
+        assert_eq!(compat_id, 6);
+    }
+
+    #[test]
+    fn test_parse_dovi_config_profile8() {
+        // Profile 8, level 5, RPU=true, EL=false, BL=true, compat_id=4
+        // byte 2: (8 << 1) | (5 >> 5) = 16 | 0 = 0x10
+        // byte 3: (5 << 3) | (1 << 2) | (0 << 1) | 1 = 40 | 4 | 0 | 1 = 0x2D
+        // byte 4: (4 << 4) = 0x40
+        let data = [1, 0, 0x10, 0x2D, 0x40];
+        let result = parse_dovi_config(&data);
+        assert!(result.is_some());
+        let (profile, level, rpu, el, bl, compat_id) = result.unwrap();
+        assert_eq!(profile, 8);
+        assert_eq!(level, 5);
+        assert!(rpu);
+        assert!(!el);
+        assert!(bl);
+        assert_eq!(compat_id, 4);
+    }
+
+    #[test]
+    fn test_parse_dovi_config_too_short() {
+        let data = [1, 0, 0x0E];
+        assert!(parse_dovi_config(&data).is_none());
+    }
+
+    #[test]
+    fn test_parse_dovi_config_invalid_profile() {
+        // Profile 15 (invalid, > 10)
+        // byte 2: (15 << 1) = 0x1E
+        let data = [1, 0, 0x1E, 0x00, 0x00];
+        assert!(parse_dovi_config(&data).is_none());
+    }
+
+    #[test]
+    fn test_parse_dovi_config_no_compat_byte() {
+        // Only 4 bytes, compat_id should default to 0
+        // Profile 5, level 0
+        // byte 2: (5 << 1) = 0x0A
+        // byte 3: (0 << 3) | (1 << 2) | (0 << 1) | 1 = 0x05
+        let data = [1, 0, 0x0A, 0x05];
+        let result = parse_dovi_config(&data);
+        assert!(result.is_some());
+        let (profile, _level, rpu, el, bl, compat_id) = result.unwrap();
+        assert_eq!(profile, 5);
+        assert!(rpu);
+        assert!(!el);
+        assert!(bl);
+        assert_eq!(compat_id, 0);
     }
 }

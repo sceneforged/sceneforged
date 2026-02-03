@@ -28,6 +28,8 @@ pub use native_ffmpeg::probe_with_native_ffmpeg;
 pub use pure_rust::probe_with_pure_rust;
 
 use crate::{ProbeBackend, Result};
+#[cfg(feature = "native-ffmpeg")]
+use std::cmp::min;
 use std::path::Path;
 
 /// Probe a media file using the best available backend.
@@ -59,7 +61,28 @@ pub fn probe_with(path: &Path, backend: ProbeBackend) -> Result<MediaInfo> {
             #[cfg(feature = "native-ffmpeg")]
             {
                 match native_ffmpeg::probe_with_native_ffmpeg(path) {
-                    Ok(info) => return Ok(info),
+                    Ok(mut info) => {
+                        // If native FFmpeg missed HDR/DV, supplement with mediainfo
+                        // (e.g. MKV files where DOVI config isn't in coded_side_data)
+                        let has_hdr = info.video_tracks.iter().any(|v| {
+                            v.dolby_vision.is_some()
+                                || matches!(
+                                    v.hdr_format,
+                                    Some(
+                                        HdrFormat::Hdr10
+                                            | HdrFormat::Hdr10Plus
+                                            | HdrFormat::DolbyVision
+                                            | HdrFormat::Hlg
+                                    )
+                                )
+                        });
+                        if !has_hdr {
+                            if let Ok(mi) = probe_with_mediainfo(path) {
+                                merge_hdr_info(&mut info, &mi);
+                            }
+                        }
+                        return Ok(info);
+                    }
                     Err(_) => {
                         // Fall back to CLI-based probing
                     }
@@ -81,5 +104,25 @@ pub fn probe_with(path: &Path, backend: ProbeBackend) -> Result<MediaInfo> {
         ProbeBackend::NativeFfmpeg => native_ffmpeg::probe_with_native_ffmpeg(path),
         #[cfg(feature = "pure-rust-probe")]
         ProbeBackend::PureRust => pure_rust::probe_with_pure_rust(path),
+    }
+}
+
+/// Merge HDR/DV info from a mediainfo result into an existing probe result.
+///
+/// Copies `hdr_format` and `dolby_vision` fields from `supplement` video tracks
+/// into the corresponding tracks in `target`, matched by index position.
+#[cfg(feature = "native-ffmpeg")]
+fn merge_hdr_info(target: &mut MediaInfo, supplement: &MediaInfo) {
+    let len = min(target.video_tracks.len(), supplement.video_tracks.len());
+    for i in 0..len {
+        let src = &supplement.video_tracks[i];
+        let dst = &mut target.video_tracks[i];
+
+        if dst.hdr_format.is_none() && src.hdr_format.is_some() {
+            dst.hdr_format = src.hdr_format;
+        }
+        if dst.dolby_vision.is_none() && src.dolby_vision.is_some() {
+            dst.dolby_vision = src.dolby_vision.clone();
+        }
     }
 }
