@@ -44,6 +44,19 @@ async fn start_server(
     tracing::info!("Initializing database at {}", db_path_str);
     let db_pool = init_pool(&db_path_str)?;
 
+    // Clean up orphaned conversion jobs from previous server session
+    if let Ok(conn) = db_pool.get() {
+        match sceneforged_db::queries::conversion_jobs::reset_orphaned_jobs(&conn) {
+            Ok(count) if count > 0 => {
+                tracing::info!("Reset {} orphaned conversion jobs from previous session", count);
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!("Failed to reset orphaned conversion jobs: {}", e);
+            }
+        }
+    }
+
     // Create state
     let state_path = data_dir.join("sceneforged-state.json");
     let state = state::AppState::new(Some(state_path));

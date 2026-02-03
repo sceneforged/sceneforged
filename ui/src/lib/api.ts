@@ -629,6 +629,29 @@ export async function batchDvConvert(itemIds: string[]): Promise<BatchConvertRes
   });
 }
 
+// Conversion Jobs (admin)
+
+export interface ConversionJob {
+  id: string;
+  item_id: string;
+  source_file_id: string;
+  status: string;
+  progress_pct: number;
+  output_path: string | null;
+  error_message: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export async function getConversionJobs(): Promise<ConversionJob[]> {
+  return fetchApi('/admin/conversion-jobs');
+}
+
+export async function cancelConversionJob(jobId: string): Promise<void> {
+  await fetchApi(`/admin/conversion-jobs/${jobId}`, { method: 'DELETE' });
+}
+
 // Conversion Config
 export interface ConversionConfig {
   auto_convert_dv_p7_to_p8: boolean;

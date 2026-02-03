@@ -25,6 +25,11 @@ pub fn admin_routes() -> Router<AppContext> {
         .route("/admin/dashboard", get(get_dashboard))
         .route("/admin/streams", get(get_streams))
         .route("/admin/stats", get(get_library_stats))
+        .route("/admin/conversion-jobs", get(list_conversion_jobs))
+        .route(
+            "/admin/conversion-jobs/:job_id",
+            axum::routing::delete(cancel_conversion_job),
+        )
         .route("/items/:item_id/conversion", get(get_item_conversion))
         .route("/items/:item_id/convert", post(convert_item))
         .route("/conversions/batch", post(batch_convert))
@@ -213,17 +218,31 @@ pub async fn get_dashboard(State(ctx): State<AppContext>) -> impl IntoResponse {
         vec![]
     };
 
-    // Get queue summary from AppState
+    // Get queue summary from both in-memory state and database conversion jobs
     let active_jobs = ctx.state.get_active_jobs();
+    let mut queued_count = active_jobs
+        .iter()
+        .filter(|j| matches!(j.status, crate::state::JobStatus::Queued))
+        .count();
+    let mut running_count = active_jobs
+        .iter()
+        .filter(|j| matches!(j.status, crate::state::JobStatus::Running))
+        .count();
+
+    // Also count database conversion jobs
+    if let Ok(db_jobs) = sceneforged_db::queries::conversion_jobs::list_active_jobs(&conn, 1000) {
+        for job in &db_jobs {
+            match job.status {
+                sceneforged_db::models::ConversionStatus::Queued => queued_count += 1,
+                sceneforged_db::models::ConversionStatus::Running => running_count += 1,
+                _ => {}
+            }
+        }
+    }
+
     let queue_summary = QueueSummaryResponse {
-        queued: active_jobs
-            .iter()
-            .filter(|j| matches!(j.status, crate::state::JobStatus::Queued))
-            .count(),
-        running: active_jobs
-            .iter()
-            .filter(|j| matches!(j.status, crate::state::JobStatus::Running))
-            .count(),
+        queued: queued_count,
+        running: running_count,
     };
 
     let response = DashboardResponse {
@@ -533,6 +552,121 @@ pub async fn batch_dv_convert(
             Json(serde_json::json!({"error": e.to_string()})),
         )
             .into_response(),
+    }
+}
+
+/// Conversion job info for API responses.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ConversionJobResponse {
+    /// Job ID
+    pub id: String,
+    /// Item ID this job is for
+    pub item_id: String,
+    /// Source file ID
+    pub source_file_id: String,
+    /// Current status (queued, running, completed, failed, cancelled)
+    pub status: String,
+    /// Progress percentage (0-100)
+    pub progress_pct: f64,
+    /// Output file path
+    pub output_path: Option<String>,
+    /// Error message if failed
+    pub error_message: Option<String>,
+    /// When the job was created
+    pub created_at: String,
+    /// When the job started
+    pub started_at: Option<String>,
+    /// When the job completed
+    pub completed_at: Option<String>,
+}
+
+/// List conversion jobs.
+#[utoipa::path(
+    get,
+    path = "/api/admin/conversion-jobs",
+    tag = "admin",
+    responses(
+        (status = 200, description = "List of conversion jobs", body = Vec<ConversionJobResponse>),
+        (status = 503, description = "Database not available")
+    )
+)]
+pub async fn list_conversion_jobs(State(ctx): State<AppContext>) -> impl IntoResponse {
+    let Some(ref pool) = ctx.db_pool else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Database not available"})),
+        )
+            .into_response();
+    };
+
+    let conn = match pool.get() {
+        Ok(c) => c,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": e.to_string()})),
+            )
+                .into_response()
+        }
+    };
+
+    match sceneforged_db::queries::conversion_jobs::list_active_jobs(&conn, 100) {
+        Ok(jobs) => {
+            let response: Vec<ConversionJobResponse> = jobs
+                .into_iter()
+                .map(|j| ConversionJobResponse {
+                    id: j.id,
+                    item_id: j.item_id.to_string(),
+                    source_file_id: j.source_file_id.to_string(),
+                    status: j.status.to_string(),
+                    progress_pct: j.progress_pct,
+                    output_path: j.output_path,
+                    error_message: j.error_message,
+                    created_at: j.created_at.to_rfc3339(),
+                    started_at: j.started_at.map(|t| t.to_rfc3339()),
+                    completed_at: j.completed_at.map(|t| t.to_rfc3339()),
+                })
+                .collect();
+            Json(response).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
+/// Cancel a conversion job.
+#[utoipa::path(
+    delete,
+    path = "/api/admin/conversion-jobs/{job_id}",
+    tag = "admin",
+    params(
+        ("job_id" = String, Path, description = "Conversion job ID")
+    ),
+    responses(
+        (status = 204, description = "Job cancelled"),
+        (status = 404, description = "Job not found or not cancellable"),
+        (status = 503, description = "Database not available")
+    )
+)]
+pub async fn cancel_conversion_job(
+    State(ctx): State<AppContext>,
+    Path(job_id): Path<String>,
+) -> impl IntoResponse {
+    let Some(ref pool) = ctx.db_pool else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+
+    let conn = match pool.get() {
+        Ok(c) => c,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+
+    match sceneforged_db::queries::conversion_jobs::cancel_job(&conn, &job_id) {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(_) => StatusCode::NO_CONTENT.into_response(), // Idempotent
     }
 }
 

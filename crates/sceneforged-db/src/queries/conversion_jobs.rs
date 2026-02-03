@@ -378,6 +378,39 @@ pub fn cancel_stale_jobs(conn: &Connection, hours: i32) -> Result<usize> {
     Ok(affected)
 }
 
+/// Reset all orphaned jobs on server startup.
+///
+/// Marks all `running` jobs as failed (they can't still be running after a restart)
+/// and all `queued` jobs as cancelled (they were never picked up).
+/// Returns the number of jobs reset.
+pub fn reset_orphaned_jobs(conn: &Connection) -> Result<usize> {
+    let now = Utc::now();
+
+    let running = conn
+        .execute(
+            "UPDATE conversion_jobs
+             SET status = 'failed',
+                 error_message = 'Server restarted while job was running',
+                 completed_at = ?
+             WHERE status = 'running'",
+            params![now.to_rfc3339()],
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    let queued = conn
+        .execute(
+            "UPDATE conversion_jobs
+             SET status = 'cancelled',
+                 error_message = 'Server restarted, job was never started',
+                 completed_at = ?
+             WHERE status = 'queued'",
+            params![now.to_rfc3339()],
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    Ok(running + queued)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

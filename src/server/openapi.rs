@@ -56,6 +56,8 @@ use super::AppContext;
         super::routes_admin::get_item_conversion,
         super::routes_admin::convert_item,
         super::routes_admin::batch_convert,
+        super::routes_admin::list_conversion_jobs,
+        super::routes_admin::cancel_conversion_job,
     ),
     components(
         schemas(
@@ -86,6 +88,7 @@ use super::AppContext;
             super::routes_admin::ConvertItemResponse,
             super::routes_admin::BatchConvertRequest,
             super::routes_admin::BatchConvertResponse,
+            super::routes_admin::ConversionJobResponse,
             // State types (re-exported via schemas)
             JobSchema,
             JobStatusSchema,

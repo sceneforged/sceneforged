@@ -161,13 +161,15 @@ impl ConversionManager {
                     target_profile
                 ))?;
 
-            // Check if there's already an active job for this item
+            // Cancel any existing active job for this item (stale from previous run)
             if let Some(active_job) = queries::conversion_jobs::get_active_job_for_item(&conn, item_id)? {
-                anyhow::bail!(
-                    "Item {} already has an active conversion job ({})",
+                tracing::info!(
+                    "Cancelling stale conversion job {} for item {} (was {:?})",
+                    active_job.id,
                     item_id,
-                    active_job.id
+                    active_job.status
                 );
+                let _ = queries::conversion_jobs::cancel_job(&conn, &active_job.id);
             }
 
             // Create the conversion job
@@ -214,9 +216,14 @@ impl ConversionManager {
             .find(|f| f.role == sceneforged_common::FileRole::Source)
             .context("No source file found")?;
 
-        // Check no active job
-        if queries::conversion_jobs::get_active_job_for_item(&conn, item_id)?.is_some() {
-            anyhow::bail!("Item already has an active conversion job");
+        // Cancel any existing active job (stale from previous run)
+        if let Some(active_job) = queries::conversion_jobs::get_active_job_for_item(&conn, item_id)? {
+            tracing::info!(
+                "Cancelling stale conversion job {} for DV conversion of item {}",
+                active_job.id,
+                item_id
+            );
+            let _ = queries::conversion_jobs::cancel_job(&conn, &active_job.id);
         }
 
         // Create conversion job
