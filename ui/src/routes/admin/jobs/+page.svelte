@@ -58,6 +58,8 @@
   const pageSize = 25;
   let conversionJobs = $state<ConversionJob[]>([]);
   let unsubscribeEvents: (() => void) | null = null;
+  let now = $state(Date.now());
+  let tickInterval: ReturnType<typeof setInterval> | null = null;
 
   // Active conversion jobs (queued or running)
   const activeConversionJobs = $derived(
@@ -75,6 +77,14 @@
     const h = Math.floor(m / 60);
     const rm = m % 60;
     return `${h}h ${rm}m`;
+  }
+
+  // Compute elapsed seconds client-side from started_at timestamp
+  function clientElapsed(job: ConversionJob): number | null {
+    if (!job.started_at || job.status !== 'running') return job.elapsed_secs;
+    const startMs = new Date(job.started_at).getTime();
+    if (isNaN(startMs)) return job.elapsed_secs;
+    return Math.max(0, Math.floor((now - startMs) / 1000));
   }
 
   // Format codec for display
@@ -225,11 +235,15 @@
   onMount(() => {
     loadData();
     unsubscribeEvents = subscribeToEvents('admin', handleEvent);
+    tickInterval = setInterval(() => { now = Date.now(); }, 1000);
   });
 
   onDestroy(() => {
     if (unsubscribeEvents) {
       unsubscribeEvents();
+    }
+    if (tickInterval) {
+      clearInterval(tickInterval);
     }
   });
 </script>
@@ -336,7 +350,7 @@
                   </div>
                   <Progress value={cjob.progress_pct} max={100} />
                   <div class="flex justify-between text-xs text-muted-foreground">
-                    <span>Elapsed: {formatDuration(cjob.elapsed_secs)}</span>
+                    <span>Elapsed: {formatDuration(clientElapsed(cjob))}</span>
                     {#if cjob.eta_secs != null && cjob.eta_secs > 0}
                       <span>ETA: {formatDuration(cjob.eta_secs)}</span>
                     {/if}
