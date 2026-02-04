@@ -11,9 +11,10 @@ test.describe('Admin Pages', () => {
 
 			await page.goto('/admin');
 
-			// Should display key stats
-			await expect(page.getByText(String(scenario.dashboard.total_libraries))).toBeVisible();
-			await expect(page.getByText(String(scenario.dashboard.total_items))).toBeVisible();
+			// Should display key stats (use exact match to avoid git SHA collisions)
+			const main = page.locator('main');
+			await expect(main.getByText(String(scenario.dashboard.total_libraries), { exact: true }).first()).toBeVisible();
+			await expect(main.getByText(String(scenario.dashboard.total_items))).toBeVisible();
 		});
 	});
 

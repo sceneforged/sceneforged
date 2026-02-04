@@ -3,7 +3,14 @@ import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 import { execSync } from 'node:child_process';
 
-const gitSha = execSync('git rev-parse --short HEAD').toString().trim();
+let gitSha = process.env.PUBLIC_COMMIT_SHA || 'unknown';
+if (gitSha === 'unknown' || gitSha === 'dev') {
+	try {
+		gitSha = execSync('git rev-parse --short HEAD').toString().trim();
+	} catch {
+		// git not available (e.g. Docker build without COMMIT_SHA)
+	}
+}
 
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],
