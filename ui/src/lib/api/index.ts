@@ -87,9 +87,13 @@ export async function getJobs(params?: {
 	if (params?.limit !== undefined) searchParams.set('limit', String(params.limit));
 
 	const query = searchParams.toString();
-	return api.get<{ jobs: Job[]; total: number }>(`/jobs${query ? `?${query}` : ''}`, {
+	const result = await api.get<Job[] | { jobs: Job[]; total: number }>(`/jobs${query ? `?${query}` : ''}`, {
 		skipCache: true
 	});
+	// Backend returns a plain array; normalize to { jobs, total } shape
+	const jobs = Array.isArray(result) ? result : result.jobs;
+	const total = Array.isArray(result) ? result.length : (result.total ?? jobs.length);
+	return { jobs, total };
 }
 
 export async function submitJob(data: { file_path: string }): Promise<Job> {
