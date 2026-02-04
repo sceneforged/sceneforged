@@ -37,7 +37,8 @@ test.describe('Admin Pages', () => {
 
 			await page.goto('/admin/libraries');
 
-			await expect(page.getByText('No libraries')).toBeVisible();
+			const main = page.locator('main');
+			await expect(main.getByText('No libraries')).toBeVisible();
 		});
 	});
 

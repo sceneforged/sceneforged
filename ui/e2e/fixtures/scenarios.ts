@@ -116,6 +116,55 @@ export function populatedState(): Scenario {
 	};
 }
 
+export function paginatedState(): Scenario {
+	resetIdCounter();
+
+	const lib = createLibrary({ name: 'Big Library', media_type: 'movies', paths: ['/media/big'] });
+
+	const items: Item[] = [];
+	for (let i = 0; i < 30; i++) {
+		const item = createItem({
+			library_id: lib.id,
+			name: `Paginated Movie ${i + 1}`,
+			year: 2020 + (i % 5)
+		});
+		if (i < 5) {
+			item.media_files = [
+				createMediaFile({ item_id: item.id, role: 'universal', profile: 'B' })
+			];
+		}
+		items.push(item);
+	}
+
+	return {
+		libraries: [lib],
+		items,
+		jobs: { jobs: [], total: 0 },
+		dashboard: createDashboardStats({ total_libraries: 1, total_items: 30 }),
+		rules: [],
+		tools: [createToolInfo({ name: 'ffmpeg', available: true })]
+	};
+}
+
+export function authDisabledState(): Scenario {
+	resetIdCounter();
+	return {
+		libraries: [],
+		items: [],
+		jobs: { jobs: [], total: 0 },
+		dashboard: createDashboardStats({
+			total_libraries: 0,
+			total_items: 0,
+			total_jobs: 0,
+			active_jobs: 0,
+			completed_jobs: 0,
+			failed_jobs: 0
+		}),
+		rules: [],
+		tools: [createToolInfo({ name: 'ffmpeg', available: true })]
+	};
+}
+
 export function noWebCompatibleState(): Scenario {
 	resetIdCounter();
 

@@ -211,7 +211,7 @@
 		</Card>
 	{:else}
 		<div class="space-y-4">
-			{#each rules.sort((a, b) => b.priority - a.priority) as rule, index}
+			{#each [...rules].sort((a, b) => b.priority - a.priority) as rule, index}
 				<Card class={rule.enabled ? '' : 'opacity-60'}>
 					<CardHeader>
 						<div class="flex items-center justify-between">
