@@ -62,8 +62,10 @@ export async function getItems(params: {
 	if (params.search) searchParams.set('search', params.search);
 
 	const query = searchParams.toString();
-	const result = await api.get<{ items: Item[]; total: number }>(`/items${query ? `?${query}` : ''}`);
-	return { ...result, items: result.items.map(normalizeItem) };
+	const result = await api.get<Item[] | { items: Item[]; total: number }>(`/items${query ? `?${query}` : ''}`);
+	// Backend returns a plain array; normalize to { items, total } shape
+	const items = Array.isArray(result) ? result : result.items;
+	return { items: items.map(normalizeItem), total: items.length };
 }
 
 export async function getItem(id: string): Promise<Item> {
