@@ -11,6 +11,10 @@ if (gitSha === 'unknown' || gitSha === 'dev') {
 		// git not available (e.g. Docker build without COMMIT_SHA)
 	}
 }
+// Truncate to short hash (7 chars) if a full SHA was provided
+if (gitSha.length > 7 && gitSha !== 'unknown') {
+	gitSha = gitSha.substring(0, 7);
+}
 
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],
