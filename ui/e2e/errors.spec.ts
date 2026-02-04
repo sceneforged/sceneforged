@@ -102,7 +102,7 @@ test.describe('Error & Failure Handling', () => {
 		const scenario = populatedState();
 		await api.setup(scenario);
 
-		await api.overrideRoute('**/api/dashboard', (route) =>
+		await api.overrideRoute('**/api/admin/dashboard', (route) =>
 			route.fulfill({
 				status: 500,
 				contentType: 'application/json',
@@ -166,7 +166,7 @@ test.describe('Error & Failure Handling', () => {
 		const scenario = populatedState();
 		await api.setup(scenario);
 
-		await api.overrideRoute('**/api/tools', (route) =>
+		await api.overrideRoute('**/api/admin/tools', (route) =>
 			route.fulfill({
 				status: 500,
 				contentType: 'application/json',
@@ -185,7 +185,7 @@ test.describe('Error & Failure Handling', () => {
 		await api.setup(scenario);
 
 		let callCount = 0;
-		await api.overrideRoute('**/api/dashboard', (route) => {
+		await api.overrideRoute('**/api/admin/dashboard', (route) => {
 			callCount++;
 			if (callCount < 3) {
 				return route.fulfill({

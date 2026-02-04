@@ -114,7 +114,7 @@ test.describe('Edge Cases', () => {
 
 		// Override tools response
 		await api.setup(scenario);
-		await api.overrideRoute('**/api/tools', (route) =>
+		await api.overrideRoute('**/api/admin/tools', (route) =>
 			route.fulfill({
 				status: 200,
 				contentType: 'application/json',

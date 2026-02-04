@@ -128,13 +128,13 @@ export async function updateConfigRules(rules: Rule[]): Promise<Rule[]> {
 // --- Dashboard ---
 
 export async function getDashboard(): Promise<DashboardStats> {
-	return api.get<DashboardStats>('/dashboard', { skipCache: true });
+	return api.get<DashboardStats>('/admin/dashboard', { skipCache: true });
 }
 
 // --- Tools ---
 
 export async function getTools(): Promise<ToolInfo[]> {
-	return api.get<ToolInfo[]>('/tools');
+	return api.get<ToolInfo[]>('/admin/tools');
 }
 
 // --- Auth ---

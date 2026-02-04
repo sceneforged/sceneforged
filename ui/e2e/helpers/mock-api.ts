@@ -121,7 +121,7 @@ export class MockApi {
 		});
 
 		// Dashboard
-		await this.page.route('**/api/dashboard', (route) =>
+		await this.page.route('**/api/admin/dashboard', (route) =>
 			route.fulfill({
 				status: 200,
 				contentType: 'application/json',
@@ -147,7 +147,7 @@ export class MockApi {
 		});
 
 		// Tools
-		await this.page.route('**/api/tools', (route) =>
+		await this.page.route('**/api/admin/tools', (route) =>
 			route.fulfill({
 				status: 200,
 				contentType: 'application/json',
