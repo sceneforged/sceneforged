@@ -200,4 +200,8 @@
 			</Sidebar.Menu>
 		</Sidebar.Group>
 	</Sidebar.Content>
+
+	<Sidebar.Footer class="border-t border-sidebar-border px-4 py-2">
+		<span class="font-mono text-xs text-sidebar-foreground/40">{__GIT_SHA__}</span>
+	</Sidebar.Footer>
 </Sidebar.Sidebar>
