@@ -57,8 +57,11 @@ export async function getItems(params: {
 }): Promise<{ items: Item[]; total: number }> {
 	const searchParams = new URLSearchParams();
 	if (params.library_id) searchParams.set('library_id', params.library_id);
-	if (params.page !== undefined) searchParams.set('page', String(params.page));
-	if (params.limit !== undefined) searchParams.set('limit', String(params.limit));
+	const limit = params.limit ?? 50;
+	if (params.page !== undefined) {
+		searchParams.set('offset', String(params.page * limit));
+	}
+	searchParams.set('limit', String(limit));
 	if (params.search) searchParams.set('search', params.search);
 
 	const query = searchParams.toString();
@@ -83,8 +86,11 @@ export async function getJobs(params?: {
 }): Promise<{ jobs: Job[]; total: number }> {
 	const searchParams = new URLSearchParams();
 	if (params?.status) searchParams.set('status', params.status);
-	if (params?.page !== undefined) searchParams.set('page', String(params.page));
-	if (params?.limit !== undefined) searchParams.set('limit', String(params.limit));
+	const limit = params?.limit ?? 50;
+	if (params?.page !== undefined) {
+		searchParams.set('offset', String(params.page * limit));
+	}
+	searchParams.set('limit', String(limit));
 
 	const query = searchParams.toString();
 	const result = await api.get<Job[] | { jobs: Job[]; total: number }>(`/jobs${query ? `?${query}` : ''}`, {

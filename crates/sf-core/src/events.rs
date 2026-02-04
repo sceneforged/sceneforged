@@ -63,10 +63,15 @@ pub enum EventPayload {
     },
     LibraryScanProgress {
         library_id: LibraryId,
-        progress: f32,
+        files_found: u64,
+        files_queued: u64,
     },
     LibraryScanComplete {
         library_id: LibraryId,
+        files_found: u64,
+        files_queued: u64,
+        files_skipped: u64,
+        errors: u64,
     },
     LibraryCreated {
         library_id: LibraryId,
@@ -276,8 +281,8 @@ mod tests {
             EventPayload::JobCompleted { job_id: JobId::new() },
             EventPayload::JobFailed { job_id: JobId::new(), error: "err".into() },
             EventPayload::LibraryScanStarted { library_id: LibraryId::new() },
-            EventPayload::LibraryScanProgress { library_id: LibraryId::new(), progress: 0.25 },
-            EventPayload::LibraryScanComplete { library_id: LibraryId::new() },
+            EventPayload::LibraryScanProgress { library_id: LibraryId::new(), files_found: 10, files_queued: 5 },
+            EventPayload::LibraryScanComplete { library_id: LibraryId::new(), files_found: 100, files_queued: 95, files_skipped: 3, errors: 2 },
             EventPayload::LibraryCreated { library_id: LibraryId::new(), name: "Test".into() },
             EventPayload::LibraryDeleted { library_id: LibraryId::new() },
             EventPayload::ItemAdded { item_id: ItemId::new() },

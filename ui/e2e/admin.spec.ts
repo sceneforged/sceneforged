@@ -11,10 +11,10 @@ test.describe('Admin Pages', () => {
 
 			await page.goto('/admin');
 
-			// Should display key stats (use exact match to avoid git SHA collisions)
+			// Should display key stats from dashboard (jobs) and libraries count
 			const main = page.locator('main');
-			await expect(main.getByText(String(scenario.dashboard.total_libraries), { exact: true }).first()).toBeVisible();
-			await expect(main.getByText(String(scenario.dashboard.total_items))).toBeVisible();
+			await expect(main.getByText(String(scenario.libraries.length), { exact: true }).first()).toBeVisible();
+			await expect(main.getByText(String(scenario.dashboard.jobs.total), { exact: true }).first()).toBeVisible();
 		});
 	});
 

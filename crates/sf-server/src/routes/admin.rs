@@ -1,13 +1,41 @@
 //! Admin dashboard and tools route handlers.
 
 use axum::extract::State;
-use axum::response::IntoResponse;
 use axum::Json;
+use serde::Serialize;
 
 use crate::context::AppContext;
 
+/// Dashboard response containing job counts and event bus info.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct DashboardResponse {
+    pub jobs: DashboardJobs,
+    pub event_bus: DashboardEventBus,
+}
+
+/// Job count summary for the dashboard.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct DashboardJobs {
+    pub total: usize,
+    pub queued: usize,
+    pub processing: usize,
+}
+
+/// Event bus summary for the dashboard.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct DashboardEventBus {
+    pub recent_events: usize,
+}
+
 /// GET /api/admin/dashboard
-pub async fn dashboard(State(ctx): State<AppContext>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/api/admin/dashboard",
+    responses(
+        (status = 200, description = "Dashboard statistics", body = DashboardResponse)
+    )
+)]
+pub async fn dashboard(State(ctx): State<AppContext>) -> Json<DashboardResponse> {
     let conn = sf_db::pool::get_conn(&ctx.db);
     let (jobs_total, jobs_queued, jobs_processing) = if let Ok(conn) = conn {
         let total = sf_db::queries::jobs::list_jobs(&conn, None, 0, 1000)
@@ -24,20 +52,27 @@ pub async fn dashboard(State(ctx): State<AppContext>) -> impl IntoResponse {
         (0, 0, 0)
     };
 
-    Json(serde_json::json!({
-        "jobs": {
-            "total": jobs_total,
-            "queued": jobs_queued,
-            "processing": jobs_processing,
+    Json(DashboardResponse {
+        jobs: DashboardJobs {
+            total: jobs_total,
+            queued: jobs_queued,
+            processing: jobs_processing,
         },
-        "event_bus": {
-            "recent_events": ctx.event_bus.recent_events(10).len(),
-        }
-    }))
+        event_bus: DashboardEventBus {
+            recent_events: ctx.event_bus.recent_events(10).len(),
+        },
+    })
 }
 
 /// GET /api/admin/tools
-pub async fn tools(State(ctx): State<AppContext>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/api/admin/tools",
+    responses(
+        (status = 200, description = "List external tool availability", body = Vec<sf_av::ToolInfo>)
+    )
+)]
+pub async fn tools(State(ctx): State<AppContext>) -> Json<Vec<sf_av::ToolInfo>> {
     let infos = ctx.tools.check_all();
-    Json(serde_json::to_value(&infos).unwrap_or_default())
+    Json(infos)
 }

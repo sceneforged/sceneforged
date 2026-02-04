@@ -58,6 +58,7 @@ r2d2_sqlite = "0.32"
 
 # File watching
 notify = "8.2"
+walkdir = "2"
 
 # Rate limiting
 governor = "0.8"

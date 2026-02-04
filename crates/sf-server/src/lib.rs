@@ -14,6 +14,7 @@ pub mod middleware;
 pub mod processor;
 pub mod router;
 pub mod routes;
+pub mod scanner;
 pub mod watcher;
 
 use std::net::SocketAddr;

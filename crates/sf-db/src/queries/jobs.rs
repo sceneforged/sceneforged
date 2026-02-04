@@ -176,6 +176,18 @@ pub fn complete_job(conn: &Connection, id: JobId) -> Result<bool> {
     Ok(n > 0)
 }
 
+/// Check if a file already has a queued or processing job.
+pub fn has_active_job_for_path(conn: &Connection, file_path: &str) -> Result<bool> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM jobs WHERE file_path = ?1 AND status IN ('queued', 'processing')",
+            [file_path],
+            |row| row.get(0),
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+    Ok(count > 0)
+}
+
 /// Re-queue a failed job for retry (increments retry_count, resets status).
 pub fn retry_job(conn: &Connection, id: JobId) -> Result<bool> {
     let n = conn
@@ -260,6 +272,27 @@ mod tests {
         let retried = get_job(&conn, job.id).unwrap().unwrap();
         assert_eq!(retried.status, "queued");
         assert_eq!(retried.retry_count, 1);
+    }
+
+    #[test]
+    fn has_active_job_for_path_checks_status() {
+        let pool = init_memory_pool().unwrap();
+        let conn = pool.get().unwrap();
+
+        // No jobs -> false
+        assert!(!has_active_job_for_path(&conn, "/test.mkv").unwrap());
+
+        // Queued job -> true
+        create_job(&conn, "/test.mkv", "test.mkv", Some("scan"), 0).unwrap();
+        assert!(has_active_job_for_path(&conn, "/test.mkv").unwrap());
+
+        // Different path -> false
+        assert!(!has_active_job_for_path(&conn, "/other.mkv").unwrap());
+
+        // Complete the job -> false
+        let job = dequeue_next(&conn, "w1").unwrap().unwrap();
+        complete_job(&conn, job.id).unwrap();
+        assert!(!has_active_job_for_path(&conn, "/test.mkv").unwrap());
     }
 
     #[test]

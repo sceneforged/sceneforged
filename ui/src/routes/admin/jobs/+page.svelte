@@ -169,7 +169,7 @@
 			name: rulesEditorName.trim(),
 			enabled: rulesEditorEnabled,
 			priority: rulesEditorPriority,
-			match_conditions: rulesEditingIndex !== null && rules[rulesEditingIndex] ? rules[rulesEditingIndex].match_conditions : {},
+			expr: rulesEditingIndex !== null && rules[rulesEditingIndex] ? rules[rulesEditingIndex].expr : {},
 			actions: rulesEditingIndex !== null && rules[rulesEditingIndex] ? rules[rulesEditingIndex].actions : []
 		};
 		let updated: Rule[];
@@ -187,19 +187,17 @@
 	}
 
 	function formatConditions(rule: Rule): string[] {
-		const conditions: string[] = [];
-		const match = rule.match_conditions;
-		if (!match) return conditions;
-		for (const [key, value] of Object.entries(match)) {
-			if (Array.isArray(value) && value.length > 0) {
-				conditions.push(`${key}: ${value.join(', ')}`);
-			} else if (value && typeof value === 'object') {
-				conditions.push(`${key}: ${JSON.stringify(value)}`);
-			} else if (value) {
-				conditions.push(`${key}: ${value}`);
-			}
+		if (!rule.expr) return [];
+		if (typeof rule.expr === 'object') {
+			const entries = Object.entries(rule.expr as Record<string, unknown>);
+			return entries.map(([key, value]) => {
+				if (typeof value === 'object' && value !== null) {
+					return `${key}: ${JSON.stringify(value)}`;
+				}
+				return `${key}: ${value}`;
+			});
 		}
-		return conditions;
+		return [String(rule.expr)];
 	}
 
 	function formatAction(action: Record<string, unknown>): string {

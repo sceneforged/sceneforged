@@ -13,7 +13,7 @@ test.describe('Pagination', () => {
 		await api.overrideRoute('**/api/items?**', (route) => {
 			const url = new URL(route.request().url());
 			const libraryId = url.searchParams.get('library_id');
-			const pageNum = parseInt(url.searchParams.get('page') ?? '0');
+			const offset = parseInt(url.searchParams.get('offset') ?? '0');
 			const limit = parseInt(url.searchParams.get('limit') ?? '24');
 
 			let items = scenario.items;
@@ -21,7 +21,7 @@ test.describe('Pagination', () => {
 				items = items.filter((i) => i.library_id === libraryId);
 			}
 
-			const paged = items.slice(pageNum * limit, (pageNum + 1) * limit);
+			const paged = items.slice(offset, offset + limit);
 
 			return route.fulfill({
 				status: 200,
@@ -45,7 +45,7 @@ test.describe('Pagination', () => {
 		await api.overrideRoute('**/api/items?**', (route) => {
 			const url = new URL(route.request().url());
 			const libraryId = url.searchParams.get('library_id');
-			const pageNum = parseInt(url.searchParams.get('page') ?? '0');
+			const offset = parseInt(url.searchParams.get('offset') ?? '0');
 			const limit = parseInt(url.searchParams.get('limit') ?? '24');
 
 			let items = scenario.items;
@@ -53,7 +53,7 @@ test.describe('Pagination', () => {
 				items = items.filter((i) => i.library_id === libraryId);
 			}
 
-			const paged = items.slice(pageNum * limit, (pageNum + 1) * limit);
+			const paged = items.slice(offset, offset + limit);
 
 			return route.fulfill({
 				status: 200,

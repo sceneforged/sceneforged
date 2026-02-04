@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { getLibraries, createLibrary, deleteLibrary, scanLibrary } from '$lib/api/index.js';
+	import { eventsService } from '$lib/services/events.svelte.js';
 	import type { Library } from '$lib/types.js';
 	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -93,7 +94,6 @@
 			await scanLibrary(lib.id);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to start scan';
-		} finally {
 			scanningLibrary = null;
 		}
 	}
@@ -111,8 +111,23 @@
 		}
 	}
 
+	let unsubscribe: (() => void) | null = null;
+
 	onMount(() => {
 		loadLibraries();
+		unsubscribe = eventsService.subscribe('all', (event) => {
+			const { payload } = event;
+			if (payload.type === 'library_scan_complete') {
+				if (scanningLibrary === payload.library_id) {
+					scanningLibrary = null;
+				}
+				loadLibraries();
+			}
+		});
+	});
+
+	onDestroy(() => {
+		unsubscribe?.();
 	});
 </script>
 

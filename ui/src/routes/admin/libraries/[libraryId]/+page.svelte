@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { getLibrary, getItems, scanLibrary } from '$lib/api/index.js';
+	import { eventsService } from '$lib/services/events.svelte.js';
 	import type { Library, Item } from '$lib/types.js';
 	import { MediaGrid } from '$lib/components/media/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -29,8 +30,24 @@
 
 	const hasMore = $derived(items.length < totalCount);
 
-	onMount(async () => {
-		await loadLibraryAndItems();
+	let unsubscribe: (() => void) | null = null;
+
+	onMount(() => {
+		loadLibraryAndItems();
+		unsubscribe = eventsService.subscribe('all', (event) => {
+			const { payload } = event;
+			if (
+				payload.type === 'library_scan_complete' &&
+				payload.library_id === libraryId
+			) {
+				scanning = false;
+				loadLibraryAndItems();
+			}
+		});
+	});
+
+	onDestroy(() => {
+		unsubscribe?.();
 	});
 
 	async function loadLibraryAndItems() {
@@ -82,7 +99,6 @@
 			await scanLibrary(libraryId);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to start scan';
-		} finally {
 			scanning = false;
 		}
 	}

@@ -12,6 +12,13 @@ use crate::context::AppContext;
 use crate::error::AppError;
 
 /// GET /api/config/rules
+#[utoipa::path(
+    get,
+    path = "/api/config/rules",
+    responses(
+        (status = 200, description = "List processing rules", body = Vec<serde_json::Value>)
+    )
+)]
 pub async fn get_rules(State(ctx): State<AppContext>) -> Result<impl IntoResponse, AppError> {
     let rules = ctx.config_store.get_rules();
     // Use sf_rules helpers to keep serde monomorphization in sf-rules crate.
@@ -21,6 +28,14 @@ pub async fn get_rules(State(ctx): State<AppContext>) -> Result<impl IntoRespons
 }
 
 /// PUT /api/config/rules
+#[utoipa::path(
+    put,
+    path = "/api/config/rules",
+    request_body = Vec<serde_json::Value>,
+    responses(
+        (status = 200, description = "Rules updated", body = Vec<serde_json::Value>)
+    )
+)]
 pub async fn put_rules(
     State(ctx): State<AppContext>,
     body: String,

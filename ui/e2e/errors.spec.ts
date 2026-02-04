@@ -205,7 +205,7 @@ test.describe('Error & Failure Handling', () => {
 
 		// Should eventually show dashboard data after retry
 		await expect(
-			page.getByText(String(scenario.dashboard.total_libraries))
+			page.getByText(String(scenario.dashboard.jobs.total)).first()
 		).toBeVisible({ timeout: 15000 });
 	});
 

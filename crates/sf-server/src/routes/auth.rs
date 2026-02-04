@@ -12,14 +12,14 @@ use crate::error::AppError;
 use crate::middleware::auth::SESSION_COOKIE;
 
 /// Login request payload.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
 }
 
 /// Login/status response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct AuthResponse {
     pub success: bool,
     pub message: String,
@@ -27,7 +27,23 @@ pub struct AuthResponse {
     pub token: Option<String>,
 }
 
+/// Auth status response.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct AuthStatusResponse {
+    pub auth_enabled: bool,
+    pub authenticated: bool,
+}
+
 /// POST /api/auth/login
+#[utoipa::path(
+    post,
+    path = "/api/auth/login",
+    request_body = LoginRequest,
+    responses(
+        (status = 200, description = "Login successful", body = AuthResponse),
+        (status = 401, description = "Invalid credentials")
+    )
+)]
 pub async fn login(
     State(ctx): State<AppContext>,
     Json(payload): Json<LoginRequest>,
@@ -85,6 +101,13 @@ pub async fn login(
 }
 
 /// POST /api/auth/logout
+#[utoipa::path(
+    post,
+    path = "/api/auth/logout",
+    responses(
+        (status = 200, description = "Logged out")
+    )
+)]
 pub async fn logout(
     State(ctx): State<AppContext>,
     headers: axum::http::HeaderMap,
@@ -102,26 +125,33 @@ pub async fn logout(
 }
 
 /// GET /api/auth/status
+#[utoipa::path(
+    get,
+    path = "/api/auth/status",
+    responses(
+        (status = 200, description = "Auth status", body = AuthStatusResponse)
+    )
+)]
 pub async fn auth_status(
     State(ctx): State<AppContext>,
     headers: axum::http::HeaderMap,
-) -> impl IntoResponse {
+) -> Json<AuthStatusResponse> {
     let auth_config = &ctx.config.auth;
 
     if !auth_config.enabled {
-        return Json(serde_json::json!({
-            "auth_enabled": false,
-            "authenticated": true,
-        }));
+        return Json(AuthStatusResponse {
+            auth_enabled: false,
+            authenticated: true,
+        });
     }
 
     let authenticated = if let Some(token) = extract_token(&headers) {
         if let Some(ref api_key) = auth_config.api_key {
             if token == *api_key {
-                return Json(serde_json::json!({
-                    "auth_enabled": true,
-                    "authenticated": true,
-                }));
+                return Json(AuthStatusResponse {
+                    auth_enabled: true,
+                    authenticated: true,
+                });
             }
         }
 
@@ -137,10 +167,10 @@ pub async fn auth_status(
         false
     };
 
-    Json(serde_json::json!({
-        "auth_enabled": true,
-        "authenticated": authenticated,
-    }))
+    Json(AuthStatusResponse {
+        auth_enabled: true,
+        authenticated,
+    })
 }
 
 /// Extract a bearer token or session cookie from request headers.

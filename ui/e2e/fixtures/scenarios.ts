@@ -26,12 +26,8 @@ export function emptyState(): Scenario {
 		items: [],
 		jobs: { jobs: [], total: 0 },
 		dashboard: createDashboardStats({
-			total_libraries: 0,
-			total_items: 0,
-			total_jobs: 0,
-			active_jobs: 0,
-			completed_jobs: 0,
-			failed_jobs: 0
+			jobs: { total: 0, queued: 0, processing: 0 },
+			event_bus: { recent_events: 0 }
 		}),
 		rules: [],
 		tools: [createToolInfo({ name: 'ffmpeg', available: true })]
@@ -101,12 +97,8 @@ export function populatedState(): Scenario {
 		items,
 		jobs: { jobs: allJobs, total: allJobs.length },
 		dashboard: createDashboardStats({
-			total_libraries: 2,
-			total_items: items.length,
-			total_jobs: allJobs.length,
-			active_jobs: 1,
-			completed_jobs: 5,
-			failed_jobs: 1
+			jobs: { total: allJobs.length, queued: 1, processing: 1 },
+			event_bus: { recent_events: 10 }
 		}),
 		rules,
 		tools: [
@@ -140,7 +132,10 @@ export function paginatedState(): Scenario {
 		libraries: [lib],
 		items,
 		jobs: { jobs: [], total: 0 },
-		dashboard: createDashboardStats({ total_libraries: 1, total_items: 30 }),
+		dashboard: createDashboardStats({
+			jobs: { total: 0, queued: 0, processing: 0 },
+			event_bus: { recent_events: 0 }
+		}),
 		rules: [],
 		tools: [createToolInfo({ name: 'ffmpeg', available: true })]
 	};
@@ -153,12 +148,8 @@ export function authDisabledState(): Scenario {
 		items: [],
 		jobs: { jobs: [], total: 0 },
 		dashboard: createDashboardStats({
-			total_libraries: 0,
-			total_items: 0,
-			total_jobs: 0,
-			active_jobs: 0,
-			completed_jobs: 0,
-			failed_jobs: 0
+			jobs: { total: 0, queued: 0, processing: 0 },
+			event_bus: { recent_events: 0 }
 		}),
 		rules: [],
 		tools: [createToolInfo({ name: 'ffmpeg', available: true })]
@@ -185,7 +176,10 @@ export function noWebCompatibleState(): Scenario {
 		libraries: [lib],
 		items,
 		jobs: { jobs: [], total: 0 },
-		dashboard: createDashboardStats({ total_libraries: 1, total_items: 4 }),
+		dashboard: createDashboardStats({
+			jobs: { total: 0, queued: 0, processing: 0 },
+			event_bus: { recent_events: 0 }
+		}),
 		rules: [],
 		tools: [createToolInfo({ name: 'ffmpeg', available: true })]
 	};

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getDashboard } from '$lib/api/index.js';
-	import type { DashboardStats } from '$lib/types.js';
+	import { getDashboard, getTools, getLibraries } from '$lib/api/index.js';
+	import type { DashboardStats, ToolInfo } from '$lib/types.js';
 	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -19,11 +19,20 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let data = $state<DashboardStats | null>(null);
+	let tools = $state<ToolInfo[]>([]);
+	let libraryCount = $state(0);
 
 	async function loadData() {
 		try {
 			error = null;
-			data = await getDashboard();
+			const [dashboard, toolList, libs] = await Promise.all([
+				getDashboard(),
+				getTools(),
+				getLibraries()
+			]);
+			data = dashboard;
+			tools = toolList;
+			libraryCount = libs.length;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load dashboard';
 		} finally {
@@ -76,7 +85,7 @@
 							<Library class="h-6 w-6 text-primary" />
 						</div>
 						<div class="flex-1">
-							<p class="text-2xl font-bold">{data.total_libraries}</p>
+							<p class="text-2xl font-bold">{libraryCount}</p>
 							<p class="text-sm text-muted-foreground">Libraries</p>
 						</div>
 					</div>
@@ -90,8 +99,8 @@
 							<HardDrive class="h-6 w-6 text-primary" />
 						</div>
 						<div class="flex-1">
-							<p class="text-2xl font-bold">{data.total_items.toLocaleString()}</p>
-							<p class="text-sm text-muted-foreground">Total Items</p>
+							<p class="text-2xl font-bold">{data.jobs.total}</p>
+							<p class="text-sm text-muted-foreground">Total Jobs</p>
 						</div>
 					</div>
 				</CardContent>
@@ -104,8 +113,8 @@
 							<Activity class="h-6 w-6 text-primary" />
 						</div>
 						<div class="flex-1">
-							<p class="text-2xl font-bold">{data.active_jobs}</p>
-							<p class="text-sm text-muted-foreground">Active Jobs</p>
+							<p class="text-2xl font-bold">{data.jobs.queued}</p>
+							<p class="text-sm text-muted-foreground">Queued</p>
 						</div>
 					</div>
 				</CardContent>
@@ -118,8 +127,8 @@
 							<Activity class="h-6 w-6 text-primary" />
 						</div>
 						<div class="flex-1">
-							<p class="text-2xl font-bold">{data.completed_jobs}</p>
-							<p class="text-sm text-muted-foreground">Completed Jobs</p>
+							<p class="text-2xl font-bold">{data.jobs.processing}</p>
+							<p class="text-sm text-muted-foreground">Processing</p>
 						</div>
 					</div>
 				</CardContent>
@@ -135,36 +144,32 @@
 				</CardTitle>
 			</CardHeader>
 			<CardContent>
-				<div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+				<div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
 					<div class="text-center">
-						<p class="text-2xl font-bold">{data.total_jobs}</p>
+						<p class="text-2xl font-bold">{data.jobs.total}</p>
 						<p class="text-sm text-muted-foreground">Total</p>
 					</div>
 					<div class="text-center">
-						<p class="text-2xl font-bold text-blue-500">{data.active_jobs}</p>
-						<p class="text-sm text-muted-foreground">Active</p>
+						<p class="text-2xl font-bold text-blue-500">{data.jobs.queued}</p>
+						<p class="text-sm text-muted-foreground">Queued</p>
 					</div>
 					<div class="text-center">
-						<p class="text-2xl font-bold text-green-500">{data.completed_jobs}</p>
-						<p class="text-sm text-muted-foreground">Completed</p>
-					</div>
-					<div class="text-center">
-						<p class="text-2xl font-bold text-destructive">{data.failed_jobs}</p>
-						<p class="text-sm text-muted-foreground">Failed</p>
+						<p class="text-2xl font-bold text-yellow-500">{data.jobs.processing}</p>
+						<p class="text-sm text-muted-foreground">Processing</p>
 					</div>
 				</div>
 			</CardContent>
 		</Card>
 
 		<!-- Tools Status -->
-		{#if data.tools.length > 0}
+		{#if tools.length > 0}
 			<Card>
 				<CardHeader>
 					<CardTitle>External Tools</CardTitle>
 				</CardHeader>
 				<CardContent>
 					<div class="flex flex-wrap gap-2">
-						{#each data.tools as tool}
+						{#each tools as tool}
 							<Badge
 								variant={tool.available ? 'default' : 'destructive'}
 								class={tool.available ? 'bg-green-500' : ''}

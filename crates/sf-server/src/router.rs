@@ -9,11 +9,53 @@ use axum::Router;
 use std::path::PathBuf;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 use crate::context::AppContext;
 use crate::middleware::auth::auth_middleware;
 use crate::middleware::request_id::request_id_middleware;
 use crate::routes;
+
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        routes::auth::login,
+        routes::auth::logout,
+        routes::auth::auth_status,
+        routes::libraries::list_libraries,
+        routes::libraries::create_library,
+        routes::libraries::get_library,
+        routes::libraries::delete_library,
+        routes::libraries::scan_library,
+        routes::items::list_items,
+        routes::items::get_item,
+        routes::jobs::list_jobs,
+        routes::jobs::submit_job,
+        routes::jobs::get_job,
+        routes::jobs::retry_job,
+        routes::jobs::delete_job,
+        routes::config::get_rules,
+        routes::config::put_rules,
+        routes::admin::dashboard,
+        routes::admin::tools,
+    ),
+    components(schemas(
+        routes::auth::LoginRequest,
+        routes::auth::AuthResponse,
+        routes::auth::AuthStatusResponse,
+        routes::libraries::LibraryResponse,
+        routes::libraries::CreateLibraryRequest,
+        routes::items::ItemResponse,
+        routes::jobs::JobResponse,
+        routes::jobs::SubmitJobRequest,
+        routes::admin::DashboardResponse,
+        routes::admin::DashboardJobs,
+        routes::admin::DashboardEventBus,
+        sf_av::ToolInfo,
+    ))
+)]
+struct ApiDoc;
 
 /// Build the complete Axum router.
 pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
@@ -85,6 +127,7 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
     let mut app = Router::new()
         .route("/health", get(routes::health::health_check))
         .nest("/api", api)
+        .merge(SwaggerUi::new("/api-docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .route(
             "/webhook/{arr_name}",
             post(routes::webhook::handle_webhook),

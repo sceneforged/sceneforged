@@ -86,7 +86,7 @@ export interface Rule {
 	name: string;
 	enabled: boolean;
 	priority: number;
-	match_conditions: Record<string, unknown>;
+	expr: unknown;
 	actions: ActionConfig[];
 }
 
@@ -97,13 +97,8 @@ export interface ActionConfig {
 
 // Dashboard statistics
 export interface DashboardStats {
-	total_libraries: number;
-	total_items: number;
-	total_jobs: number;
-	active_jobs: number;
-	completed_jobs: number;
-	failed_jobs: number;
-	tools: ToolInfo[];
+	jobs: { total: number; queued: number; processing: number };
+	event_bus: { recent_events: number };
 }
 
 // External tool availability
@@ -130,8 +125,8 @@ export type EventPayload =
 	| { type: 'job_completed'; job: Job }
 	| { type: 'job_failed'; job_id: string; error: string }
 	| { type: 'library_scan_started'; library_id: string }
-	| { type: 'library_scan_progress'; library_id: string; files_found: number; files_processed: number }
-	| { type: 'library_scan_complete'; library_id: string; items_added: number }
+	| { type: 'library_scan_progress'; library_id: string; files_found: number; files_queued: number }
+	| { type: 'library_scan_complete'; library_id: string; files_found: number; files_queued: number; files_skipped: number; errors: number }
 	| { type: 'library_created'; library: Library }
 	| { type: 'library_deleted'; library_id: string }
 	| { type: 'item_added'; item: Item }

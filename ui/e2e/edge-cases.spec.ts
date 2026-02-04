@@ -27,7 +27,7 @@ test.describe('Edge Cases', () => {
 			libraries,
 			items: [],
 			jobs: { jobs: [], total: 0 },
-			dashboard: createDashboardStats({ total_libraries: 20 }),
+			dashboard: createDashboardStats(),
 			rules: [],
 			tools: [createToolInfo()]
 		};
@@ -62,12 +62,8 @@ test.describe('Edge Cases', () => {
 		const api = new MockApi(page);
 		const scenario = emptyState();
 		scenario.dashboard = createDashboardStats({
-			total_libraries: 0,
-			total_items: 0,
-			total_jobs: 0,
-			active_jobs: 0,
-			completed_jobs: 0,
-			failed_jobs: 0
+			jobs: { total: 0, queued: 0, processing: 0 },
+			event_bus: { recent_events: 0 }
 		});
 		await api.setup(scenario);
 
@@ -78,7 +74,7 @@ test.describe('Edge Cases', () => {
 
 		// Key labels from stat cards should be visible
 		await expect(page.getByText('Libraries').first()).toBeVisible();
-		await expect(page.getByText('Total Items')).toBeVisible();
+		await expect(page.getByText('Total Jobs')).toBeVisible();
 	});
 
 	test('item with no media files shows no badges', async ({ page }) => {

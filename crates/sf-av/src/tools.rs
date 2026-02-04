@@ -72,7 +72,7 @@ mod duration_secs {
 }
 
 /// Availability information for a tool, returned by [`ToolRegistry::check_all`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ToolInfo {
     /// Tool name.
     pub name: String,
@@ -81,6 +81,7 @@ pub struct ToolInfo {
     /// Version string (first line of `--version` output), if available.
     pub version: Option<String>,
     /// Resolved path to the executable.
+    #[schema(value_type = Option<String>)]
     pub path: Option<PathBuf>,
 }
 

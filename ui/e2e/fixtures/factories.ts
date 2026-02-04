@@ -123,7 +123,7 @@ export function createRule(overrides: Partial<Rule> = {}): Rule {
 		name: `Rule ${id}`,
 		enabled: true,
 		priority: 1,
-		match_conditions: {},
+		expr: {},
 		actions: [{ type: 'transcode' } as ActionConfig],
 		...overrides
 	};
@@ -141,17 +141,8 @@ export function createToolInfo(overrides: Partial<ToolInfo> = {}): ToolInfo {
 
 export function createDashboardStats(overrides: Partial<DashboardStats> = {}): DashboardStats {
 	return {
-		total_libraries: 2,
-		total_items: 50,
-		total_jobs: 100,
-		active_jobs: 1,
-		completed_jobs: 95,
-		failed_jobs: 4,
-		tools: [
-			createToolInfo({ name: 'ffmpeg', available: true }),
-			createToolInfo({ name: 'ffprobe', available: true }),
-			createToolInfo({ name: 'mp4box', available: false, version: undefined, path: undefined })
-		],
+		jobs: { total: 100, queued: 1, processing: 1 },
+		event_bus: { recent_events: 10 },
 		...overrides
 	};
 }

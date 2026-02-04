@@ -4,13 +4,13 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::context::AppContext;
 use crate::error::AppError;
 
 /// Query parameters for listing jobs.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
 pub struct ListJobsParams {
     pub status: Option<String>,
     #[serde(default)]
@@ -24,7 +24,7 @@ fn default_limit() -> i64 {
 }
 
 /// Request body for submitting a new job.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct SubmitJobRequest {
     pub file_path: String,
     #[serde(default)]
@@ -32,32 +32,61 @@ pub struct SubmitJobRequest {
     pub source: Option<String>,
 }
 
-/// Convert a db Job model to a JSON value.
-fn job_to_json(job: &sf_db::models::Job) -> serde_json::Value {
-    serde_json::json!({
-        "id": job.id.to_string(),
-        "file_path": job.file_path,
-        "file_name": job.file_name,
-        "status": job.status,
-        "rule_name": job.rule_name,
-        "progress": job.progress,
-        "current_step": job.current_step,
-        "error": job.error,
-        "source": job.source,
-        "retry_count": job.retry_count,
-        "max_retries": job.max_retries,
-        "priority": job.priority,
-        "created_at": job.created_at,
-        "started_at": job.started_at,
-        "completed_at": job.completed_at,
-    })
+/// Job response.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct JobResponse {
+    pub id: String,
+    pub file_path: String,
+    pub file_name: String,
+    pub status: String,
+    pub rule_name: Option<String>,
+    pub progress: f64,
+    pub current_step: Option<String>,
+    pub error: Option<String>,
+    pub source: Option<String>,
+    pub retry_count: i32,
+    pub max_retries: i32,
+    pub priority: i32,
+    pub created_at: String,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+}
+
+impl JobResponse {
+    fn from_model(job: &sf_db::models::Job) -> Self {
+        Self {
+            id: job.id.to_string(),
+            file_path: job.file_path.clone(),
+            file_name: job.file_name.clone(),
+            status: job.status.clone(),
+            rule_name: job.rule_name.clone(),
+            progress: job.progress,
+            current_step: job.current_step.clone(),
+            error: job.error.clone(),
+            source: job.source.clone(),
+            retry_count: job.retry_count,
+            max_retries: job.max_retries,
+            priority: job.priority,
+            created_at: job.created_at.clone(),
+            started_at: job.started_at.clone(),
+            completed_at: job.completed_at.clone(),
+        }
+    }
 }
 
 /// GET /api/jobs
+#[utoipa::path(
+    get,
+    path = "/api/jobs",
+    params(ListJobsParams),
+    responses(
+        (status = 200, description = "List jobs", body = Vec<JobResponse>)
+    )
+)]
 pub async fn list_jobs(
     State(ctx): State<AppContext>,
     Query(params): Query<ListJobsParams>,
-) -> Result<impl IntoResponse, AppError> {
+) -> Result<Json<Vec<JobResponse>>, AppError> {
     let conn = sf_db::pool::get_conn(&ctx.db)?;
     let jobs = sf_db::queries::jobs::list_jobs(
         &conn,
@@ -65,11 +94,19 @@ pub async fn list_jobs(
         params.offset,
         params.limit,
     )?;
-    let json: Vec<serde_json::Value> = jobs.iter().map(job_to_json).collect();
-    Ok(Json(json))
+    let responses: Vec<JobResponse> = jobs.iter().map(JobResponse::from_model).collect();
+    Ok(Json(responses))
 }
 
 /// POST /api/jobs/submit
+#[utoipa::path(
+    post,
+    path = "/api/jobs/submit",
+    request_body = SubmitJobRequest,
+    responses(
+        (status = 201, description = "Job submitted", body = JobResponse)
+    )
+)]
 pub async fn submit_job(
     State(ctx): State<AppContext>,
     Json(payload): Json<SubmitJobRequest>,
@@ -98,14 +135,23 @@ pub async fn submit_job(
         sf_core::events::EventPayload::JobQueued { job_id: job.id },
     );
 
-    Ok((StatusCode::CREATED, Json(job_to_json(&job))))
+    Ok((StatusCode::CREATED, Json(JobResponse::from_model(&job))))
 }
 
 /// GET /api/jobs/:id
+#[utoipa::path(
+    get,
+    path = "/api/jobs/{id}",
+    params(("id" = String, Path, description = "Job ID")),
+    responses(
+        (status = 200, description = "Job details", body = JobResponse),
+        (status = 404, description = "Job not found")
+    )
+)]
 pub async fn get_job(
     State(ctx): State<AppContext>,
     Path(id): Path<String>,
-) -> Result<impl IntoResponse, AppError> {
+) -> Result<Json<JobResponse>, AppError> {
     let job_id: sf_core::JobId = id
         .parse()
         .map_err(|_| sf_core::Error::Validation("Invalid job ID".into()))?;
@@ -114,10 +160,18 @@ pub async fn get_job(
     let job = sf_db::queries::jobs::get_job(&conn, job_id)?
         .ok_or_else(|| sf_core::Error::not_found("job", job_id))?;
 
-    Ok(Json(job_to_json(&job)))
+    Ok(Json(JobResponse::from_model(&job)))
 }
 
 /// POST /api/jobs/:id/retry
+#[utoipa::path(
+    post,
+    path = "/api/jobs/{id}/retry",
+    params(("id" = String, Path, description = "Job ID")),
+    responses(
+        (status = 200, description = "Job retried")
+    )
+)]
 pub async fn retry_job(
     State(ctx): State<AppContext>,
     Path(id): Path<String>,
@@ -145,6 +199,14 @@ pub async fn retry_job(
 }
 
 /// DELETE /api/jobs/:id
+#[utoipa::path(
+    delete,
+    path = "/api/jobs/{id}",
+    params(("id" = String, Path, description = "Job ID")),
+    responses(
+        (status = 204, description = "Job deleted")
+    )
+)]
 pub async fn delete_job(
     State(ctx): State<AppContext>,
     Path(id): Path<String>,
