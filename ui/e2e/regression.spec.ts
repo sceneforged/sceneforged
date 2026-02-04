@@ -49,6 +49,57 @@ test.describe('Regression Guards', () => {
 		await expect(page.getByText('Movie 1')).toBeVisible();
 	});
 
+	test('getJobs handles plain array API response', async ({ page }) => {
+		const api = new MockApi(page);
+		const scenario = populatedState();
+		await api.setup(scenario);
+
+		// Override jobs endpoint to return a plain array (no {jobs, total} wrapper)
+		const plainJobs = scenario.jobs.jobs;
+		await api.overrideRoute('**/api/jobs?**', (route) =>
+			route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify(plainJobs)
+			})
+		);
+		await api.overrideRoute('**/api/jobs', (route) => {
+			if (route.request().method() === 'GET') {
+				return route.fulfill({
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify(plainJobs)
+				});
+			}
+			return route.fulfill({ status: 200, body: '{}' });
+		});
+
+		await page.goto('/admin/jobs');
+
+		// Should still render jobs despite receiving array instead of {jobs, total}
+		await expect(page.getByText('completed-1.mkv')).toBeVisible();
+	});
+
+	test('rules page sort does not trigger state_unsafe_mutation', async ({ page }) => {
+		const api = new MockApi(page);
+		const scenario = populatedState();
+		await api.setup(scenario);
+
+		// Listen for page errors (state_unsafe_mutation throws at runtime)
+		const errors: string[] = [];
+		page.on('pageerror', (err) => errors.push(err.message));
+
+		await page.goto('/rules');
+
+		// Rules should load and render (would hang on "Loading rules..." if sort mutates state)
+		await expect(page.getByText('Transcode 4K')).toBeVisible({ timeout: 10000 });
+		await expect(page.getByText('Extract Subtitles')).toBeVisible();
+
+		// No state_unsafe_mutation error should have occurred
+		const mutationErrors = errors.filter((e) => e.includes('state_unsafe_mutation'));
+		expect(mutationErrors).toHaveLength(0);
+	});
+
 	test('normalizeItem handles null media_files', async ({ page }) => {
 		const api = new MockApi(page);
 		const scenario = populatedState();
