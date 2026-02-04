@@ -3,8 +3,8 @@
 	import { getTools } from '$lib/api/index.js';
 	import type { ToolInfo } from '$lib/types.js';
 	import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '$lib/components/ui/card/index.js';
-	import Badge from '$lib/components/ui/badge/Badge.svelte';
-	import Button from '$lib/components/ui/button/Button.svelte';
+	import { Badge } from '$lib/components/ui/badge/index.js';
+	import { Button } from '$lib/components/ui/button/index.js';
 	import {
 		Settings,
 		RefreshCw,
@@ -15,7 +15,7 @@
 		Film,
 		HardDrive,
 		FolderOpen
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 
 	let tools = $state<ToolInfo[]>([]);
 	let loading = $state(true);
@@ -83,7 +83,7 @@
 				</div>
 				<div>
 					<p class="font-medium">Running</p>
-					<p class="text-sm text-muted">Server is operational</p>
+					<p class="text-sm text-muted-foreground">Server is operational</p>
 				</div>
 			</div>
 		</CardContent>
@@ -100,7 +100,7 @@
 		</CardHeader>
 		<CardContent>
 			{#if tools.length === 0 && !loading}
-				<p class="py-4 text-center text-muted">No tools detected</p>
+				<p class="py-4 text-center text-muted-foreground">No tools detected</p>
 			{:else}
 				<div class="space-y-3">
 					{#each tools as tool}
@@ -119,7 +119,7 @@
 								<div>
 									<p class="font-medium">{tool.name}</p>
 									{#if tool.version}
-										<p class="text-xs text-muted">{tool.version}</p>
+										<p class="text-xs text-muted-foreground">{tool.version}</p>
 									{/if}
 								</div>
 							</div>

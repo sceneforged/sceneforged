@@ -1,8 +1,8 @@
 <script lang="ts">
 	import type { Item } from '$lib/types';
 	import { cn } from '$lib/utils';
-	import { Film, Tv, Music, FolderOpen, Star, Clock, Play } from 'lucide-svelte';
-	import Badge from '$lib/components/ui/badge/Badge.svelte';
+	import { Film, Tv, Music, FolderOpen, Star, Clock, Play } from '@lucide/svelte';
+	import { Badge } from '$lib/components/ui/badge/index.js';
 	import ProgressiveImage from './ProgressiveImage.svelte';
 	import { goto } from '$app/navigation';
 
@@ -131,7 +131,7 @@
 				class="absolute inset-0 h-full w-full"
 			/>
 		{:else}
-			<Icon class="w-16 h-16 text-muted/30" />
+			<Icon class="w-16 h-16 text-muted-foreground/30" />
 		{/if}
 
 		<!-- Play overlay on hover (only show if web-playable) -->
@@ -195,7 +195,7 @@
 			{item.name}
 		</button>
 
-		<div class="mt-auto flex items-center gap-2 text-xs text-muted">
+		<div class="mt-auto flex items-center gap-2 text-xs text-muted-foreground">
 			{#if item.year}
 				<span>{item.year}</span>
 			{/if}

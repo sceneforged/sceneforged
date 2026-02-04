@@ -5,14 +5,14 @@
 	import { getLibrary, getItems, scanLibrary } from '$lib/api/index.js';
 	import type { Library, Item } from '$lib/types.js';
 	import { MediaGrid } from '$lib/components/media/index.js';
-	import Badge from '$lib/components/ui/badge/Badge.svelte';
-	import Button from '$lib/components/ui/button/Button.svelte';
+	import { Badge } from '$lib/components/ui/badge/index.js';
+	import { Button } from '$lib/components/ui/button/index.js';
 	import {
 		ArrowLeft,
 		Library as LibraryIcon,
 		Loader2,
 		RefreshCw
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 
 	const libraryId = $derived(page.params.libraryId ?? '');
 
@@ -106,7 +106,7 @@
 			<div>
 				<h1 class="text-2xl font-bold">{library?.name ?? 'Library'}</h1>
 				{#if !loading && totalCount > 0}
-					<p class="text-sm text-muted">
+					<p class="text-sm text-muted-foreground">
 						{totalCount} item{totalCount !== 1 ? 's' : ''}
 					</p>
 				{/if}
@@ -134,7 +134,7 @@
 
 	<!-- Library config -->
 	{#if library}
-		<div class="text-sm text-muted">
+		<div class="text-sm text-muted-foreground">
 			<span class="font-medium">Paths:</span>
 			{#each library.paths as path}
 				<code class="ml-2 rounded bg-muted px-2 py-1 text-xs">{path}</code>
@@ -145,7 +145,7 @@
 	<!-- Content -->
 	{#if loading && items.length === 0}
 		<div class="flex items-center justify-center py-20">
-			<Loader2 class="h-8 w-8 animate-spin text-muted" />
+			<Loader2 class="h-8 w-8 animate-spin text-muted-foreground" />
 		</div>
 	{:else if error}
 		<div class="py-20 text-center">
@@ -154,9 +154,9 @@
 		</div>
 	{:else if items.length === 0}
 		<div class="py-20 text-center">
-			<LibraryIcon class="mx-auto mb-4 h-16 w-16 text-muted/30" />
-			<h2 class="text-lg font-medium text-muted">No items found</h2>
-			<p class="mt-1 text-sm text-muted">This library is empty. Click Scan to discover media files.</p>
+			<LibraryIcon class="mx-auto mb-4 h-16 w-16 text-muted-foreground/30" />
+			<h2 class="text-lg font-medium text-muted-foreground">No items found</h2>
+			<p class="mt-1 text-sm text-muted-foreground">This library is empty. Click Scan to discover media files.</p>
 		</div>
 	{:else}
 		<MediaGrid {items} libraryId={libraryId} />
@@ -172,7 +172,7 @@
 			</div>
 		{/if}
 
-		<div class="mt-4 text-center text-sm text-muted">
+		<div class="mt-4 text-center text-sm text-muted-foreground">
 			Showing {items.length} of {totalCount} item{totalCount !== 1 ? 's' : ''}
 		</div>
 	{/if}

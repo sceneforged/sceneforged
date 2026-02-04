@@ -4,8 +4,8 @@
 	import { page } from '$app/state';
 	import { getItem } from '$lib/api/index.js';
 	import type { Item } from '$lib/types.js';
-	import Button from '$lib/components/ui/button/Button.svelte';
-	import Badge from '$lib/components/ui/badge/Badge.svelte';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { Badge } from '$lib/components/ui/badge/index.js';
 	import ProgressiveImage from '$lib/components/media/ProgressiveImage.svelte';
 	import {
 		ArrowLeft,
@@ -19,7 +19,7 @@
 		Loader2,
 		AlertCircle,
 		HardDrive
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 
 	const libraryId = $derived(page.params.libraryId);
 	const itemId = $derived(page.params.itemId);
@@ -127,7 +127,7 @@
 
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
-			<Loader2 class="h-8 w-8 animate-spin text-muted" />
+			<Loader2 class="h-8 w-8 animate-spin text-muted-foreground" />
 		</div>
 	{:else if error || !item}
 		<div class="py-20 text-center">
@@ -152,7 +152,7 @@
 							class="h-full w-full"
 						/>
 					{:else}
-						<ItemIcon class="h-24 w-24 text-muted/30" />
+						<ItemIcon class="h-24 w-24 text-muted-foreground/30" />
 					{/if}
 				</div>
 
@@ -173,7 +173,7 @@
 							<AlertCircle class="mr-2 h-6 w-6" />
 							Needs Conversion
 						</Button>
-						<p class="text-center text-sm text-muted">
+						<p class="text-center text-sm text-muted-foreground">
 							This item is not yet available for playback.
 						</p>
 					{/if}
@@ -214,7 +214,7 @@
 				{#if item.overview}
 					<div class="mb-6">
 						<h2 class="mb-2 text-lg font-semibold">Overview</h2>
-						<p class="leading-relaxed text-muted">{item.overview}</p>
+						<p class="leading-relaxed text-muted-foreground">{item.overview}</p>
 					</div>
 				{/if}
 
@@ -226,10 +226,10 @@
 							{#each item.media_files as file}
 								<div class="flex items-center justify-between rounded-lg border p-3">
 									<div class="flex items-center gap-3">
-										<HardDrive class="h-4 w-4 text-muted" />
+										<HardDrive class="h-4 w-4 text-muted-foreground" />
 										<div>
 											<p class="text-sm font-medium">{file.file_name}</p>
-											<div class="flex items-center gap-2 text-xs text-muted">
+											<div class="flex items-center gap-2 text-xs text-muted-foreground">
 												{#if file.video_codec}
 													<span class="uppercase">{file.video_codec}</span>
 												{/if}
@@ -266,7 +266,7 @@
 				{#if item.item_kind === 'episode' && (item.season_number != null || item.episode_number != null)}
 					<div class="mb-6">
 						<h2 class="mb-2 text-lg font-semibold">Episode Info</h2>
-						<div class="text-muted">
+						<div class="text-muted-foreground">
 							{#if item.season_number != null}
 								<span>Season {item.season_number}</span>
 							{/if}

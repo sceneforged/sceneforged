@@ -5,10 +5,10 @@
 	import { getLibrary, getItems } from '$lib/api/index.js';
 	import type { Library, Item } from '$lib/types.js';
 	import { MediaGrid } from '$lib/components/media/index.js';
-	import Button from '$lib/components/ui/button/Button.svelte';
-	import Input from '$lib/components/ui/input/Input.svelte';
-	import Skeleton from '$lib/components/ui/skeleton/Skeleton.svelte';
-	import { Search, Library as LibraryIcon, Loader2, ArrowLeft } from 'lucide-svelte';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { Input } from '$lib/components/ui/input/index.js';
+	import { Skeleton } from '$lib/components/ui/skeleton/index.js';
+	import { Search, Library as LibraryIcon, Loader2, ArrowLeft } from '@lucide/svelte';
 
 	const libraryId = $derived(page.params.libraryId ?? '');
 
@@ -134,7 +134,7 @@
 			<div>
 				<h1 class="text-2xl font-bold">{library?.name ?? 'Browse'}</h1>
 				{#if !loading && totalCount > 0}
-					<p class="text-sm text-muted">
+					<p class="text-sm text-muted-foreground">
 						{totalCount} item{totalCount !== 1 ? 's' : ''}
 					</p>
 				{/if}
@@ -143,7 +143,7 @@
 
 		<!-- Search -->
 		<div class="relative w-full sm:w-64">
-			<Search class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+			<Search class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 			<Input type="search" placeholder="Search..." class="pl-9" bind:value={searchQuery} />
 		</div>
 	</div>
@@ -164,9 +164,9 @@
 		</div>
 	{:else if items.length === 0}
 		<div class="py-20 text-center">
-			<LibraryIcon class="mx-auto mb-4 h-16 w-16 text-muted/30" />
-			<h2 class="text-lg font-medium text-muted">No items found</h2>
-			<p class="mt-1 text-sm text-muted">
+			<LibraryIcon class="mx-auto mb-4 h-16 w-16 text-muted-foreground/30" />
+			<h2 class="text-lg font-medium text-muted-foreground">No items found</h2>
+			<p class="mt-1 text-sm text-muted-foreground">
 				{searchQuery ? 'Try a different search term' : 'This library is empty'}
 			</p>
 		</div>
@@ -184,7 +184,7 @@
 			</div>
 		{/if}
 
-		<div class="mt-4 text-center text-sm text-muted">
+		<div class="mt-4 text-center text-sm text-muted-foreground">
 			Showing {items.length} of {totalCount} item{totalCount !== 1 ? 's' : ''}
 		</div>
 	{/if}

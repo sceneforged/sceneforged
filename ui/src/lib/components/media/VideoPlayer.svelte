@@ -10,7 +10,7 @@
 		Minimize,
 		SkipBack,
 		SkipForward
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 
 	interface Props {
 		src: string;

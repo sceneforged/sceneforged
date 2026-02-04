@@ -1,48 +1,82 @@
-<script lang="ts">
-	import { cn } from '$lib/utils';
-	import type { Snippet } from 'svelte';
-	import type { HTMLButtonAttributes } from 'svelte/elements';
+<script lang="ts" module>
+	import { cn, type WithElementRef } from "$lib/utils.js";
+	import type { HTMLAnchorAttributes, HTMLButtonAttributes } from "svelte/elements";
+	import { type VariantProps, tv } from "tailwind-variants";
 
-	type Variant = 'default' | 'destructive' | 'outline' | 'secondary' | 'ghost' | 'link';
-	type Size = 'default' | 'sm' | 'lg' | 'icon';
+	export const buttonVariants = tv({
+		base: "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+		variants: {
+			variant: {
+				default: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-xs",
+				destructive:
+					"bg-destructive hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60 text-white shadow-xs",
+				outline:
+					"bg-background hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 border shadow-xs",
+				secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80 shadow-xs",
+				ghost: "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
+				link: "text-primary underline-offset-4 hover:underline",
+			},
+			size: {
+				default: "h-9 px-4 py-2 has-[>svg]:px-3",
+				sm: "h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5",
+				lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
+				icon: "size-9",
+				"icon-sm": "size-8",
+				"icon-lg": "size-10",
+			},
+		},
+		defaultVariants: {
+			variant: "default",
+			size: "default",
+		},
+	});
 
-	interface Props extends HTMLButtonAttributes {
-		variant?: Variant;
-		size?: Size;
-		children?: Snippet;
-		class?: string;
-	}
+	export type ButtonVariant = VariantProps<typeof buttonVariants>["variant"];
+	export type ButtonSize = VariantProps<typeof buttonVariants>["size"];
 
-	let { variant = 'default', size = 'default', children, class: className, ...restProps }: Props =
-		$props();
-
-	const variantClasses: Record<Variant, string> = {
-		default: 'bg-primary text-white hover:bg-primary/90',
-		destructive: 'bg-destructive text-white hover:bg-destructive/90',
-		outline: 'border border-input bg-background hover:bg-accent hover:text-foreground',
-		secondary: 'bg-secondary text-foreground hover:bg-secondary/80',
-		ghost: 'hover:bg-accent hover:text-foreground',
-		link: 'text-primary underline-offset-4 hover:underline'
-	};
-
-	const sizeClasses: Record<Size, string> = {
-		default: 'h-10 px-4 py-2',
-		sm: 'h-9 rounded-md px-3',
-		lg: 'h-11 rounded-md px-8',
-		icon: 'h-10 w-10'
-	};
+	export type ButtonProps = WithElementRef<HTMLButtonAttributes> &
+		WithElementRef<HTMLAnchorAttributes> & {
+			variant?: ButtonVariant;
+			size?: ButtonSize;
+		};
 </script>
 
-<button
-	class={cn(
-		'inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
-		variantClasses[variant],
-		sizeClasses[size],
-		className
-	)}
-	{...restProps}
->
-	{#if children}
-		{@render children()}
-	{/if}
-</button>
+<script lang="ts">
+	let {
+		class: className,
+		variant = "default",
+		size = "default",
+		ref = $bindable(null),
+		href = undefined,
+		type = "button",
+		disabled,
+		children,
+		...restProps
+	}: ButtonProps = $props();
+</script>
+
+{#if href}
+	<a
+		bind:this={ref}
+		data-slot="button"
+		class={cn(buttonVariants({ variant, size }), className)}
+		href={disabled ? undefined : href}
+		aria-disabled={disabled}
+		role={disabled ? "link" : undefined}
+		tabindex={disabled ? -1 : undefined}
+		{...restProps}
+	>
+		{@render children?.()}
+	</a>
+{:else}
+	<button
+		bind:this={ref}
+		data-slot="button"
+		class={cn(buttonVariants({ variant, size }), className)}
+		{type}
+		{disabled}
+		{...restProps}
+	>
+		{@render children?.()}
+	</button>
+{/if}

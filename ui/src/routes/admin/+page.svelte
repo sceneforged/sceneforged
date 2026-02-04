@@ -3,8 +3,8 @@
 	import { getDashboard } from '$lib/api/index.js';
 	import type { DashboardStats } from '$lib/types.js';
 	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card/index.js';
-	import Badge from '$lib/components/ui/badge/Badge.svelte';
-	import Button from '$lib/components/ui/button/Button.svelte';
+	import { Badge } from '$lib/components/ui/badge/index.js';
+	import { Button } from '$lib/components/ui/button/index.js';
 	import { jobsStore } from '$lib/stores/jobs.svelte.js';
 	import {
 		Library,
@@ -14,7 +14,7 @@
 		FolderOpen,
 		Briefcase,
 		Settings
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 
 	let loading = $state(true);
 	let error = $state<string | null>(null);
@@ -64,7 +64,7 @@
 
 	{#if loading && !data}
 		<div class="flex items-center justify-center py-20">
-			<RefreshCw class="h-8 w-8 animate-spin text-muted" />
+			<RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
 		</div>
 	{:else if data}
 		<!-- Stats Cards -->
@@ -77,7 +77,7 @@
 						</div>
 						<div class="flex-1">
 							<p class="text-2xl font-bold">{data.total_libraries}</p>
-							<p class="text-sm text-muted">Libraries</p>
+							<p class="text-sm text-muted-foreground">Libraries</p>
 						</div>
 					</div>
 				</CardContent>
@@ -91,7 +91,7 @@
 						</div>
 						<div class="flex-1">
 							<p class="text-2xl font-bold">{data.total_items.toLocaleString()}</p>
-							<p class="text-sm text-muted">Total Items</p>
+							<p class="text-sm text-muted-foreground">Total Items</p>
 						</div>
 					</div>
 				</CardContent>
@@ -105,7 +105,7 @@
 						</div>
 						<div class="flex-1">
 							<p class="text-2xl font-bold">{data.active_jobs}</p>
-							<p class="text-sm text-muted">Active Jobs</p>
+							<p class="text-sm text-muted-foreground">Active Jobs</p>
 						</div>
 					</div>
 				</CardContent>
@@ -119,7 +119,7 @@
 						</div>
 						<div class="flex-1">
 							<p class="text-2xl font-bold">{data.completed_jobs}</p>
-							<p class="text-sm text-muted">Completed Jobs</p>
+							<p class="text-sm text-muted-foreground">Completed Jobs</p>
 						</div>
 					</div>
 				</CardContent>
@@ -138,19 +138,19 @@
 				<div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
 					<div class="text-center">
 						<p class="text-2xl font-bold">{data.total_jobs}</p>
-						<p class="text-sm text-muted">Total</p>
+						<p class="text-sm text-muted-foreground">Total</p>
 					</div>
 					<div class="text-center">
 						<p class="text-2xl font-bold text-blue-500">{data.active_jobs}</p>
-						<p class="text-sm text-muted">Active</p>
+						<p class="text-sm text-muted-foreground">Active</p>
 					</div>
 					<div class="text-center">
 						<p class="text-2xl font-bold text-green-500">{data.completed_jobs}</p>
-						<p class="text-sm text-muted">Completed</p>
+						<p class="text-sm text-muted-foreground">Completed</p>
 					</div>
 					<div class="text-center">
 						<p class="text-2xl font-bold text-destructive">{data.failed_jobs}</p>
-						<p class="text-sm text-muted">Failed</p>
+						<p class="text-sm text-muted-foreground">Failed</p>
 					</div>
 				</div>
 			</CardContent>

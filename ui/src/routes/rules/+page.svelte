@@ -3,9 +3,9 @@
 	import { getConfigRules, updateConfigRules } from '$lib/api/index.js';
 	import type { Rule } from '$lib/types.js';
 	import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '$lib/components/ui/card/index.js';
-	import Badge from '$lib/components/ui/badge/Badge.svelte';
-	import Button from '$lib/components/ui/button/Button.svelte';
-	import Input from '$lib/components/ui/input/Input.svelte';
+	import { Badge } from '$lib/components/ui/badge/index.js';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { Input } from '$lib/components/ui/input/index.js';
 	import {
 		BookOpen,
 		RefreshCw,
@@ -17,7 +17,7 @@
 		Trash2,
 		Save,
 		X
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 
 	let rules = $state<Rule[]>([]);
 	let loading = $state(true);
@@ -195,14 +195,14 @@
 	{/if}
 
 	{#if loading}
-		<div class="py-12 text-center text-muted">
+		<div class="py-12 text-center text-muted-foreground">
 			<RefreshCw class="mx-auto mb-2 h-8 w-8 animate-spin" />
 			<p>Loading rules...</p>
 		</div>
 	{:else if rules.length === 0}
 		<Card>
 			<CardContent class="py-12">
-				<div class="text-center text-muted">
+				<div class="text-center text-muted-foreground">
 					<BookOpen class="mx-auto mb-4 h-12 w-12 opacity-50" />
 					<p class="text-lg font-medium">No rules configured</p>
 					<p class="mt-2 text-sm">Click "New Rule" to create your first processing rule</p>
@@ -264,16 +264,16 @@
 					<CardContent>
 						<div class="grid gap-6 md:grid-cols-2">
 							<div class="space-y-3">
-								<h4 class="text-sm font-medium uppercase tracking-wide text-muted">
+								<h4 class="text-sm font-medium uppercase tracking-wide text-muted-foreground">
 									Match Conditions
 								</h4>
 								{#if formatConditions(rule).length === 0}
-									<p class="text-sm italic text-muted">Matches all files</p>
+									<p class="text-sm italic text-muted-foreground">Matches all files</p>
 								{:else}
 									<ul class="space-y-1">
 										{#each formatConditions(rule) as condition}
 											<li class="flex items-center gap-2 text-sm">
-												<ChevronRight class="h-4 w-4 text-muted" />
+												<ChevronRight class="h-4 w-4 text-muted-foreground" />
 												{condition}
 											</li>
 										{/each}
@@ -282,7 +282,7 @@
 							</div>
 
 							<div class="space-y-3">
-								<h4 class="text-sm font-medium uppercase tracking-wide text-muted">
+								<h4 class="text-sm font-medium uppercase tracking-wide text-muted-foreground">
 									Actions ({rule.actions.length})
 								</h4>
 								<ol class="space-y-2">

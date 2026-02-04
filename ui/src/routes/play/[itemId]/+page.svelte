@@ -5,8 +5,8 @@
 	import { getItem } from '$lib/api/index.js';
 	import type { Item } from '$lib/types.js';
 	import { VideoPlayer } from '$lib/components/media/index.js';
-	import Button from '$lib/components/ui/button/Button.svelte';
-	import { ArrowLeft, Loader2, AlertCircle } from 'lucide-svelte';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { ArrowLeft, Loader2, AlertCircle } from '@lucide/svelte';
 
 	const itemId = $derived(page.params.itemId);
 

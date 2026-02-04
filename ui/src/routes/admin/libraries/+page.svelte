@@ -3,9 +3,9 @@
 	import { getLibraries, createLibrary, deleteLibrary, scanLibrary } from '$lib/api/index.js';
 	import type { Library } from '$lib/types.js';
 	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card/index.js';
-	import Badge from '$lib/components/ui/badge/Badge.svelte';
-	import Button from '$lib/components/ui/button/Button.svelte';
-	import Input from '$lib/components/ui/input/Input.svelte';
+	import { Badge } from '$lib/components/ui/badge/index.js';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { Input } from '$lib/components/ui/input/index.js';
 	import {
 		Library as LibraryIcon,
 		Plus,
@@ -17,7 +17,7 @@
 		FolderOpen,
 		Loader2,
 		ChevronRight
-	} from 'lucide-svelte';
+	} from '@lucide/svelte';
 
 	let libraries = $state<Library[]>([]);
 	let loading = $state(true);
@@ -200,14 +200,14 @@
 	<!-- Libraries List -->
 	{#if loading && libraries.length === 0}
 		<div class="flex items-center justify-center py-20">
-			<Loader2 class="h-8 w-8 animate-spin text-muted" />
+			<Loader2 class="h-8 w-8 animate-spin text-muted-foreground" />
 		</div>
 	{:else if libraries.length === 0}
 		<Card>
 			<CardContent class="py-12 text-center">
-				<LibraryIcon class="mx-auto mb-4 h-16 w-16 text-muted/30" />
-				<h2 class="text-lg font-medium text-muted">No libraries</h2>
-				<p class="mt-1 text-sm text-muted">Add a library to start organizing your media.</p>
+				<LibraryIcon class="mx-auto mb-4 h-16 w-16 text-muted-foreground/30" />
+				<h2 class="text-lg font-medium text-muted-foreground">No libraries</h2>
+				<p class="mt-1 text-sm text-muted-foreground">Add a library to start organizing your media.</p>
 			</CardContent>
 		</Card>
 	{:else}
@@ -234,13 +234,13 @@
 											{lib.name}
 										</h3>
 										<ChevronRight
-											class="h-4 w-4 text-muted transition-colors group-hover:text-primary"
+											class="h-4 w-4 text-muted-foreground transition-colors group-hover:text-primary"
 										/>
 									</div>
 									<div class="mt-1 flex items-center gap-2">
 										<Badge variant="outline">{lib.media_type}</Badge>
 									</div>
-									<div class="mt-2 text-sm text-muted">
+									<div class="mt-2 text-sm text-muted-foreground">
 										{#each lib.paths as path}
 											<div class="truncate font-mono text-xs">{path}</div>
 										{/each}

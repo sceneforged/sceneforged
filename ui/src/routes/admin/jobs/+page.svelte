@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getJobs, retryJob, deleteJob } from '$lib/api/index.js';
-	import type { Job } from '$lib/types.js';
-	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card/index.js';
-	import Badge from '$lib/components/ui/badge/Badge.svelte';
-	import Button from '$lib/components/ui/button/Button.svelte';
-	import Input from '$lib/components/ui/input/Input.svelte';
-	import Progress from '$lib/components/ui/progress/Progress.svelte';
+	import { getJobs, retryJob, deleteJob, getConfigRules, updateConfigRules } from '$lib/api/index.js';
+	import type { Job, Rule } from '$lib/types.js';
+	import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '$lib/components/ui/card/index.js';
+	import { Badge } from '$lib/components/ui/badge/index.js';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { Input } from '$lib/components/ui/input/index.js';
+	import { Progress } from '$lib/components/ui/progress/index.js';
+	import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '$lib/components/ui/collapsible/index.js';
 	import { jobsStore } from '$lib/stores/jobs.svelte.js';
 	import {
 		Activity,
@@ -19,8 +20,14 @@
 		Search,
 		Trash2,
 		RotateCcw,
-		Loader2
-	} from 'lucide-svelte';
+		Loader2,
+		BookOpen,
+		ChevronDown,
+		Pencil,
+		Plus,
+		Save,
+		X as XIcon
+	} from '@lucide/svelte';
 
 	let loading = $state(true);
 	let error = $state<string | null>(null);
@@ -95,8 +102,115 @@
 		return status === 'completed' ? 'bg-green-500' : '';
 	}
 
+	// --- Rules section ---
+	let rules = $state<Rule[]>([]);
+	let rulesLoading = $state(true);
+	let rulesError = $state<string | null>(null);
+	let rulesOpen = $state(false);
+
+	// Rules editor
+	let rulesEditorOpen = $state(false);
+	let rulesEditingIndex = $state<number | null>(null);
+	let rulesEditorName = $state('');
+	let rulesEditorEnabled = $state(true);
+	let rulesEditorPriority = $state(0);
+
+	async function loadRules() {
+		rulesLoading = true;
+		rulesError = null;
+		try {
+			rules = await getConfigRules();
+		} catch (e) {
+			rulesError = e instanceof Error ? e.message : 'Failed to load rules';
+		} finally {
+			rulesLoading = false;
+		}
+	}
+
+	async function handleToggleRuleEnabled(index: number) {
+		const updated = rules.map((r, i) => (i === index ? { ...r, enabled: !r.enabled } : r));
+		try {
+			rules = await updateConfigRules(updated);
+		} catch (e) {
+			rulesError = e instanceof Error ? e.message : 'Failed to update rule';
+		}
+	}
+
+	async function handleDeleteRule(index: number) {
+		const ruleName = rules[index]?.name;
+		if (!confirm(`Delete rule "${ruleName}"?`)) return;
+		const updated = rules.filter((_, i) => i !== index);
+		try {
+			rules = await updateConfigRules(updated);
+		} catch (e) {
+			rulesError = e instanceof Error ? e.message : 'Failed to delete rule';
+		}
+	}
+
+	function openRulesEditor(index: number | null = null) {
+		rulesEditingIndex = index;
+		if (index !== null && rules[index]) {
+			const rule = rules[index];
+			rulesEditorName = rule.name;
+			rulesEditorEnabled = rule.enabled;
+			rulesEditorPriority = rule.priority;
+		} else {
+			rulesEditorName = '';
+			rulesEditorEnabled = true;
+			rulesEditorPriority = rules.length > 0 ? Math.max(...rules.map((r) => r.priority)) + 1 : 1;
+		}
+		rulesEditorOpen = true;
+	}
+
+	async function handleSaveRule() {
+		if (!rulesEditorName.trim()) return;
+		const updatedRule: Rule = {
+			id: rulesEditingIndex !== null && rules[rulesEditingIndex] ? rules[rulesEditingIndex].id : '',
+			name: rulesEditorName.trim(),
+			enabled: rulesEditorEnabled,
+			priority: rulesEditorPriority,
+			match_conditions: rulesEditingIndex !== null && rules[rulesEditingIndex] ? rules[rulesEditingIndex].match_conditions : {},
+			actions: rulesEditingIndex !== null && rules[rulesEditingIndex] ? rules[rulesEditingIndex].actions : []
+		};
+		let updated: Rule[];
+		if (rulesEditingIndex !== null) {
+			updated = rules.map((r, i) => (i === rulesEditingIndex ? updatedRule : r));
+		} else {
+			updated = [...rules, updatedRule];
+		}
+		try {
+			rules = await updateConfigRules(updated);
+			rulesEditorOpen = false;
+		} catch (e) {
+			rulesError = e instanceof Error ? e.message : 'Failed to save rule';
+		}
+	}
+
+	function formatConditions(rule: Rule): string[] {
+		const conditions: string[] = [];
+		const match = rule.match_conditions;
+		if (!match) return conditions;
+		for (const [key, value] of Object.entries(match)) {
+			if (Array.isArray(value) && value.length > 0) {
+				conditions.push(`${key}: ${value.join(', ')}`);
+			} else if (value && typeof value === 'object') {
+				conditions.push(`${key}: ${JSON.stringify(value)}`);
+			} else if (value) {
+				conditions.push(`${key}: ${value}`);
+			}
+		}
+		return conditions;
+	}
+
+	function formatAction(action: Record<string, unknown>): string {
+		const type = action.type as string;
+		if (!type) return 'Unknown action';
+		return type.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+	}
+
 	onMount(() => {
 		loadData();
+		loadRules();
 	});
 </script>
 
@@ -139,7 +253,7 @@
 							<div class="flex items-center justify-between">
 								<div>
 									<p class="text-sm font-medium">{job.file_name}</p>
-									<p class="text-xs text-muted">Rule: {job.rule_name ?? 'N/A'}</p>
+									<p class="text-xs text-muted-foreground">Rule: {job.rule_name ?? 'N/A'}</p>
 								</div>
 								<Badge variant="secondary" class="bg-blue-500 text-white">
 									<Activity class="mr-1 h-3 w-3 animate-pulse" />
@@ -149,7 +263,7 @@
 							{#if job.progress > 0}
 								<div class="space-y-1">
 									<div class="flex justify-between text-xs">
-										<span class="text-muted">{job.current_step ?? 'Processing...'}</span>
+										<span class="text-muted-foreground">{job.current_step ?? 'Processing...'}</span>
 										<span class="font-medium">{job.progress}%</span>
 									</div>
 									<Progress value={job.progress} max={100} />
@@ -162,7 +276,7 @@
 						<div class="flex items-center justify-between rounded-lg border p-3">
 							<div>
 								<p class="truncate text-sm font-medium">{job.file_name}</p>
-								<p class="text-xs text-muted">Rule: {job.rule_name ?? 'N/A'}</p>
+								<p class="text-xs text-muted-foreground">Rule: {job.rule_name ?? 'N/A'}</p>
 							</div>
 							<Badge variant="outline">Queued</Badge>
 						</div>
@@ -178,7 +292,7 @@
 			<div class="flex items-center justify-between">
 				<CardTitle>Job History</CardTitle>
 				<div class="relative w-64">
-					<Search class="absolute left-2 top-2.5 h-4 w-4 text-muted" />
+					<Search class="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
 					<Input placeholder="Search jobs..." class="pl-8" bind:value={globalFilter} />
 				</div>
 			</div>
@@ -186,7 +300,7 @@
 		<CardContent>
 			{#if loading && allJobs.length === 0}
 				<div class="flex items-center justify-center py-12">
-					<Loader2 class="h-6 w-6 animate-spin text-muted" />
+					<Loader2 class="h-6 w-6 animate-spin text-muted-foreground" />
 				</div>
 			{:else}
 				<div class="rounded-md border">
@@ -203,7 +317,7 @@
 						<tbody>
 							{#if paginatedJobs.length === 0}
 								<tr>
-									<td colspan="5" class="px-4 py-8 text-center text-muted">No jobs found</td>
+									<td colspan="5" class="px-4 py-8 text-center text-muted-foreground">No jobs found</td>
 								</tr>
 							{:else}
 								{#each paginatedJobs as job (job.id)}
@@ -227,7 +341,7 @@
 											</Badge>
 										</td>
 										<td class="px-4 py-3 text-sm">{job.rule_name ?? '-'}</td>
-										<td class="px-4 py-3 text-sm text-muted">
+										<td class="px-4 py-3 text-sm text-muted-foreground">
 											{job.completed_at
 												? new Date(job.completed_at).toLocaleString()
 												: '-'}
@@ -264,7 +378,7 @@
 				<!-- Pagination -->
 				{#if filteredJobs.length > 0}
 					<div class="mt-4 flex items-center justify-between">
-						<div class="text-sm text-muted">
+						<div class="text-sm text-muted-foreground">
 							Showing {currentPage * pageSize + 1}
 							to {Math.min((currentPage + 1) * pageSize, filteredJobs.length)}
 							of {filteredJobs.length} results
@@ -293,4 +407,154 @@
 			{/if}
 		</CardContent>
 	</Card>
+
+	<!-- Rules Section -->
+	<Collapsible bind:open={rulesOpen}>
+		<Card>
+			<CardHeader>
+				<CollapsibleTrigger class="flex w-full items-center justify-between">
+					<CardTitle class="flex items-center gap-2">
+						<BookOpen class="h-5 w-5" />
+						Processing Rules
+						{#if rules.length > 0}
+							<Badge variant="secondary">{rules.length}</Badge>
+						{/if}
+					</CardTitle>
+					<ChevronDown
+						class="h-5 w-5 text-muted-foreground transition-transform {rulesOpen ? 'rotate-180' : ''}"
+					/>
+				</CollapsibleTrigger>
+			</CardHeader>
+			<CollapsibleContent>
+				<CardContent>
+				<div class="space-y-4">
+					<div class="flex items-center justify-between">
+						<p class="text-sm text-muted-foreground">
+							Rules define how media files are automatically processed.
+						</p>
+						<div class="flex items-center gap-2">
+							<Button variant="default" size="sm" onclick={() => openRulesEditor()}>
+								<Plus class="mr-2 h-4 w-4" />
+								New Rule
+							</Button>
+							<Button variant="outline" size="sm" onclick={loadRules} disabled={rulesLoading}>
+								<RefreshCw class="mr-2 h-4 w-4 {rulesLoading ? 'animate-spin' : ''}" />
+								Refresh
+							</Button>
+						</div>
+					</div>
+
+					{#if rulesError}
+						<div class="rounded-md bg-destructive/10 p-4 text-destructive">
+							{rulesError}
+						</div>
+					{/if}
+
+					<!-- Rules editor -->
+					{#if rulesEditorOpen}
+						<Card class="border-primary">
+							<CardHeader>
+								<CardTitle>{rulesEditingIndex !== null ? 'Edit Rule' : 'New Rule'}</CardTitle>
+							</CardHeader>
+							<CardContent>
+								<div class="space-y-4">
+									<div class="space-y-2">
+										<label for="rule-name" class="text-sm font-medium">Name</label>
+										<Input id="rule-name" bind:value={rulesEditorName} placeholder="Rule name" />
+									</div>
+									<div class="space-y-2">
+										<label for="rule-priority" class="text-sm font-medium">Priority</label>
+										<Input id="rule-priority" type="number" bind:value={rulesEditorPriority} />
+									</div>
+									<label class="flex items-center gap-2">
+										<input type="checkbox" bind:checked={rulesEditorEnabled} class="h-4 w-4" />
+										<span class="text-sm font-medium">Enabled</span>
+									</label>
+									<div class="flex gap-2">
+										<Button onclick={handleSaveRule}>
+											<Save class="mr-2 h-4 w-4" />
+											Save
+										</Button>
+										<Button variant="outline" onclick={() => (rulesEditorOpen = false)}>
+											<XIcon class="mr-2 h-4 w-4" />
+											Cancel
+										</Button>
+									</div>
+								</div>
+							</CardContent>
+						</Card>
+					{/if}
+
+					{#if rulesLoading}
+						<div class="py-8 text-center text-muted-foreground">
+							<RefreshCw class="mx-auto mb-2 h-6 w-6 animate-spin" />
+							<p class="text-sm">Loading rules...</p>
+						</div>
+					{:else if rules.length === 0}
+						<div class="py-8 text-center text-muted-foreground">
+							<BookOpen class="mx-auto mb-2 h-8 w-8 opacity-50" />
+							<p class="text-sm">No rules configured</p>
+						</div>
+					{:else}
+						<div class="space-y-3">
+							{#each [...rules].sort((a, b) => b.priority - a.priority) as rule, index}
+								<div
+									class="flex items-center justify-between rounded-lg border p-3 {rule.enabled ? '' : 'opacity-60'}"
+								>
+									<div class="flex items-center gap-3">
+										<div
+											class="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary"
+										>
+											{index + 1}
+										</div>
+										<div>
+											<div class="flex items-center gap-2">
+												<span class="text-sm font-medium">{rule.name}</span>
+												<button onclick={() => handleToggleRuleEnabled(index)}>
+													{#if rule.enabled}
+														<Badge variant="default" class="cursor-pointer bg-green-500 text-xs">
+															Active
+														</Badge>
+													{:else}
+														<Badge variant="secondary" class="cursor-pointer text-xs">
+															Disabled
+														</Badge>
+													{/if}
+												</button>
+											</div>
+											<span class="text-xs text-muted-foreground">Priority: {rule.priority}</span>
+											{#if formatConditions(rule).length > 0}
+												<span class="ml-2 text-xs text-muted-foreground">
+													| {formatConditions(rule).join(', ')}
+												</span>
+											{/if}
+										</div>
+									</div>
+									<div class="flex items-center gap-1">
+										<Button
+											variant="ghost"
+											size="icon"
+											onclick={() => openRulesEditor(index)}
+											title="Edit"
+										>
+											<Pencil class="h-4 w-4" />
+										</Button>
+										<Button
+											variant="ghost"
+											size="icon"
+											onclick={() => handleDeleteRule(index)}
+											title="Delete"
+										>
+											<Trash2 class="h-4 w-4" />
+										</Button>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+			</CardContent>
+			</CollapsibleContent>
+		</Card>
+	</Collapsible>
 </div>

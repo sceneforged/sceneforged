@@ -3,7 +3,7 @@
 	import { getItems } from '$lib/api/index.js';
 	import { MediaRow } from '$lib/components/media/index.js';
 	import type { Item } from '$lib/types.js';
-	import { Loader2 } from 'lucide-svelte';
+	import { Loader2 } from '@lucide/svelte';
 
 	let recentlyAdded = $state<Item[]>([]);
 	let loading = $state(true);
@@ -33,7 +33,7 @@
 <div class="space-y-8">
 	<div>
 		<h1 class="text-3xl font-bold text-foreground">Welcome to SceneForged</h1>
-		<p class="mt-1 text-muted">Your personal media library</p>
+		<p class="mt-1 text-muted-foreground">Your personal media library</p>
 	</div>
 
 	{#if error}
@@ -44,11 +44,11 @@
 
 	{#if loading}
 		<div class="flex items-center justify-center py-12">
-			<Loader2 class="h-8 w-8 animate-spin text-muted" />
+			<Loader2 class="h-8 w-8 animate-spin text-muted-foreground" />
 		</div>
 	{:else if !hasContent}
 		<div class="py-12 text-center">
-			<p class="text-muted">
+			<p class="text-muted-foreground">
 				No media to display yet. Add some libraries in the Admin section to get started.
 			</p>
 		</div>

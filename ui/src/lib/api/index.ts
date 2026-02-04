@@ -41,6 +41,14 @@ export async function scanLibrary(id: string): Promise<void> {
 
 // --- Items ---
 
+function normalizeItem(item: Item): Item {
+	return {
+		...item,
+		media_files: item.media_files ?? [],
+		images: item.images ?? []
+	};
+}
+
 export async function getItems(params: {
 	library_id?: string;
 	page?: number;
@@ -54,11 +62,13 @@ export async function getItems(params: {
 	if (params.search) searchParams.set('search', params.search);
 
 	const query = searchParams.toString();
-	return api.get<{ items: Item[]; total: number }>(`/items${query ? `?${query}` : ''}`);
+	const result = await api.get<{ items: Item[]; total: number }>(`/items${query ? `?${query}` : ''}`);
+	return { ...result, items: result.items.map(normalizeItem) };
 }
 
 export async function getItem(id: string): Promise<Item> {
-	return api.get<Item>(`/items/${id}`);
+	const item = await api.get<Item>(`/items/${id}`);
+	return normalizeItem(item);
 }
 
 // --- Jobs ---

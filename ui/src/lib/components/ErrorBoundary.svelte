@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { cn } from '$lib/utils';
-	import Button from '$lib/components/ui/button/Button.svelte';
-	import { AlertTriangle } from 'lucide-svelte';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import { AlertTriangle } from '@lucide/svelte';
 	import type { Snippet } from 'svelte';
 
 	interface Props {
@@ -35,7 +35,7 @@
 		<AlertTriangle class="h-12 w-12 text-destructive" />
 		<div class="text-center">
 			<h3 class="text-lg font-semibold text-destructive">Something went wrong</h3>
-			<p class="mt-1 text-sm text-muted">{error.message}</p>
+			<p class="mt-1 text-sm text-muted-foreground">{error.message}</p>
 		</div>
 		<Button variant="outline" onclick={reset}>
 			Try Again
