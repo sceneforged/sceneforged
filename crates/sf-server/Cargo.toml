@@ -11,6 +11,7 @@ sf-media.workspace = true
 sf-rules.workspace = true
 sf-probe.workspace = true
 sf-av.workspace = true
+sf-parser.workspace = true
 axum = { workspace = true, features = ["macros"] }
 tower-http.workspace = true
 tokio.workspace = true
