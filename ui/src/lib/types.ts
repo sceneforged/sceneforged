@@ -17,6 +17,23 @@ export interface Job {
 	completed_at?: string;
 }
 
+// Conversion job types
+export interface ConversionJob {
+	id: string;
+	item_id: string;
+	item_name?: string;
+	media_file_id?: string;
+	source_media_file_id?: string;
+	status: string;
+	progress_pct: number;
+	encode_fps?: number;
+	eta_secs?: number;
+	error?: string;
+	created_at: string;
+	started_at?: string;
+	completed_at?: string;
+}
+
 // Library types
 export interface Library {
 	id: string;
@@ -132,4 +149,9 @@ export type EventPayload =
 	| { type: 'item_added'; item: Item }
 	| { type: 'item_updated'; item: Item }
 	| { type: 'item_removed'; item_id: string }
+	| { type: 'conversion_queued'; job_id: string }
+	| { type: 'conversion_started'; job_id: string }
+	| { type: 'conversion_progress'; job_id: string; progress: number }
+	| { type: 'conversion_completed'; job_id: string }
+	| { type: 'conversion_failed'; job_id: string; error: string }
 	| { type: 'heartbeat' };

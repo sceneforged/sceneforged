@@ -55,9 +55,9 @@ test.describe('Item Detail Pages', () => {
 		const lib = scenario.libraries[0];
 		await page.goto(`/browse/${lib.id}/${item.id}`);
 
-		await expect(page.getByRole('button', { name: 'Needs Conversion' })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Convert to Profile B' })).toBeVisible();
 		await expect(
-			page.getByText('This item is not yet available for playback.')
+			page.getByText('Convert this item for web playback.')
 		).toBeVisible();
 	});
 

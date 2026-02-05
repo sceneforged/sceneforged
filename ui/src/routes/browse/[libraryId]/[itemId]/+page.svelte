@@ -2,11 +2,13 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { getItem } from '$lib/api/index.js';
+	import { getItem, submitConversion } from '$lib/api/index.js';
 	import type { Item } from '$lib/types.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
+	import { Progress } from '$lib/components/ui/progress/index.js';
 	import ProgressiveImage from '$lib/components/media/ProgressiveImage.svelte';
+	import { conversionsStore } from '$lib/stores/conversions.svelte.js';
 	import {
 		ArrowLeft,
 		Star,
@@ -32,6 +34,26 @@
 	const isPlayable = $derived(
 		item?.media_files?.some((f) => f.role === 'universal' || f.profile === 'B') ?? false
 	);
+
+	// Conversion state
+	let converting = $state(false);
+	let convertError = $state<string | null>(null);
+
+	const activeConversion = $derived(
+		conversionsStore.activeConversions.find((j) => j.item_id === itemId)
+	);
+
+	// Refetch item data when a conversion completes (so isPlayable updates)
+	let hadActiveConversion = $state(false);
+
+	$effect(() => {
+		if (activeConversion) {
+			hadActiveConversion = true;
+		} else if (hadActiveConversion) {
+			hadActiveConversion = false;
+			loadItemData();
+		}
+	});
 
 	// Icon based on item kind
 	const ItemIcon = $derived.by(() => {
@@ -89,6 +111,19 @@
 			error = e instanceof Error ? e.message : 'Failed to load item';
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function handleConvert() {
+		if (!item || converting) return;
+		converting = true;
+		convertError = null;
+		try {
+			await submitConversion({ item_id: item.id });
+		} catch (e) {
+			convertError = e instanceof Error ? e.message : 'Failed to start conversion';
+		} finally {
+			converting = false;
 		}
 	}
 
@@ -163,19 +198,37 @@
 							<Play class="mr-2 h-6 w-6 fill-current" />
 							Play
 						</Button>
+					{:else if activeConversion}
+						<Button variant="secondary" size="lg" class="w-full py-6 text-lg" disabled>
+							<Loader2 class="mr-2 h-6 w-6 animate-spin" />
+							{activeConversion.status === 'queued' ? 'Queued...' : `Converting ${activeConversion.progress_pct.toFixed(0)}%`}
+						</Button>
+						{#if activeConversion.status === 'running'}
+							<Progress value={activeConversion.progress_pct} max={100} />
+						{/if}
 					{:else}
 						<Button
-							variant="secondary"
+							variant="default"
 							size="lg"
-							class="w-full cursor-not-allowed py-6 text-lg opacity-60"
-							disabled
+							class="w-full py-6 text-lg"
+							onclick={handleConvert}
+							disabled={converting}
 						>
-							<AlertCircle class="mr-2 h-6 w-6" />
-							Needs Conversion
+							{#if converting}
+								<Loader2 class="mr-2 h-6 w-6 animate-spin" />
+								Submitting...
+							{:else}
+								<Film class="mr-2 h-6 w-6" />
+								Convert to Profile B
+							{/if}
 						</Button>
-						<p class="text-center text-sm text-muted-foreground">
-							This item is not yet available for playback.
-						</p>
+						{#if convertError}
+							<p class="text-center text-sm text-destructive">{convertError}</p>
+						{:else}
+							<p class="text-center text-sm text-muted-foreground">
+								Convert this item for web playback.
+							</p>
+						{/if}
 					{/if}
 				</div>
 			</div>

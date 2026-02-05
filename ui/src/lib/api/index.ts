@@ -3,6 +3,7 @@ import type {
 	Library,
 	Item,
 	Job,
+	ConversionJob,
 	Rule,
 	DashboardStats,
 	ToolInfo
@@ -117,6 +118,37 @@ export async function retryJob(id: string): Promise<Job> {
 export async function deleteJob(id: string): Promise<void> {
 	await api.delete(`/jobs/${id}`);
 	api.invalidate('/jobs');
+}
+
+// --- Conversions ---
+
+export async function getConversions(params?: {
+	status?: string;
+	page?: number;
+	limit?: number;
+}): Promise<ConversionJob[]> {
+	const searchParams = new URLSearchParams();
+	if (params?.status) searchParams.set('status', params.status);
+	const limit = params?.limit ?? 50;
+	if (params?.page !== undefined) {
+		searchParams.set('offset', String(params.page * limit));
+	}
+	searchParams.set('limit', String(limit));
+	const query = searchParams.toString();
+	return api.get<ConversionJob[]>(`/conversions${query ? `?${query}` : ''}`, { skipCache: true });
+}
+
+export async function getConversion(id: string): Promise<ConversionJob> {
+	return api.get<ConversionJob>(`/conversions/${id}`, { skipCache: true });
+}
+
+export async function submitConversion(data: {
+	item_id: string;
+	media_file_id?: string;
+}): Promise<ConversionJob> {
+	const result = await api.post<ConversionJob>('/conversions/submit', data);
+	api.invalidate('/conversions');
+	return result;
 }
 
 // --- Config / Rules ---

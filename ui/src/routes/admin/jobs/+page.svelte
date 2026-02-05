@@ -9,6 +9,7 @@
 	import { Progress } from '$lib/components/ui/progress/index.js';
 	import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '$lib/components/ui/collapsible/index.js';
 	import { jobsStore } from '$lib/stores/jobs.svelte.js';
+	import { conversionsStore } from '$lib/stores/conversions.svelte.js';
 	import {
 		Activity,
 		CheckCircle,
@@ -209,6 +210,7 @@
 	onMount(() => {
 		loadData();
 		loadRules();
+		conversionsStore.refresh();
 	});
 </script>
 
@@ -279,6 +281,107 @@
 							<Badge variant="outline">Queued</Badge>
 						</div>
 					{/each}
+				</div>
+			</CardContent>
+		</Card>
+	{/if}
+
+	<!-- Active Conversions -->
+	{#if conversionsStore.runningConversions.length > 0 || conversionsStore.queuedConversions.length > 0}
+		<Card class="border-purple-500/50">
+			<CardHeader>
+				<CardTitle class="flex items-center gap-2">
+					<Activity class="h-5 w-5 animate-pulse text-purple-500" />
+					Active Conversions
+					<Badge variant="secondary">
+						{conversionsStore.runningConversions.length + conversionsStore.queuedConversions.length}
+					</Badge>
+				</CardTitle>
+			</CardHeader>
+			<CardContent>
+				<div class="space-y-4">
+					{#each conversionsStore.runningConversions as job (job.id)}
+						<div class="space-y-2 rounded-lg border p-4">
+							<div class="flex items-center justify-between">
+								<div>
+									<p class="text-sm font-medium">{job.item_name ?? job.id.slice(0, 8)}</p>
+									<p class="text-xs text-muted-foreground">
+										{#if job.encode_fps}FPS: {job.encode_fps.toFixed(1)}{/if}
+										{#if job.eta_secs} &middot; ETA: {Math.ceil(job.eta_secs / 60)}m{/if}
+									</p>
+								</div>
+								<Badge variant="secondary" class="bg-purple-500 text-white">
+									<Activity class="mr-1 h-3 w-3 animate-pulse" />
+									Converting
+								</Badge>
+							</div>
+							<div class="space-y-1">
+								<div class="flex justify-between text-xs">
+									<span class="text-muted-foreground">Encoding...</span>
+									<span class="font-medium">{job.progress_pct.toFixed(0)}%</span>
+								</div>
+								<Progress value={job.progress_pct} max={100} />
+							</div>
+						</div>
+					{/each}
+
+					{#each conversionsStore.queuedConversions as job (job.id)}
+						<div class="flex items-center justify-between rounded-lg border p-3">
+							<div>
+								<p class="truncate text-sm font-medium">{job.item_name ?? job.id.slice(0, 8)}</p>
+							</div>
+							<Badge variant="outline">Queued</Badge>
+						</div>
+					{/each}
+				</div>
+			</CardContent>
+		</Card>
+	{/if}
+
+	<!-- Conversion History -->
+	{#if conversionsStore.conversionHistory.length > 0}
+		<Card>
+			<CardHeader>
+				<CardTitle>Conversion History</CardTitle>
+			</CardHeader>
+			<CardContent>
+				<div class="rounded-md border">
+					<table class="w-full">
+						<thead>
+							<tr class="border-b bg-muted/50">
+								<th class="px-4 py-3 text-left text-sm font-medium">Conversion</th>
+								<th class="px-4 py-3 text-left text-sm font-medium">Status</th>
+								<th class="px-4 py-3 text-left text-sm font-medium">Completed</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each conversionsStore.conversionHistory as job (job.id)}
+								<tr class="border-b transition-colors hover:bg-muted/50">
+									<td class="max-w-xs truncate px-4 py-3 text-sm font-medium">
+										{job.item_name ?? job.id.slice(0, 8)}
+									</td>
+									<td class="px-4 py-3">
+										<Badge
+											variant={job.status === 'completed' ? 'default' : 'destructive'}
+											class={job.status === 'completed' ? 'bg-green-500' : ''}
+										>
+											{#if job.status === 'completed'}
+												<CheckCircle class="mr-1 h-3 w-3" />
+											{:else}
+												<XCircle class="mr-1 h-3 w-3" />
+											{/if}
+											{job.status}
+										</Badge>
+									</td>
+									<td class="px-4 py-3 text-sm text-muted-foreground">
+										{job.completed_at
+											? new Date(job.completed_at).toLocaleString()
+											: '-'}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
 				</div>
 			</CardContent>
 		</Card>

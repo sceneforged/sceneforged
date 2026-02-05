@@ -21,6 +21,8 @@
 	import { libraryStore } from '$lib/stores/library.svelte.js';
 	import { themeStore } from '$lib/stores/theme.svelte.js';
 	import { authStore } from '$lib/stores/auth.svelte.js';
+	import { jobsStore } from '$lib/stores/jobs.svelte.js';
+	import { conversionsStore } from '$lib/stores/conversions.svelte.js';
 	import { eventsService } from '$lib/services/events.svelte.js';
 
 	const isDark = $derived(themeStore.current === 'dark');
@@ -48,6 +50,8 @@
 	onMount(() => {
 		libraryStore.loadLibraries();
 		authStore.checkStatus();
+		conversionsStore.refresh();
+		eventsService.connect();
 
 		unsubscribe = eventsService.subscribe('all', (event) => {
 			const { payload } = event;
@@ -57,6 +61,12 @@
 				payload.type === 'library_scan_complete'
 			) {
 				libraryStore.loadLibraries();
+			}
+			if (payload.type.startsWith('job_')) {
+				jobsStore.handleEvent(event);
+			}
+			if (payload.type.startsWith('conversion_')) {
+				conversionsStore.handleEvent(event);
 			}
 		});
 	});

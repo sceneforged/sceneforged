@@ -35,6 +35,7 @@ pub struct SubmitConversionRequest {
 pub struct ConversionJobResponse {
     pub id: String,
     pub item_id: String,
+    pub item_name: Option<String>,
     pub media_file_id: Option<String>,
     pub source_media_file_id: Option<String>,
     pub status: String,
@@ -48,10 +49,11 @@ pub struct ConversionJobResponse {
 }
 
 impl ConversionJobResponse {
-    fn from_model(job: &sf_db::models::ConversionJob) -> Self {
+    fn from_model(job: &sf_db::models::ConversionJob, item_name: Option<String>) -> Self {
         Self {
             id: job.id.to_string(),
             item_id: job.item_id.to_string(),
+            item_name,
             media_file_id: job.media_file_id.map(|id| id.to_string()),
             source_media_file_id: job.source_media_file_id.map(|id| id.to_string()),
             status: job.status.clone(),
@@ -117,6 +119,9 @@ pub async fn submit_conversion(
 
     let job = sf_db::queries::conversion_jobs::create_conversion_job(&conn, item_id, source_mf_id)?;
 
+    let item_name = sf_db::queries::items::get_item(&conn, item_id)?
+        .map(|i| i.name);
+
     ctx.event_bus.broadcast(
         sf_core::events::EventCategory::Admin,
         sf_core::events::EventPayload::ConversionQueued { job_id: job.id },
@@ -124,7 +129,7 @@ pub async fn submit_conversion(
 
     Ok((
         StatusCode::CREATED,
-        Json(ConversionJobResponse::from_model(&job)),
+        Json(ConversionJobResponse::from_model(&job, item_name)),
     ))
 }
 
@@ -148,8 +153,21 @@ pub async fn list_conversions(
         params.offset,
         params.limit,
     )?;
-    let responses: Vec<ConversionJobResponse> =
-        jobs.iter().map(ConversionJobResponse::from_model).collect();
+
+    // Build item_id -> name map for all jobs.
+    let mut name_map = std::collections::HashMap::new();
+    for job in &jobs {
+        if !name_map.contains_key(&job.item_id) {
+            if let Ok(Some(item)) = sf_db::queries::items::get_item(&conn, job.item_id) {
+                name_map.insert(job.item_id, item.name);
+            }
+        }
+    }
+
+    let responses: Vec<ConversionJobResponse> = jobs
+        .iter()
+        .map(|job| ConversionJobResponse::from_model(job, name_map.get(&job.item_id).cloned()))
+        .collect();
     Ok(Json(responses))
 }
 
@@ -175,5 +193,8 @@ pub async fn get_conversion(
     let job = sf_db::queries::conversion_jobs::get_conversion_job(&conn, job_id)?
         .ok_or_else(|| sf_core::Error::not_found("conversion_job", job_id))?;
 
-    Ok(Json(ConversionJobResponse::from_model(&job)))
+    let item_name = sf_db::queries::items::get_item(&conn, job.item_id)?
+        .map(|i| i.name);
+
+    Ok(Json(ConversionJobResponse::from_model(&job, item_name)))
 }
