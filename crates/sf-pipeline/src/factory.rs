@@ -4,7 +4,8 @@ use sf_rules::ActionConfig;
 
 use crate::action::Action;
 use crate::actions::{
-    AddCompatAudioAction, DvConvertAction, ExecAction, RemuxAction, StripTracksAction,
+    AddCompatAudioAction, DvConvertAction, ExecAction, ProfileBConvertAction, RemuxAction,
+    StripTracksAction,
 };
 
 /// Create a list of boxed [`Action`] objects from rule-engine configurations.
@@ -56,6 +57,10 @@ pub fn create_actions(
             }
             ActionConfig::Exec { command, args } => {
                 actions.push(Box::new(ExecAction::new(command.clone(), args.clone())));
+            }
+            ActionConfig::ProfileBConvert { crf, preset } => {
+                tools.require("ffmpeg")?;
+                actions.push(Box::new(ProfileBConvertAction::new(*crf, preset.clone())));
             }
         }
     }

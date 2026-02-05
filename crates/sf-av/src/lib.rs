@@ -30,4 +30,7 @@ pub use tools::{ToolConfig, ToolInfo, ToolRegistry};
 pub use workspace::Workspace;
 
 // Action functions
-pub use actions::{add_compat_audio, convert_dv_profile, exec_command, remux, strip_tracks};
+pub use actions::{
+    add_compat_audio, adaptive_crf, convert_dv_profile, convert_to_profile_b, exec_command,
+    generate_hls_segments, remux, strip_tracks,
+};

@@ -40,6 +40,13 @@ pub enum ActionConfig {
         /// Arguments to pass to the command.
         args: Vec<String>,
     },
+    /// Convert to Profile B (H.264 High / AAC-LC stereo MP4).
+    ProfileBConvert {
+        /// Override CRF value (None = adaptive based on resolution).
+        crf: Option<u32>,
+        /// Override preset (None = from ConversionConfig).
+        preset: Option<String>,
+    },
 }
 
 #[cfg(test)]

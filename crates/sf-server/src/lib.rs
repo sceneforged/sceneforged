@@ -9,6 +9,7 @@
 //! - Graceful shutdown via signal handling
 
 pub mod context;
+pub mod conversion_processor;
 pub mod error;
 pub mod middleware;
 pub mod processor;
@@ -89,6 +90,13 @@ pub async fn start(config: Config, config_path: Option<PathBuf>) -> sf_core::Res
         processor::run_processor(processor_ctx, processor_cancel).await;
     });
 
+    // Spawn conversion processor.
+    let conv_ctx = ctx.clone();
+    let conv_cancel = cancel.clone();
+    let conv_handle = tokio::spawn(async move {
+        conversion_processor::run_conversion_processor(conv_ctx, conv_cancel).await;
+    });
+
     // Spawn file watcher.
     let watcher_ctx = ctx.clone();
     let watcher_cancel = cancel.clone();
@@ -120,7 +128,7 @@ pub async fn start(config: Config, config_path: Option<PathBuf>) -> sf_core::Res
     cancel.cancel();
 
     // Wait for background tasks to finish.
-    let _ = tokio::join!(processor_handle, watcher_handle);
+    let _ = tokio::join!(processor_handle, conv_handle, watcher_handle);
 
     tracing::info!("Server shutdown complete");
     Ok(())

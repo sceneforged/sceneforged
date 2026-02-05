@@ -150,8 +150,17 @@ CREATE INDEX idx_jobs_status      ON jobs(status);
 CREATE INDEX idx_jobs_file_path   ON jobs(file_path);
 "#;
 
+/// V2: enhance conversion_jobs with locking and source tracking; add indexes.
+const V2_CONVERSION_JOBS: &str = r#"
+ALTER TABLE conversion_jobs ADD COLUMN locked_by TEXT;
+ALTER TABLE conversion_jobs ADD COLUMN locked_at TEXT;
+ALTER TABLE conversion_jobs ADD COLUMN source_media_file_id TEXT REFERENCES media_files(id);
+CREATE INDEX idx_conversion_jobs_status ON conversion_jobs(status);
+CREATE INDEX idx_conversion_jobs_item ON conversion_jobs(item_id);
+"#;
+
 /// Ordered list of (version, sql) pairs.
-const MIGRATIONS: &[(i64, &str)] = &[(1, V1_INITIAL)];
+const MIGRATIONS: &[(i64, &str)] = &[(1, V1_INITIAL), (2, V2_CONVERSION_JOBS)];
 
 /// Run all pending migrations on `conn`.
 ///

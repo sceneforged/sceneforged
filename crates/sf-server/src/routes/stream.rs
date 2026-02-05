@@ -1,4 +1,6 @@
 //! HLS streaming route handlers.
+//!
+//! Serves pre-generated HLS fMP4 segments from disk, keyed by media_file_id.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -7,43 +9,73 @@ use axum::response::IntoResponse;
 use crate::context::AppContext;
 use crate::error::AppError;
 
-/// GET /api/stream/hls/:item_id/master.m3u8
-pub async fn master_playlist(
-    State(_ctx): State<AppContext>,
-    Path(item_id): Path<String>,
+/// GET /api/stream/:media_file_id/index.m3u8
+pub async fn hls_playlist(
+    State(ctx): State<AppContext>,
+    Path(media_file_id): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    let _item_id: sf_core::ItemId = item_id
+    let mf_id: sf_core::MediaFileId = media_file_id
         .parse()
-        .map_err(|_| sf_core::Error::Validation("Invalid item ID".into()))?;
+        .map_err(|_| sf_core::Error::Validation("Invalid media_file_id".into()))?;
 
-    // In a full implementation, we would look up the media file, generate
-    // a segment map, and build the master playlist. For now, return a stub.
-    let playlist = sf_media::generate_master_playlist(&sf_media::MasterPlaylist {
-        variants: vec![sf_media::Variant {
-            bandwidth: 5_000_000,
-            resolution: Some((1920, 1080)),
-            codecs: "avc1.640028,mp4a.40.2".into(),
-            uri: "media.m3u8".into(),
-        }],
-    });
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    let cache = sf_db::queries::hls_cache::get_hls_cache(&conn, mf_id)?
+        .ok_or_else(|| sf_core::Error::not_found("hls_cache", mf_id))?;
+
+    let playlist_path = std::path::Path::new(&cache.playlist).join("index.m3u8");
+    let content = tokio::fs::read_to_string(&playlist_path)
+        .await
+        .map_err(|_| {
+            sf_core::Error::not_found("hls_playlist", playlist_path.to_string_lossy())
+        })?;
 
     Ok((
         StatusCode::OK,
         [("content-type", "application/vnd.apple.mpegurl")],
-        playlist,
+        content,
     ))
 }
 
-/// GET /api/stream/hls/:item_id/:segment
+/// GET /api/stream/:media_file_id/:segment
+///
+/// Serves `init.mp4` or `seg*.m4s` files from the HLS cache directory.
 pub async fn hls_segment(
-    State(_ctx): State<AppContext>,
-    Path((item_id, segment)): Path<(String, String)>,
+    State(ctx): State<AppContext>,
+    Path((media_file_id, segment)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, AppError> {
-    let _item_id: sf_core::ItemId = item_id
+    let mf_id: sf_core::MediaFileId = media_file_id
         .parse()
-        .map_err(|_| sf_core::Error::Validation("Invalid item ID".into()))?;
+        .map_err(|_| sf_core::Error::Validation("Invalid media_file_id".into()))?;
 
-    // In a full implementation, we would read the segment from cache or
-    // generate it on-the-fly. For now, return 404.
-    Err::<String, _>(sf_core::Error::not_found("segment", segment).into())
+    // Validate segment filename to prevent directory traversal.
+    if segment.contains('/')
+        || segment.contains('\\')
+        || segment.contains("..")
+        || segment.starts_with('.')
+    {
+        return Err(sf_core::Error::Validation("Invalid segment filename".into()).into());
+    }
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    let cache = sf_db::queries::hls_cache::get_hls_cache(&conn, mf_id)?
+        .ok_or_else(|| sf_core::Error::not_found("hls_cache", mf_id))?;
+
+    let segment_path = std::path::Path::new(&cache.playlist).join(&segment);
+    let data = tokio::fs::read(&segment_path)
+        .await
+        .map_err(|_| sf_core::Error::not_found("segment", &segment))?;
+
+    let content_type = if segment.ends_with(".m4s") {
+        "video/iso.segment"
+    } else if segment.ends_with(".mp4") {
+        "video/mp4"
+    } else {
+        "application/octet-stream"
+    };
+
+    Ok((
+        StatusCode::OK,
+        [("content-type", content_type)],
+        data,
+    ))
 }

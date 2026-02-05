@@ -26,6 +26,66 @@ fn default_limit() -> i64 {
     50
 }
 
+/// Media file response (subset of fields for API).
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct MediaFileResponse {
+    pub id: String,
+    pub file_path: String,
+    pub file_name: String,
+    pub file_size: i64,
+    pub container: Option<String>,
+    pub video_codec: Option<String>,
+    pub audio_codec: Option<String>,
+    pub resolution_width: Option<i32>,
+    pub resolution_height: Option<i32>,
+    pub role: String,
+    pub profile: String,
+    pub duration_secs: Option<f64>,
+}
+
+impl MediaFileResponse {
+    fn from_model(mf: &sf_db::models::MediaFile) -> Self {
+        Self {
+            id: mf.id.to_string(),
+            file_path: mf.file_path.clone(),
+            file_name: mf.file_name.clone(),
+            file_size: mf.file_size,
+            container: mf.container.clone(),
+            video_codec: mf.video_codec.clone(),
+            audio_codec: mf.audio_codec.clone(),
+            resolution_width: mf.resolution_width,
+            resolution_height: mf.resolution_height,
+            role: mf.role.clone(),
+            profile: mf.profile.clone(),
+            duration_secs: mf.duration_secs,
+        }
+    }
+}
+
+/// Image response.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ImageResponse {
+    pub id: String,
+    pub image_type: String,
+    pub path: String,
+    pub provider: Option<String>,
+    pub width: Option<i32>,
+    pub height: Option<i32>,
+}
+
+impl ImageResponse {
+    fn from_model(img: &sf_db::models::Image) -> Self {
+        Self {
+            id: img.id.to_string(),
+            image_type: img.image_type.clone(),
+            path: img.path.clone(),
+            provider: img.provider.clone(),
+            width: img.width,
+            height: img.height,
+        }
+    }
+}
+
 /// Item response.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ItemResponse {
@@ -44,6 +104,10 @@ pub struct ItemResponse {
     pub episode_number: Option<i32>,
     pub created_at: String,
     pub updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_files: Option<Vec<MediaFileResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub images: Option<Vec<ImageResponse>>,
 }
 
 impl ItemResponse {
@@ -64,6 +128,8 @@ impl ItemResponse {
             episode_number: item.episode_number,
             created_at: item.created_at.clone(),
             updated_at: item.updated_at.clone(),
+            media_files: None,
+            images: None,
         }
     }
 }
@@ -121,5 +187,12 @@ pub async fn get_item(
     let item = sf_db::queries::items::get_item(&conn, item_id)?
         .ok_or_else(|| sf_core::Error::not_found("item", item_id))?;
 
-    Ok(Json(ItemResponse::from_model(&item)))
+    let media_files = sf_db::queries::media_files::list_media_files_by_item(&conn, item_id)?;
+    let images = sf_db::queries::images::list_images_by_item(&conn, item_id)?;
+
+    let mut resp = ItemResponse::from_model(&item);
+    resp.media_files = Some(media_files.iter().map(MediaFileResponse::from_model).collect());
+    resp.images = Some(images.iter().map(ImageResponse::from_model).collect());
+
+    Ok(Json(resp))
 }

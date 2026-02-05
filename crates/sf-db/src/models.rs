@@ -310,6 +310,9 @@ pub struct ConversionJob {
     pub created_at: String,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
+    pub locked_by: Option<String>,
+    pub locked_at: Option<String>,
+    pub source_media_file_id: Option<MediaFileId>,
 }
 
 impl ConversionJob {
@@ -326,6 +329,9 @@ impl ConversionJob {
             created_at: row.get(8)?,
             started_at: row.get(9)?,
             completed_at: row.get(10)?,
+            locked_by: row.get(11)?,
+            locked_at: row.get(12)?,
+            source_media_file_id: parse_opt_id(row, 13)?,
         })
     }
 }

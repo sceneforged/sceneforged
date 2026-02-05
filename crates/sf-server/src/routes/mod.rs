@@ -3,6 +3,7 @@
 pub mod admin;
 pub mod auth;
 pub mod config;
+pub mod conversions;
 pub mod events;
 pub mod health;
 pub mod images;

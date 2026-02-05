@@ -39,6 +39,9 @@ use crate::routes;
         routes::config::put_rules,
         routes::admin::dashboard,
         routes::admin::tools,
+        routes::conversions::list_conversions,
+        routes::conversions::submit_conversion,
+        routes::conversions::get_conversion,
     ),
     components(schemas(
         routes::auth::LoginRequest,
@@ -47,8 +50,12 @@ use crate::routes;
         routes::libraries::LibraryResponse,
         routes::libraries::CreateLibraryRequest,
         routes::items::ItemResponse,
+        routes::items::MediaFileResponse,
+        routes::items::ImageResponse,
         routes::jobs::JobResponse,
         routes::jobs::SubmitJobRequest,
+        routes::conversions::ConversionJobResponse,
+        routes::conversions::SubmitConversionRequest,
         routes::admin::DashboardResponse,
         routes::admin::DashboardJobs,
         routes::admin::DashboardEventBus,
@@ -96,13 +103,20 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
         .route("/config/rules", get(routes::config::get_rules))
         .route("/config/rules", put(routes::config::put_rules))
         .route("/config/arrs", get(routes::config::get_arrs))
+        // Conversions
+        .route("/conversions", get(routes::conversions::list_conversions))
+        .route(
+            "/conversions/submit",
+            post(routes::conversions::submit_conversion),
+        )
+        .route("/conversions/{id}", get(routes::conversions::get_conversion))
         // Streaming
         .route(
-            "/stream/hls/{item_id}/master.m3u8",
-            get(routes::stream::master_playlist),
+            "/stream/{media_file_id}/index.m3u8",
+            get(routes::stream::hls_playlist),
         )
         .route(
-            "/stream/hls/{item_id}/{segment}",
+            "/stream/{media_file_id}/{segment}",
             get(routes::stream::hls_segment),
         )
         // Images

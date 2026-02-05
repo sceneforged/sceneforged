@@ -8,9 +8,11 @@ mod remux;
 mod add_compat_audio;
 mod strip_tracks;
 mod exec;
+mod profile_b_convert;
 
 pub use dv_convert::DvConvertAction;
 pub use remux::RemuxAction;
 pub use add_compat_audio::AddCompatAudioAction;
 pub use strip_tracks::StripTracksAction;
 pub use exec::ExecAction;
+pub use profile_b_convert::ProfileBConvertAction;

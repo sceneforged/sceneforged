@@ -1,6 +1,8 @@
 //! Database query modules.
 
 pub mod auth;
+pub mod conversion_jobs;
+pub mod hls_cache;
 pub mod images;
 pub mod items;
 pub mod jobs;
