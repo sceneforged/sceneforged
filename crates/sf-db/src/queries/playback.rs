@@ -81,6 +81,46 @@ pub fn list_recent_playback(
     Ok(rows)
 }
 
+/// List in-progress items for a user (position > 0, not completed),
+/// ordered by `last_played_at DESC`. Used for "Continue Watching".
+pub fn list_in_progress(
+    conn: &Connection,
+    user_id: UserId,
+    limit: i64,
+) -> Result<Vec<Playback>> {
+    let q = format!(
+        "SELECT {COLS} FROM playback
+         WHERE user_id = ?1 AND position_secs > 0 AND completed = 0
+         ORDER BY last_played_at DESC LIMIT ?2"
+    );
+    let mut stmt = conn.prepare(&q).map_err(|e| Error::database(e.to_string()))?;
+    let rows = stmt
+        .query_map(
+            rusqlite::params![user_id.to_string(), limit],
+            Playback::from_row,
+        )
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?;
+    Ok(rows)
+}
+
+/// Mark an item as completed (played through).
+pub fn mark_played(conn: &Connection, user_id: UserId, item_id: ItemId) -> Result<Playback> {
+    upsert_playback(conn, user_id, item_id, 0.0, true)
+}
+
+/// Mark an item as unplayed (reset position and completed flag).
+pub fn mark_unplayed(conn: &Connection, user_id: UserId, item_id: ItemId) -> Result<bool> {
+    let n = conn
+        .execute(
+            "DELETE FROM playback WHERE user_id = ?1 AND item_id = ?2",
+            rusqlite::params![user_id.to_string(), item_id.to_string()],
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+    Ok(n > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

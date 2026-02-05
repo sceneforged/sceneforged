@@ -159,8 +159,20 @@ CREATE INDEX idx_conversion_jobs_status ON conversion_jobs(status);
 CREATE INDEX idx_conversion_jobs_item ON conversion_jobs(item_id);
 "#;
 
+/// V3: add favorites table and playback indexes.
+const V3_FAVORITES: &str = r#"
+CREATE TABLE favorites (
+    user_id TEXT NOT NULL REFERENCES users(id),
+    item_id TEXT NOT NULL REFERENCES items(id),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, item_id)
+);
+CREATE INDEX idx_playback_user ON playback(user_id);
+CREATE INDEX idx_favorites_user ON favorites(user_id);
+"#;
+
 /// Ordered list of (version, sql) pairs.
-const MIGRATIONS: &[(i64, &str)] = &[(1, V1_INITIAL), (2, V2_CONVERSION_JOBS)];
+const MIGRATIONS: &[(i64, &str)] = &[(1, V1_INITIAL), (2, V2_CONVERSION_JOBS), (3, V3_FAVORITES)];
 
 /// Run all pending migrations on `conn`.
 ///
@@ -238,6 +250,7 @@ mod tests {
             "conversion_jobs",
             "hls_cache",
             "playback",
+            "favorites",
             "schema_migrations",
         ];
         for t in &tables {

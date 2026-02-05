@@ -30,6 +30,7 @@ use crate::routes;
         routes::libraries::scan_library,
         routes::items::list_items,
         routes::items::get_item,
+        routes::items::list_children,
         routes::jobs::list_jobs,
         routes::jobs::submit_job,
         routes::jobs::get_job,
@@ -42,6 +43,16 @@ use crate::routes;
         routes::conversions::list_conversions,
         routes::conversions::submit_conversion,
         routes::conversions::get_conversion,
+        routes::conversions::delete_conversion,
+        routes::playback::continue_watching,
+        routes::playback::get_playback,
+        routes::playback::update_progress,
+        routes::playback::mark_played,
+        routes::playback::mark_unplayed,
+        routes::playback::list_favorites,
+        routes::playback::add_favorite,
+        routes::playback::remove_favorite,
+        routes::playback::get_user_data,
     ),
     components(schemas(
         routes::auth::LoginRequest,
@@ -59,6 +70,10 @@ use crate::routes;
         routes::admin::DashboardResponse,
         routes::admin::DashboardJobs,
         routes::admin::DashboardEventBus,
+        routes::playback::PlaybackResponse,
+        routes::playback::UpdateProgressRequest,
+        routes::playback::FavoriteResponse,
+        routes::playback::UserDataResponse,
         sf_av::ToolInfo,
     ))
 )]
@@ -91,6 +106,10 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
         // Items
         .route("/items", get(routes::items::list_items))
         .route("/items/{id}", get(routes::items::get_item))
+        .route(
+            "/items/{id}/children",
+            get(routes::items::list_children),
+        )
         // Jobs
         .route("/jobs", get(routes::jobs::list_jobs))
         .route("/jobs/submit", post(routes::jobs::submit_job))
@@ -109,11 +128,46 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
             "/conversions/submit",
             post(routes::conversions::submit_conversion),
         )
-        .route("/conversions/{id}", get(routes::conversions::get_conversion))
+        .route(
+            "/conversions/{id}",
+            get(routes::conversions::get_conversion).delete(routes::conversions::delete_conversion),
+        )
+        // Playback
+        .route(
+            "/playback/continue",
+            get(routes::playback::continue_watching),
+        )
+        .route("/playback/{item_id}", get(routes::playback::get_playback))
+        .route(
+            "/playback/{item_id}/progress",
+            post(routes::playback::update_progress),
+        )
+        .route(
+            "/playback/{item_id}/played",
+            post(routes::playback::mark_played),
+        )
+        .route(
+            "/playback/{item_id}/unplayed",
+            post(routes::playback::mark_unplayed),
+        )
+        .route(
+            "/playback/{item_id}/user-data",
+            get(routes::playback::get_user_data),
+        )
+        // Favorites
+        .route("/favorites", get(routes::playback::list_favorites))
+        .route(
+            "/favorites/{item_id}",
+            post(routes::playback::add_favorite).delete(routes::playback::remove_favorite),
+        )
         // Streaming
         .route(
             "/stream/{media_file_id}/index.m3u8",
             get(routes::stream::hls_playlist),
+        )
+        .route(
+            "/stream/{media_file_id}/direct",
+            get(routes::stream::direct_stream),
         )
         .route(
             "/stream/{media_file_id}/{segment}",

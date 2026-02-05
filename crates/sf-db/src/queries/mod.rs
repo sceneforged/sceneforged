@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod conversion_jobs;
+pub mod favorites;
 pub mod hls_cache;
 pub mod images;
 pub mod items;

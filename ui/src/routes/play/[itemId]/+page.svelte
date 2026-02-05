@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { getItem } from '$lib/api/index.js';
+	import { getItem, getPlayback, updateProgress, markPlayed } from '$lib/api/index.js';
 	import type { Item } from '$lib/types.js';
 	import { VideoPlayer } from '$lib/components/media/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -14,6 +14,7 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let streamUrl = $state<string | null>(null);
+	let startPosition = $state(0);
 
 	onMount(async () => {
 		await loadPlaybackInfo();
@@ -39,6 +40,16 @@
 
 			// Construct HLS stream URL
 			streamUrl = `/api/stream/${playableFile.id}/index.m3u8`;
+
+			// Restore playback position
+			try {
+				const pb = await getPlayback(itemId);
+				if (pb && !pb.completed && pb.position_secs > 5) {
+					startPosition = pb.position_secs;
+				}
+			} catch {
+				// No playback state yet — start from beginning
+			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load playback info';
 		} finally {
@@ -47,12 +58,16 @@
 	}
 
 	function handleProgress(positionSeconds: number) {
-		// Could report position back to server
-		console.log('Playback position:', positionSeconds);
+		if (!itemId) return;
+		updateProgress(itemId, positionSeconds).catch(() => {
+			// Silent fail — don't interrupt playback for progress saves
+		});
 	}
 
 	function handleEnded() {
-		// Navigate back when video ends
+		if (itemId) {
+			markPlayed(itemId).catch(() => {});
+		}
 		goBack();
 	}
 
@@ -118,6 +133,7 @@
 				<VideoPlayer
 					src={streamUrl}
 					title={item?.name}
+					{startPosition}
 					onProgress={handleProgress}
 					onEnded={handleEnded}
 					onError={handleError}

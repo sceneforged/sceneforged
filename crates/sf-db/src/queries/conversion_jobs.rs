@@ -175,6 +175,37 @@ pub fn fail_conversion(
     Ok(n > 0)
 }
 
+/// Delete a conversion job. Only queued or failed jobs can be deleted.
+/// Returns true if a row was deleted.
+pub fn delete_conversion_job(
+    conn: &Connection,
+    id: ConversionJobId,
+) -> Result<bool> {
+    let n = conn
+        .execute(
+            "DELETE FROM conversion_jobs WHERE id = ?1 AND status IN ('queued', 'failed')",
+            [id.to_string()],
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+    Ok(n > 0)
+}
+
+/// Cancel a running conversion job by setting status to 'failed'.
+pub fn cancel_conversion_job(
+    conn: &Connection,
+    id: ConversionJobId,
+) -> Result<bool> {
+    let now = Utc::now().to_rfc3339();
+    let n = conn
+        .execute(
+            "UPDATE conversion_jobs SET status='failed', error='Cancelled by user', completed_at=?1
+             WHERE id = ?2 AND status IN ('queued', 'processing')",
+            rusqlite::params![now, id.to_string()],
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+    Ok(n > 0)
+}
+
 /// Check if an item already has a queued or processing conversion job.
 pub fn has_active_conversion_for_item(
     conn: &Connection,

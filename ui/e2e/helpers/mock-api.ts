@@ -155,6 +155,53 @@ export class MockApi {
 			})
 		);
 
+		// Conversions
+		await this.page.route('**/api/conversions**', (route) =>
+			route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify([])
+			})
+		);
+
+		// Playback (continue watching, user-data, progress)
+		await this.page.route('**/api/playback/**', (route) => {
+			if (route.request().method() === 'POST') {
+				return route.fulfill({
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify({ item_id: '', position_secs: 0, completed: false, play_count: 0, last_played_at: '' })
+				});
+			}
+			// GET /playback/continue or /playback/:id/user-data
+			const url = route.request().url();
+			if (url.includes('/user-data')) {
+				return route.fulfill({
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify({ playback: null, is_favorite: false })
+				});
+			}
+			return route.fulfill({ status: 404 });
+		});
+
+		await this.page.route('**/api/playback/continue**', (route) =>
+			route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify([])
+			})
+		);
+
+		// Favorites
+		await this.page.route('**/api/favorites**', (route) =>
+			route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify([])
+			})
+		);
+
 		// SSE events — return a single heartbeat then close
 		await this.page.route('**/api/events', (route) =>
 			route.fulfill({

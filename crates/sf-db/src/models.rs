@@ -360,6 +360,27 @@ impl HlsCache {
 }
 
 // ---------------------------------------------------------------------------
+// Favorite
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct Favorite {
+    pub user_id: UserId,
+    pub item_id: ItemId,
+    pub created_at: String,
+}
+
+impl Favorite {
+    pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
+        Ok(Self {
+            user_id: parse_id(row, 0)?,
+            item_id: parse_id(row, 1)?,
+            created_at: row.get(2)?,
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Playback
 // ---------------------------------------------------------------------------
 

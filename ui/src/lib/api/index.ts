@@ -4,6 +4,9 @@ import type {
 	Item,
 	Job,
 	ConversionJob,
+	PlaybackState,
+	FavoriteState,
+	UserData,
 	Rule,
 	DashboardStats,
 	ToolInfo
@@ -149,6 +152,65 @@ export async function submitConversion(data: {
 	const result = await api.post<ConversionJob>('/conversions/submit', data);
 	api.invalidate('/conversions');
 	return result;
+}
+
+export async function deleteConversion(id: string): Promise<void> {
+	await api.delete(`/conversions/${id}`);
+	api.invalidate('/conversions');
+}
+
+// --- Items: children ---
+
+export async function getItemChildren(id: string): Promise<Item[]> {
+	const items = await api.get<Item[]>(`/items/${id}/children`);
+	return items.map(normalizeItem);
+}
+
+// --- Playback ---
+
+export async function getContinueWatching(limit = 20): Promise<PlaybackState[]> {
+	return api.get<PlaybackState[]>(`/playback/continue?limit=${limit}`, { skipCache: true });
+}
+
+export async function getPlayback(itemId: string): Promise<PlaybackState> {
+	return api.get<PlaybackState>(`/playback/${itemId}`, { skipCache: true });
+}
+
+export async function updateProgress(
+	itemId: string,
+	positionSecs: number,
+	completed = false
+): Promise<PlaybackState> {
+	return api.post<PlaybackState>(`/playback/${itemId}/progress`, {
+		position_secs: positionSecs,
+		completed
+	});
+}
+
+export async function markPlayed(itemId: string): Promise<PlaybackState> {
+	return api.post<PlaybackState>(`/playback/${itemId}/played`);
+}
+
+export async function markUnplayed(itemId: string): Promise<void> {
+	await api.post<void>(`/playback/${itemId}/unplayed`);
+}
+
+export async function getUserData(itemId: string): Promise<UserData> {
+	return api.get<UserData>(`/playback/${itemId}/user-data`, { skipCache: true });
+}
+
+// --- Favorites ---
+
+export async function getFavorites(limit = 50): Promise<FavoriteState[]> {
+	return api.get<FavoriteState[]>(`/favorites?limit=${limit}`, { skipCache: true });
+}
+
+export async function addFavorite(itemId: string): Promise<FavoriteState> {
+	return api.post<FavoriteState>(`/favorites/${itemId}`);
+}
+
+export async function removeFavorite(itemId: string): Promise<void> {
+	await api.delete(`/favorites/${itemId}`);
 }
 
 // --- Config / Rules ---

@@ -198,3 +198,57 @@ pub async fn get_conversion(
 
     Ok(Json(ConversionJobResponse::from_model(&job, item_name)))
 }
+
+/// DELETE /api/conversions/:id
+///
+/// Cancel or delete a conversion job. Queued/failed jobs are deleted;
+/// processing jobs are cancelled (marked as failed).
+#[utoipa::path(
+    delete,
+    path = "/api/conversions/{id}",
+    params(("id" = String, Path, description = "Conversion job ID")),
+    responses(
+        (status = 200, description = "Conversion job cancelled/deleted"),
+        (status = 404, description = "Conversion job not found or not cancellable")
+    )
+)]
+pub async fn delete_conversion(
+    State(ctx): State<AppContext>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, AppError> {
+    let job_id: sf_core::ConversionJobId = id
+        .parse()
+        .map_err(|_| sf_core::Error::Validation("Invalid conversion job ID".into()))?;
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+
+    let job = sf_db::queries::conversion_jobs::get_conversion_job(&conn, job_id)?
+        .ok_or_else(|| sf_core::Error::not_found("conversion_job", job_id))?;
+
+    let removed = match job.status.as_str() {
+        "queued" | "failed" => {
+            sf_db::queries::conversion_jobs::delete_conversion_job(&conn, job_id)?
+        }
+        "processing" => {
+            sf_db::queries::conversion_jobs::cancel_conversion_job(&conn, job_id)?
+        }
+        _ => false,
+    };
+
+    if !removed {
+        return Err(sf_core::Error::Validation(
+            "Conversion job cannot be cancelled in its current state".into(),
+        )
+        .into());
+    }
+
+    ctx.event_bus.broadcast(
+        sf_core::events::EventCategory::Admin,
+        sf_core::events::EventPayload::ConversionFailed {
+            job_id,
+            error: "Cancelled by user".into(),
+        },
+    );
+
+    Ok(StatusCode::OK)
+}

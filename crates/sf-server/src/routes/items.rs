@@ -196,3 +196,26 @@ pub async fn get_item(
 
     Ok(Json(resp))
 }
+
+/// GET /api/items/:id/children
+#[utoipa::path(
+    get,
+    path = "/api/items/{id}/children",
+    params(("id" = String, Path, description = "Parent item ID")),
+    responses(
+        (status = 200, description = "Child items", body = Vec<ItemResponse>)
+    )
+)]
+pub async fn list_children(
+    State(ctx): State<AppContext>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<ItemResponse>>, AppError> {
+    let parent_id: sf_core::ItemId = id
+        .parse()
+        .map_err(|_| sf_core::Error::Validation("Invalid item ID".into()))?;
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    let children = sf_db::queries::items::list_children(&conn, parent_id)?;
+    let responses: Vec<ItemResponse> = children.iter().map(ItemResponse::from_model).collect();
+    Ok(Json(responses))
+}

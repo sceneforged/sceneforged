@@ -158,6 +158,21 @@ pub fn delete_item(conn: &Connection, id: ItemId) -> Result<bool> {
     Ok(n > 0)
 }
 
+/// List child items of a parent, ordered by season/episode number.
+pub fn list_children(conn: &Connection, parent_id: ItemId) -> Result<Vec<Item>> {
+    let q = format!(
+        "SELECT {COLS} FROM items WHERE parent_id = ?1
+         ORDER BY COALESCE(season_number, 0), COALESCE(episode_number, 0), name ASC"
+    );
+    let mut stmt = conn.prepare(&q).map_err(|e| Error::database(e.to_string()))?;
+    let rows = stmt
+        .query_map([parent_id.to_string()], Item::from_row)
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?;
+    Ok(rows)
+}
+
 /// Search items by name (LIKE '%query%').
 pub fn search_items(conn: &Connection, query: &str, limit: i64) -> Result<Vec<Item>> {
     let pattern = format!("%{query}%");

@@ -11,5 +11,6 @@ pub mod items;
 pub mod jobs;
 pub mod libraries;
 pub mod metrics;
+pub mod playback;
 pub mod stream;
 pub mod webhook;

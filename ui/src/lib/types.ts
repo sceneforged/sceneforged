@@ -34,6 +34,25 @@ export interface ConversionJob {
 	completed_at?: string;
 }
 
+// Playback types
+export interface PlaybackState {
+	item_id: string;
+	position_secs: number;
+	completed: boolean;
+	play_count: number;
+	last_played_at: string;
+}
+
+export interface FavoriteState {
+	item_id: string;
+	created_at: string;
+}
+
+export interface UserData {
+	playback: PlaybackState | null;
+	is_favorite: boolean;
+}
+
 // Library types
 export interface Library {
 	id: string;

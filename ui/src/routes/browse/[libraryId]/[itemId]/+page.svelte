@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { getItem, submitConversion } from '$lib/api/index.js';
+	import { getItem, submitConversion, getUserData, addFavorite, removeFavorite } from '$lib/api/index.js';
 	import type { Item } from '$lib/types.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -34,6 +34,10 @@
 	const isPlayable = $derived(
 		item?.media_files?.some((f) => f.role === 'universal' || f.profile === 'B') ?? false
 	);
+
+	// Favorite state
+	let isFavorite = $state(false);
+	let togglingFavorite = $state(false);
 
 	// Conversion state
 	let converting = $state(false);
@@ -107,10 +111,35 @@
 
 		try {
 			item = await getItem(itemId);
+			// Load user data (playback/favorite state) in parallel
+			try {
+				const userData = await getUserData(itemId);
+				isFavorite = userData.is_favorite;
+			} catch {
+				// Non-critical — user data may not exist yet
+			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load item';
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function toggleFavorite() {
+		if (!itemId || togglingFavorite) return;
+		togglingFavorite = true;
+		try {
+			if (isFavorite) {
+				await removeFavorite(itemId);
+				isFavorite = false;
+			} else {
+				await addFavorite(itemId);
+				isFavorite = true;
+			}
+		} catch {
+			// Silent fail
+		} finally {
+			togglingFavorite = false;
 		}
 	}
 
@@ -235,8 +264,20 @@
 
 			<!-- Details section -->
 			<div class="md:col-span-2">
-				<div class="mb-4">
+				<div class="mb-4 flex items-center gap-3">
 					<h1 class="text-3xl font-bold">{item.name}</h1>
+					<button
+						onclick={toggleFavorite}
+						disabled={togglingFavorite}
+						class="rounded-full p-1 transition-colors hover:bg-muted"
+						aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+					>
+						<Star
+							class="h-6 w-6 transition-colors {isFavorite
+								? 'fill-yellow-500 text-yellow-500'
+								: 'text-muted-foreground'}"
+						/>
+					</button>
 				</div>
 
 				<!-- Metadata badges -->
