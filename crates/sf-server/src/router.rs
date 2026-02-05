@@ -74,6 +74,8 @@ use crate::routes;
         routes::playback::UpdateProgressRequest,
         routes::playback::FavoriteResponse,
         routes::playback::UserDataResponse,
+        routes::playback::ContinueWatchingEntry,
+        routes::playback::FavoriteEntry,
         sf_av::ToolInfo,
     ))
 )]
@@ -121,7 +123,32 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
         // Config
         .route("/config/rules", get(routes::config::get_rules))
         .route("/config/rules", put(routes::config::put_rules))
-        .route("/config/arrs", get(routes::config::get_arrs))
+        .route(
+            "/config/arrs",
+            get(routes::config::get_arrs).post(routes::config::create_arr),
+        )
+        .route(
+            "/config/arrs/{name}",
+            put(routes::config::update_arr).delete(routes::config::delete_arr),
+        )
+        .route(
+            "/config/arrs/{name}/test",
+            post(routes::config::test_arr),
+        )
+        .route(
+            "/config/jellyfins",
+            get(routes::config::get_jellyfins).post(routes::config::create_jellyfin),
+        )
+        .route(
+            "/config/jellyfins/{name}",
+            put(routes::config::update_jellyfin).delete(routes::config::delete_jellyfin),
+        )
+        .route(
+            "/config/conversion",
+            get(routes::config::get_conversion).put(routes::config::update_conversion),
+        )
+        .route("/config/reload", post(routes::config::reload_config))
+        .route("/config/browse", get(routes::config::browse_path))
         // Conversions
         .route("/conversions", get(routes::conversions::list_conversions))
         .route(

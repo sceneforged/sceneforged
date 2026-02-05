@@ -111,7 +111,7 @@ pub struct ItemResponse {
 }
 
 impl ItemResponse {
-    fn from_model(item: &sf_db::models::Item) -> Self {
+    pub(crate) fn from_model(item: &sf_db::models::Item) -> Self {
         Self {
             id: item.id.to_string(),
             library_id: item.library_id.to_string(),

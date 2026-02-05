@@ -120,6 +120,25 @@ export class MockApi {
 			return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
 		});
 
+		// Individual job
+		await this.page.route('**/api/jobs/*', (route) => {
+			return route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({
+					id: 'job-1',
+					file_path: '/test/file.mkv',
+					file_name: 'file.mkv',
+					status: 'queued',
+					progress: 0,
+					retry_count: 0,
+					max_retries: 3,
+					priority: 0,
+					created_at: new Date().toISOString()
+				})
+			});
+		});
+
 		// Dashboard
 		await this.page.route('**/api/admin/dashboard', (route) =>
 			route.fulfill({
@@ -146,6 +165,124 @@ export class MockApi {
 			});
 		});
 
+		// Config - Arrs
+		await this.page.route('**/api/config/arrs/**', (route) => {
+			const method = route.request().method();
+			if (method === 'PUT') {
+				return route.fulfill({
+					status: 200,
+					contentType: 'application/json',
+					body: route.request().postData() ?? '{}'
+				});
+			}
+			if (method === 'DELETE') {
+				return route.fulfill({ status: 204 });
+			}
+			if (method === 'POST') {
+				return route.fulfill({
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify({ success: true, message: 'Connection successful' })
+				});
+			}
+			return route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: '[]'
+			});
+		});
+
+		await this.page.route('**/api/config/arrs', (route) => {
+			if (route.request().method() === 'POST') {
+				return route.fulfill({
+					status: 201,
+					contentType: 'application/json',
+					body: route.request().postData() ?? '{}'
+				});
+			}
+			return route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify([])
+			});
+		});
+
+		// Config - Jellyfins
+		await this.page.route('**/api/config/jellyfins/**', (route) => {
+			const method = route.request().method();
+			if (method === 'PUT') {
+				return route.fulfill({
+					status: 200,
+					contentType: 'application/json',
+					body: route.request().postData() ?? '{}'
+				});
+			}
+			if (method === 'DELETE') {
+				return route.fulfill({ status: 204 });
+			}
+			return route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: '[]'
+			});
+		});
+
+		await this.page.route('**/api/config/jellyfins', (route) => {
+			if (route.request().method() === 'POST') {
+				return route.fulfill({
+					status: 201,
+					contentType: 'application/json',
+					body: route.request().postData() ?? '{}'
+				});
+			}
+			return route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify([])
+			});
+		});
+
+		// Config - Conversion
+		await this.page.route('**/api/config/conversion', (route) => {
+			if (route.request().method() === 'PUT') {
+				return route.fulfill({
+					status: 200,
+					contentType: 'application/json',
+					body: route.request().postData() ?? '{}'
+				});
+			}
+			return route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({
+					auto_convert_on_scan: false,
+					auto_convert_dv_p7_to_p8: false,
+					video_crf: 15,
+					video_preset: 'slow',
+					audio_bitrate: '256k',
+					adaptive_crf: true
+				})
+			});
+		});
+
+		// Config - Reload
+		await this.page.route('**/api/config/reload', (route) =>
+			route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ status: 'reloaded' })
+			})
+		);
+
+		// Config - Browse
+		await this.page.route('**/api/config/browse**', (route) =>
+			route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ entries: [] })
+			})
+		);
+
 		// Tools
 		await this.page.route('**/api/admin/tools', (route) =>
 			route.fulfill({
@@ -170,10 +307,16 @@ export class MockApi {
 				return route.fulfill({
 					status: 200,
 					contentType: 'application/json',
-					body: JSON.stringify({ item_id: '', position_secs: 0, completed: false, play_count: 0, last_played_at: '' })
+					body: JSON.stringify({
+						item_id: '',
+						position_secs: 0,
+						completed: false,
+						play_count: 0,
+						last_played_at: ''
+					})
 				});
 			}
-			// GET /playback/continue or /playback/:id/user-data
+			// GET /playback/:id/user-data
 			const url = route.request().url();
 			if (url.includes('/user-data')) {
 				return route.fulfill({
@@ -185,6 +328,7 @@ export class MockApi {
 			return route.fulfill({ status: 404 });
 		});
 
+		// Continue watching — now returns enriched entries
 		await this.page.route('**/api/playback/continue**', (route) =>
 			route.fulfill({
 				status: 200,
@@ -193,7 +337,7 @@ export class MockApi {
 			})
 		);
 
-		// Favorites
+		// Favorites — now returns enriched entries
 		await this.page.route('**/api/favorites**', (route) =>
 			route.fulfill({
 				status: 200,

@@ -8,6 +8,7 @@ use sf_core::UserId;
 
 use crate::context::AppContext;
 use crate::error::AppError;
+use crate::routes::items::ItemResponse;
 
 // ---------------------------------------------------------------------------
 // Request / response schemas
@@ -51,6 +52,16 @@ impl PlaybackResponse {
     }
 }
 
+/// Enriched continue-watching entry with full item data.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ContinueWatchingEntry {
+    pub item: ItemResponse,
+    pub position_secs: f64,
+    pub completed: bool,
+    pub play_count: i32,
+    pub last_played_at: String,
+}
+
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct FavoriteResponse {
     pub item_id: String,
@@ -66,6 +77,13 @@ impl FavoriteResponse {
     }
 }
 
+/// Enriched favorite entry with full item data.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct FavoriteEntry {
+    pub item: ItemResponse,
+    pub created_at: String,
+}
+
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct UserDataResponse {
     pub playback: Option<PlaybackResponse>,
@@ -79,23 +97,37 @@ pub struct UserDataResponse {
 /// GET /api/playback/continue
 ///
 /// List in-progress items (position > 0, not completed) for "Continue Watching".
+/// Returns enriched entries with full item data to avoid N+1 queries.
 #[utoipa::path(
     get,
     path = "/api/playback/continue",
     params(PlaybackListParams),
     responses(
-        (status = 200, description = "In-progress items", body = Vec<PlaybackResponse>)
+        (status = 200, description = "In-progress items with item data", body = Vec<ContinueWatchingEntry>)
     )
 )]
 pub async fn continue_watching(
     State(ctx): State<AppContext>,
     Extension(user_id): Extension<UserId>,
     Query(params): Query<PlaybackListParams>,
-) -> Result<Json<Vec<PlaybackResponse>>, AppError> {
+) -> Result<Json<Vec<ContinueWatchingEntry>>, AppError> {
     let conn = sf_db::pool::get_conn(&ctx.db)?;
-    let items = sf_db::queries::playback::list_in_progress(&conn, user_id, params.limit)?;
-    let responses: Vec<PlaybackResponse> = items.iter().map(PlaybackResponse::from_model).collect();
-    Ok(Json(responses))
+    let playbacks = sf_db::queries::playback::list_in_progress(&conn, user_id, params.limit)?;
+
+    let mut entries = Vec::with_capacity(playbacks.len());
+    for pb in &playbacks {
+        if let Some(item) = sf_db::queries::items::get_item(&conn, pb.item_id)? {
+            entries.push(ContinueWatchingEntry {
+                item: ItemResponse::from_model(&item),
+                position_secs: pb.position_secs,
+                completed: pb.completed,
+                play_count: pb.play_count,
+                last_played_at: pb.last_played_at.clone(),
+            });
+        }
+    }
+
+    Ok(Json(entries))
 }
 
 /// GET /api/playback/:item_id
@@ -214,24 +246,34 @@ pub async fn mark_unplayed(
 
 /// GET /api/favorites
 ///
-/// List the user's favorite items.
+/// List the user's favorite items. Returns enriched entries with full item data.
 #[utoipa::path(
     get,
     path = "/api/favorites",
     params(PlaybackListParams),
     responses(
-        (status = 200, description = "Favorite items", body = Vec<FavoriteResponse>)
+        (status = 200, description = "Favorite items with item data", body = Vec<FavoriteEntry>)
     )
 )]
 pub async fn list_favorites(
     State(ctx): State<AppContext>,
     Extension(user_id): Extension<UserId>,
     Query(params): Query<PlaybackListParams>,
-) -> Result<Json<Vec<FavoriteResponse>>, AppError> {
+) -> Result<Json<Vec<FavoriteEntry>>, AppError> {
     let conn = sf_db::pool::get_conn(&ctx.db)?;
     let favs = sf_db::queries::favorites::list_favorites(&conn, user_id, params.limit)?;
-    let responses: Vec<FavoriteResponse> = favs.iter().map(FavoriteResponse::from_model).collect();
-    Ok(Json(responses))
+
+    let mut entries = Vec::with_capacity(favs.len());
+    for fav in &favs {
+        if let Some(item) = sf_db::queries::items::get_item(&conn, fav.item_id)? {
+            entries.push(FavoriteEntry {
+                item: ItemResponse::from_model(&item),
+                created_at: fav.created_at.clone(),
+            });
+        }
+    }
+
+    Ok(Json(entries))
 }
 
 /// POST /api/favorites/:item_id

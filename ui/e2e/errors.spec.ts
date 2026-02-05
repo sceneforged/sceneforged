@@ -187,7 +187,7 @@ test.describe('Error & Failure Handling', () => {
 		let callCount = 0;
 		await api.overrideRoute('**/api/admin/dashboard', (route) => {
 			callCount++;
-			if (callCount < 3) {
+			if (callCount < 2) {
 				return route.fulfill({
 					status: 500,
 					contentType: 'application/json',

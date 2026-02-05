@@ -1,5 +1,5 @@
 import type { Job, AppEvent } from '$lib/types.js';
-import { getJobs } from '$lib/api/index.js';
+import { getJobs, getJob } from '$lib/api/index.js';
 
 function createJobsStore() {
 	let activeJobs = $state<Job[]>([]);
@@ -36,18 +36,24 @@ function createJobsStore() {
 			}
 		},
 
-		handleEvent(event: AppEvent) {
+		async handleEvent(event: AppEvent) {
 			const { payload } = event;
 
 			switch (payload.type) {
-				case 'job_queued':
-					activeJobs = [...activeJobs, payload.job];
+				case 'job_queued': {
+					try {
+						const job = await getJob(payload.job_id);
+						activeJobs = [...activeJobs, job];
+					} catch (e) {
+						console.error('Failed to fetch queued job:', e);
+					}
 					break;
+				}
 
 				case 'job_started':
 					activeJobs = activeJobs.map((j) =>
 						j.id === payload.job_id
-							? { ...j, status: 'running' as const, rule_name: payload.rule_name }
+							? { ...j, status: 'running' as const }
 							: j
 					);
 					break;
@@ -60,18 +66,29 @@ function createJobsStore() {
 					);
 					break;
 
-				case 'job_completed':
-					activeJobs = activeJobs.filter((j) => j.id !== payload.job.id);
-					jobHistory = [payload.job, ...jobHistory];
+				case 'job_completed': {
+					const completed = activeJobs.find((j) => j.id === payload.job_id);
+					activeJobs = activeJobs.filter((j) => j.id !== payload.job_id);
+					if (completed) {
+						jobHistory = [
+							{ ...completed, status: 'completed' as const },
+							...jobHistory
+						];
+					}
 					break;
+				}
 
-				case 'job_failed':
-					activeJobs = activeJobs.map((j) =>
-						j.id === payload.job_id
-							? { ...j, status: 'failed' as const, error: payload.error }
-							: j
-					);
+				case 'job_failed': {
+					const failed = activeJobs.find((j) => j.id === payload.job_id);
+					activeJobs = activeJobs.filter((j) => j.id !== payload.job_id);
+					if (failed) {
+						jobHistory = [
+							{ ...failed, status: 'failed' as const, error: payload.error },
+							...jobHistory
+						];
+					}
 					break;
+				}
 			}
 		}
 	};

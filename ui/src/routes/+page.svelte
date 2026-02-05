@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getItems, getItem, getContinueWatching, getFavorites } from '$lib/api/index.js';
+	import { getItems, getContinueWatching, getFavorites } from '$lib/api/index.js';
 	import { MediaRow } from '$lib/components/media/index.js';
-	import type { Item, PlaybackState, FavoriteState } from '$lib/types.js';
+	import type { Item, ContinueWatchingEntry, FavoriteEntry } from '$lib/types.js';
 	import { Loader2 } from '@lucide/svelte';
 
 	let recentlyAdded = $state<Item[]>([]);
@@ -11,14 +11,6 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
-	async function resolveItems(ids: string[]): Promise<Item[]> {
-		if (ids.length === 0) return [];
-		const results = await Promise.allSettled(ids.map((id) => getItem(id)));
-		return results
-			.filter((r): r is PromiseFulfilledResult<Item> => r.status === 'fulfilled')
-			.map((r) => r.value);
-	}
-
 	async function loadData() {
 		loading = true;
 		error = null;
@@ -26,19 +18,13 @@
 		try {
 			const [recentlyAddedRes, continueRes, favsRes] = await Promise.all([
 				getItems({ limit: 20 }),
-				getContinueWatching(20).catch(() => [] as PlaybackState[]),
-				getFavorites(20).catch(() => [] as FavoriteState[])
+				getContinueWatching(20).catch(() => [] as ContinueWatchingEntry[]),
+				getFavorites(20).catch(() => [] as FavoriteEntry[])
 			]);
 
 			recentlyAdded = recentlyAddedRes.items;
-
-			const [cwItems, favItems] = await Promise.all([
-				resolveItems(continueRes.map((p) => p.item_id)),
-				resolveItems(favsRes.map((f) => f.item_id))
-			]);
-
-			continueWatching = cwItems;
-			favorites = favItems;
+			continueWatching = continueRes.map((e) => e.item);
+			favorites = favsRes.map((e) => e.item);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load data';
 		} finally {

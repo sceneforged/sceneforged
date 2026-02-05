@@ -23,8 +23,8 @@ interface CacheEntry {
 }
 
 const DEFAULT_TTL = 30_000; // 30 seconds
-const MAX_RETRIES = 3;
-const RETRY_DELAYS = [500, 1000, 2000];
+const MAX_RETRIES = 2;
+const RETRY_DELAYS = [500];
 
 /**
  * HTTP client with caching, request deduplication, and automatic retry.

@@ -153,20 +153,20 @@ export interface AppEvent {
 	payload: EventPayload;
 }
 
-// Discriminated union for event payloads
+// Discriminated union for event payloads (matches backend EventPayload in sf-core/src/events.rs)
 export type EventPayload =
-	| { type: 'job_queued'; job: Job }
-	| { type: 'job_started'; job_id: string; rule_name: string }
+	| { type: 'job_queued'; job_id: string }
+	| { type: 'job_started'; job_id: string }
 	| { type: 'job_progress'; job_id: string; progress: number; step: string }
-	| { type: 'job_completed'; job: Job }
+	| { type: 'job_completed'; job_id: string }
 	| { type: 'job_failed'; job_id: string; error: string }
 	| { type: 'library_scan_started'; library_id: string }
 	| { type: 'library_scan_progress'; library_id: string; files_found: number; files_queued: number }
 	| { type: 'library_scan_complete'; library_id: string; files_found: number; files_queued: number; files_skipped: number; errors: number }
-	| { type: 'library_created'; library: Library }
+	| { type: 'library_created'; library_id: string; name: string }
 	| { type: 'library_deleted'; library_id: string }
-	| { type: 'item_added'; item: Item }
-	| { type: 'item_updated'; item: Item }
+	| { type: 'item_added'; item_id: string }
+	| { type: 'item_updated'; item_id: string }
 	| { type: 'item_removed'; item_id: string }
 	| { type: 'conversion_queued'; job_id: string }
 	| { type: 'conversion_started'; job_id: string }
@@ -174,3 +174,44 @@ export type EventPayload =
 	| { type: 'conversion_completed'; job_id: string }
 	| { type: 'conversion_failed'; job_id: string; error: string }
 	| { type: 'heartbeat' };
+
+// Config types
+export interface ArrConfig {
+	name: string;
+	type: string;
+	url: string;
+	api_key: string;
+	enabled: boolean;
+	auto_rescan: boolean;
+	auto_rename: boolean;
+}
+
+export interface JellyfinConfig {
+	name: string;
+	url: string;
+	api_key: string;
+	enabled: boolean;
+}
+
+export interface ConversionConfig {
+	auto_convert_on_scan: boolean;
+	auto_convert_dv_p7_to_p8: boolean;
+	video_crf: number;
+	video_preset: string;
+	audio_bitrate: string;
+	adaptive_crf: boolean;
+}
+
+// Enriched playback/favorite responses (include item data)
+export interface ContinueWatchingEntry {
+	item: Item;
+	position_secs: number;
+	completed: boolean;
+	play_count: number;
+	last_played_at: string;
+}
+
+export interface FavoriteEntry {
+	item: Item;
+	created_at: string;
+}
