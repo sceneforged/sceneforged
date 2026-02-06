@@ -1,8 +1,8 @@
 //! Application configuration types.
 //!
-//! The top-level [`Config`] struct is deserialized from TOML (or any serde
-//! format) and carries all sub-configs for server, auth, tools, conversion, etc.
-//! Every section defaults sensibly so a completely empty file is valid.
+//! The top-level [`Config`] struct is deserialized from JSON and carries all
+//! sub-configs for server, auth, tools, conversion, etc. Every section
+//! defaults sensibly so a completely empty `{}` file is valid.
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -50,18 +50,13 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Deserialize a `Config` from a TOML string.
+    /// Deserialize a `Config` from a JSON string.
     ///
     /// This is intentionally string-based so the caller can read the file
     /// however it sees fit (async, embedded, etc.).
-    pub fn from_toml(toml_str: &str) -> Result<Self> {
-        // We use serde_json as an intermediate: parse TOML -> serde_json::Value
-        // is not available without the `toml` crate. Instead, we accept that
-        // callers may also pass JSON for testing, and we try JSON first.
-        //
-        // In production the server binary should add the `toml` crate and
-        // deserialize directly; this method is a convenience fallback.
-        serde_json::from_str(toml_str).map_err(|e| Error::Validation(format!("config parse error: {e}")))
+    pub fn from_json(json_str: &str) -> Result<Self> {
+        serde_json::from_str(json_str)
+            .map_err(|e| Error::Validation(format!("config parse error: {e}")))
     }
 
     /// Load configuration from a file path, falling back to defaults if the
@@ -72,7 +67,7 @@ impl Config {
         };
 
         match std::fs::read_to_string(path) {
-            Ok(contents) => Self::from_toml(&contents).unwrap_or_else(|e| {
+            Ok(contents) => Self::from_json(&contents).unwrap_or_else(|e| {
                 tracing::warn!("Failed to parse config file {}: {e}", path.display());
                 Self::default()
             }),
@@ -379,13 +374,13 @@ mod tests {
     #[test]
     fn parse_json_config() {
         let json = r#"{"server": {"port": 9090}}"#;
-        let cfg = Config::from_toml(json).unwrap();
+        let cfg = Config::from_json(json).unwrap();
         assert_eq!(cfg.server.port, 9090);
     }
 
     #[test]
     fn parse_empty_json_uses_defaults() {
-        let cfg = Config::from_toml("{}").unwrap();
+        let cfg = Config::from_json("{}").unwrap();
         assert_eq!(cfg.server.host, "0.0.0.0");
         assert_eq!(cfg.server.port, 8080);
     }

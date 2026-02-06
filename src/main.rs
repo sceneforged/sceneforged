@@ -278,7 +278,7 @@ fn validate_config(path: Option<&Path>) -> Result<(), Box<dyn std::error::Error>
         Some(p) => {
             println!("Validating config: {}", p.display());
             let contents = std::fs::read_to_string(p)?;
-            let config = Config::from_toml(&contents)?;
+            let config = Config::from_json(&contents)?;
 
             let warnings = config.validate();
             if warnings.is_empty() {

@@ -27,7 +27,9 @@ use sf_rules::Rule;
 /// Mutable runtime configuration that can be updated via API and persisted.
 ///
 /// All fields are behind [`RwLock`] so readers never block each other and
-/// writes are short-lived.
+/// writes are short-lived. The `base_config` holds the full config snapshot
+/// so that [`persist`](Self::persist) writes the complete config file
+/// (not just the mutable sections).
 #[derive(Debug)]
 pub struct ConfigStore {
     /// Processing rules (editable via PUT /api/config/rules).
@@ -38,6 +40,8 @@ pub struct ConfigStore {
     pub jellyfins: RwLock<Vec<sf_core::config::JellyfinConfig>>,
     /// Conversion defaults.
     pub conversion: RwLock<sf_core::config::ConversionConfig>,
+    /// Full config snapshot for persisting all sections (server, auth, etc.).
+    base_config: RwLock<Config>,
     /// Path to the config file for persistence (None = no persistence).
     config_path: Option<PathBuf>,
 }
@@ -50,6 +54,7 @@ impl ConfigStore {
             arrs: RwLock::new(config.arrs.clone()),
             jellyfins: RwLock::new(config.jellyfins.clone()),
             conversion: RwLock::new(config.conversion.clone()),
+            base_config: RwLock::new(config.clone()),
             config_path,
         }
     }
@@ -64,7 +69,11 @@ impl ConfigStore {
         self.rules.read().clone()
     }
 
-    /// Persist the current mutable config back to the file.
+    /// Persist the full config to the file as JSON.
+    ///
+    /// Merges mutable fields (arrs, jellyfins, conversion) into the base
+    /// config snapshot, then serializes the whole thing. Rules are added as
+    /// a separate top-level key since they use sf_rules serialization.
     ///
     /// This is a best-effort operation; errors are logged but not propagated.
     pub fn persist(&self) {
@@ -72,27 +81,25 @@ impl ConfigStore {
             return;
         };
 
-        let rules = self.get_rules();
-        let arrs = self.arrs.read().clone();
-        let jellyfins = self.jellyfins.read().clone();
-        let conversion = self.conversion.read().clone();
+        // Build a full config snapshot with current mutable values.
+        let mut config = self.base_config.read().clone();
+        config.arrs = self.arrs.read().clone();
+        config.jellyfins = self.jellyfins.read().clone();
+        config.conversion = self.conversion.read().clone();
 
-        // Use sf_rules::rules_to_value for rules serialization to keep the
-        // deep serde monomorphization for the recursive Expr type inside the
-        // sf-rules crate. Other config sections use serde_json::to_value
-        // directly since they don't have recursive types.
-        let mut map = serde_json::Map::new();
+        // Serialize the full config to a JSON map, then add rules separately
+        // (rules use sf_rules serialization to avoid deep monomorphization).
+        let mut map = match serde_json::to_value(&config) {
+            Ok(serde_json::Value::Object(m)) => m,
+            Ok(_) | Err(_) => {
+                tracing::warn!("Failed to serialize config");
+                return;
+            }
+        };
+
+        let rules = self.get_rules();
         if let Ok(v) = sf_rules::rules_to_value(&rules) {
             map.insert("rules".into(), v);
-        }
-        if let Ok(v) = serde_json::to_value(&arrs) {
-            map.insert("arrs".into(), v);
-        }
-        if let Ok(v) = serde_json::to_value(&jellyfins) {
-            map.insert("jellyfins".into(), v);
-        }
-        if let Ok(v) = serde_json::to_value(&conversion) {
-            map.insert("conversion".into(), v);
         }
 
         let snapshot = serde_json::Value::Object(map);
@@ -109,7 +116,10 @@ impl ConfigStore {
         }
     }
 
-    /// Reload mutable config from the file on disk.
+    /// Reload config from the file on disk.
+    ///
+    /// Parses the file as a full JSON config and updates both the base config
+    /// and all mutable fields.
     pub fn reload(&self) {
         let Some(ref path) = self.config_path else {
             return;
@@ -123,39 +133,25 @@ impl ConfigStore {
             }
         };
 
-        // Try to parse as our JSON snapshot format.
-        // Use sf_rules::rules_from_value for rules to keep the deep serde
-        // monomorphization for Expr inside the sf-rules crate.
+        // Parse as full Config for the base + mutable sections.
+        if let Ok(config) = Config::from_json(&contents) {
+            *self.arrs.write() = config.arrs.clone();
+            *self.jellyfins.write() = config.jellyfins.clone();
+            *self.conversion.write() = config.conversion.clone();
+            *self.base_config.write() = config;
+        }
+
+        // Rules are serialized separately via sf_rules; parse them from the
+        // raw JSON value to keep monomorphization in sf-rules.
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&contents) {
             if let Some(rules) = val.get("rules") {
                 if let Ok(r) = sf_rules::rules_from_value(rules) {
                     self.set_rules(r);
                 }
             }
-            if let Some(arrs) = val.get("arrs") {
-                if let Ok(a) =
-                    serde_json::from_value::<Vec<sf_core::config::ArrConfig>>(arrs.clone())
-                {
-                    *self.arrs.write() = a;
-                }
-            }
-            if let Some(jfs) = val.get("jellyfins") {
-                if let Ok(j) =
-                    serde_json::from_value::<Vec<sf_core::config::JellyfinConfig>>(jfs.clone())
-                {
-                    *self.jellyfins.write() = j;
-                }
-            }
-            if let Some(conv) = val.get("conversion") {
-                if let Ok(c) =
-                    serde_json::from_value::<sf_core::config::ConversionConfig>(conv.clone())
-                {
-                    *self.conversion.write() = c;
-                }
-            }
-
-            tracing::info!("Config reloaded from {}", path.display());
         }
+
+        tracing::info!("Config reloaded from {}", path.display());
     }
 }
 
