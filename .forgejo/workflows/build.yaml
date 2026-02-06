@@ -12,7 +12,6 @@ jobs:
       image: docker:cli
       volumes:
         - /var/run/docker.sock:/var/run/docker.sock
-        - /opt/stacks/sceneforged:/stack
     steps:
       - name: Install git
         run: apk add --no-cache git
@@ -40,4 +39,8 @@ jobs:
 
       - name: Deploy
         run: |
-          docker compose -f /stack/compose.yaml up -d --force-recreate --pull always
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v /opt/stacks/sceneforged:/stack \
+            docker:cli \
+            docker compose -f /stack/compose.yaml up -d --force-recreate --pull always
