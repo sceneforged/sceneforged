@@ -642,6 +642,81 @@ pub(crate) fn write_mdat_header(data_size: u64) -> Vec<u8> {
 }
 
 // ---------------------------------------------------------------------------
+// Multi-track support
+// ---------------------------------------------------------------------------
+
+/// Extended sample with per-sample duration for precomputed segment moofs.
+pub(crate) struct TrunSampleFull {
+    pub duration: u32,
+    pub size: u32,
+    pub flags: u32,
+    pub composition_time_offset: i32,
+}
+
+/// Write a `trun` box with all per-sample fields (duration + size + flags + composition offset).
+///
+/// Flags: 0x000001 (data-offset) | 0x000100 (duration) | 0x000200 (size) |
+///        0x000400 (flags) | 0x000800 (composition-offset) = 0x000F01
+pub(crate) fn write_trun_full(samples: &[TrunSampleFull], data_offset: i32) -> Vec<u8> {
+    let trun_flags: u32 = 0x000001 | 0x000100 | 0x000200 | 0x000400 | 0x000800;
+    let mut content = Vec::with_capacity(8 + 4 + samples.len() * 16);
+    content.extend_from_slice(&fullbox_header(1, trun_flags));
+    content.extend_from_slice(&(samples.len() as u32).to_be_bytes());
+    content.extend_from_slice(&data_offset.to_be_bytes());
+    for s in samples {
+        content.extend_from_slice(&s.duration.to_be_bytes());
+        content.extend_from_slice(&s.size.to_be_bytes());
+        content.extend_from_slice(&s.flags.to_be_bytes());
+        content.extend_from_slice(&s.composition_time_offset.to_be_bytes());
+    }
+    write_box(b"trun", &content)
+}
+
+/// Audio-optimized sample (duration + size only, no flags/composition offset).
+pub(crate) struct TrunSampleSimple {
+    pub duration: u32,
+    pub size: u32,
+}
+
+/// Write a `trun` box with only duration + size per sample.
+///
+/// Flags: 0x000001 (data-offset) | 0x000100 (duration) | 0x000200 (size) = 0x000301
+pub(crate) fn write_trun_simple(samples: &[TrunSampleSimple], data_offset: i32) -> Vec<u8> {
+    let trun_flags: u32 = 0x000001 | 0x000100 | 0x000200;
+    let mut content = Vec::with_capacity(8 + 4 + samples.len() * 8);
+    content.extend_from_slice(&fullbox_header(0, trun_flags));
+    content.extend_from_slice(&(samples.len() as u32).to_be_bytes());
+    content.extend_from_slice(&data_offset.to_be_bytes());
+    for s in samples {
+        content.extend_from_slice(&s.duration.to_be_bytes());
+        content.extend_from_slice(&s.size.to_be_bytes());
+    }
+    write_box(b"trun", &content)
+}
+
+/// Write an `mvex` box with multiple trex entries.
+pub(crate) fn write_mvex_multi(track_ids: &[u32]) -> Vec<u8> {
+    let trex_boxes: Vec<Vec<u8>> = track_ids.iter().map(|&id| write_trex(id)).collect();
+    let refs: Vec<&[u8]> = trex_boxes.iter().map(|b| b.as_slice()).collect();
+    write_container_box(b"mvex", &refs)
+}
+
+/// Write a `moov` box with multiple trak children.
+pub(crate) fn write_moov_multi(
+    timescale: u32,
+    duration: u64,
+    traks: &[&[u8]],
+    mvex: &[u8],
+) -> Vec<u8> {
+    let mvhd = write_mvhd(timescale, duration);
+    let mut children: Vec<&[u8]> = Vec::with_capacity(traks.len() + 2);
+    children.push(&mvhd);
+    children.extend_from_slice(traks);
+    children.push(mvex);
+    write_container_box(b"moov", &children)
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

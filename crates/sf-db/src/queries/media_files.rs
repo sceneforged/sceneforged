@@ -124,6 +124,20 @@ pub fn get_media_file_by_path(conn: &Connection, path: &str) -> Result<Option<Me
     }
 }
 
+/// List all media files with a given profile (e.g. "B").
+pub fn list_media_files_by_profile(conn: &Connection, profile: &str) -> Result<Vec<MediaFile>> {
+    let q = format!(
+        "SELECT {COLS} FROM media_files WHERE profile = ?1 ORDER BY created_at ASC"
+    );
+    let mut stmt = conn.prepare(&q).map_err(|e| Error::database(e.to_string()))?;
+    let rows = stmt
+        .query_map([profile], MediaFile::from_row)
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?;
+    Ok(rows)
+}
+
 /// Count distinct items that have at least one media file with each profile.
 ///
 /// Returns a list of `(profile, count)` pairs.

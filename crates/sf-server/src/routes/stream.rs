@@ -1,6 +1,8 @@
-//! Streaming route handlers: HLS and direct file streaming.
+//! Streaming route handlers: HLS (from precomputed segment cache) and direct
+//! file streaming.
 //!
-//! HLS serves pre-generated fMP4 segments from disk.
+//! HLS segments are served zero-copy: moof+mdat headers come from RAM, sample
+//! data is read from the source MP4 file on demand.
 //! Direct streaming serves source files with HTTP range request support.
 
 use axum::extract::{Path, State};
@@ -20,27 +22,22 @@ pub async fn hls_playlist(
         .parse()
         .map_err(|_| sf_core::Error::Validation("Invalid media_file_id".into()))?;
 
-    let conn = sf_db::pool::get_conn(&ctx.db)?;
-    let cache = sf_db::queries::hls_cache::get_hls_cache(&conn, mf_id)?
+    let prepared = ctx
+        .hls_cache
+        .get(&mf_id)
+        .map(|entry| entry.value().clone())
         .ok_or_else(|| sf_core::Error::not_found("hls_cache", mf_id))?;
-
-    let playlist_path = std::path::Path::new(&cache.playlist).join("index.m3u8");
-    let content = tokio::fs::read_to_string(&playlist_path)
-        .await
-        .map_err(|_| {
-            sf_core::Error::not_found("hls_playlist", playlist_path.to_string_lossy())
-        })?;
 
     Ok((
         StatusCode::OK,
         [("content-type", "application/vnd.apple.mpegurl")],
-        content,
+        prepared.variant_playlist.clone(),
     ))
 }
 
 /// GET /api/stream/:media_file_id/:segment
 ///
-/// Serves `init.mp4` or `seg*.m4s` files from the HLS cache directory.
+/// Serves `init.mp4` or `segment_N.m4s` from the in-memory cache + source file.
 pub async fn hls_segment(
     State(ctx): State<AppContext>,
     Path((media_file_id, segment)): Path<(String, String)>,
@@ -58,28 +55,81 @@ pub async fn hls_segment(
         return Err(sf_core::Error::Validation("Invalid segment filename".into()).into());
     }
 
-    let conn = sf_db::pool::get_conn(&ctx.db)?;
-    let cache = sf_db::queries::hls_cache::get_hls_cache(&conn, mf_id)?
+    let prepared = ctx
+        .hls_cache
+        .get(&mf_id)
+        .map(|entry| entry.value().clone())
         .ok_or_else(|| sf_core::Error::not_found("hls_cache", mf_id))?;
 
-    let segment_path = std::path::Path::new(&cache.playlist).join(&segment);
-    let data = tokio::fs::read(&segment_path)
-        .await
-        .map_err(|_| sf_core::Error::not_found("segment", &segment))?;
+    if segment == "init.mp4" {
+        return Ok((
+            StatusCode::OK,
+            [("content-type", "video/mp4")],
+            prepared.init_segment.clone(),
+        )
+            .into_response());
+    }
 
-    let content_type = if segment.ends_with(".m4s") {
-        "video/iso.segment"
-    } else if segment.ends_with(".mp4") {
-        "video/mp4"
-    } else {
-        "application/octet-stream"
-    };
+    // Parse segment_N.m4s
+    let seg_index = segment
+        .strip_prefix("segment_")
+        .and_then(|s| s.strip_suffix(".m4s"))
+        .and_then(|s| s.parse::<usize>().ok())
+        .ok_or_else(|| sf_core::Error::not_found("segment", &segment))?;
+
+    let seg = prepared
+        .segments
+        .get(seg_index)
+        .ok_or_else(|| sf_core::Error::not_found("segment", &segment))?;
+
+    // Assemble the segment: moof_bytes + mdat_header + data from source file.
+    let total_size =
+        seg.moof_bytes.len() + seg.mdat_header.len() + seg.data_length as usize;
+    let mut buf = Vec::with_capacity(total_size);
+    buf.extend_from_slice(&seg.moof_bytes);
+    buf.extend_from_slice(&seg.mdat_header);
+
+    // Read data ranges from source file.
+    let file_path = prepared.file_path.clone();
+    let data_ranges: Vec<(u64, u64)> = seg
+        .data_ranges
+        .iter()
+        .map(|r| (r.file_offset, r.length))
+        .collect();
+    let expected_data = seg.data_length as usize;
+
+    let data = tokio::task::spawn_blocking(move || -> sf_core::Result<Vec<u8>> {
+        use std::io::{Read, Seek, SeekFrom};
+        let mut file = std::fs::File::open(&file_path).map_err(|e| {
+            sf_core::Error::Internal(format!(
+                "Failed to open {}: {e}",
+                file_path.display()
+            ))
+        })?;
+        let mut data = Vec::with_capacity(expected_data);
+        for (offset, length) in &data_ranges {
+            file.seek(SeekFrom::Start(*offset)).map_err(|e| {
+                sf_core::Error::Internal(format!("Seek failed: {e}"))
+            })?;
+            let mut chunk = vec![0u8; *length as usize];
+            file.read_exact(&mut chunk).map_err(|e| {
+                sf_core::Error::Internal(format!("Read failed: {e}"))
+            })?;
+            data.extend_from_slice(&chunk);
+        }
+        Ok(data)
+    })
+    .await
+    .map_err(|e| sf_core::Error::Internal(format!("spawn_blocking join error: {e}")))??;
+
+    buf.extend_from_slice(&data);
 
     Ok((
         StatusCode::OK,
-        [("content-type", content_type)],
-        data,
-    ))
+        [("content-type", "video/iso.segment")],
+        buf,
+    )
+        .into_response())
 }
 
 /// GET /api/stream/:media_file_id/direct
@@ -160,9 +210,6 @@ pub async fn direct_stream(
                 .into_response())
         }
         None => {
-            // No range — return full file for small files, or signal accept-ranges.
-            // For large files (>10MB), we still read the whole thing but set Accept-Ranges
-            // so clients know they can do range requests next time.
             let data = tokio::fs::read(file_path).await.map_err(|_| {
                 sf_core::Error::not_found("file", &mf.file_path)
             })?;

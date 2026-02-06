@@ -337,29 +337,6 @@ impl ConversionJob {
 }
 
 // ---------------------------------------------------------------------------
-// HlsCache
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone)]
-pub struct HlsCache {
-    pub media_file_id: MediaFileId,
-    pub playlist: String,
-    pub segments: String,
-    pub created_at: String,
-}
-
-impl HlsCache {
-    pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
-        Ok(Self {
-            media_file_id: parse_id(row, 0)?,
-            playlist: row.get(1)?,
-            segments: row.get(2)?,
-            created_at: row.get(3)?,
-        })
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Favorite
 // ---------------------------------------------------------------------------
 

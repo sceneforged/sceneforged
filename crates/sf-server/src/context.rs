@@ -8,12 +8,15 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use dashmap::DashMap;
 use parking_lot::RwLock;
 
 use sf_av::ToolRegistry;
 use sf_core::config::Config;
 use sf_core::events::EventBus;
+use sf_core::MediaFileId;
 use sf_db::pool::DbPool;
+use sf_media::PreparedMedia;
 use sf_probe::Prober;
 use sf_rules::Rule;
 
@@ -177,6 +180,8 @@ pub struct AppContext {
     pub prober: Arc<dyn Prober>,
     /// External tool registry.
     pub tools: Arc<ToolRegistry>,
+    /// In-memory HLS segment cache for zero-copy serving.
+    pub hls_cache: Arc<DashMap<MediaFileId, Arc<PreparedMedia>>>,
 }
 
 #[cfg(test)]

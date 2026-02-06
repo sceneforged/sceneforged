@@ -11,6 +11,7 @@
 pub mod context;
 pub mod conversion_processor;
 pub mod error;
+pub mod hls_prep;
 pub mod middleware;
 pub mod notifications;
 pub mod processor;
@@ -22,6 +23,8 @@ pub mod watcher;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+use dashmap::DashMap;
 
 use sf_core::config::Config;
 use sf_core::events::EventBus;
@@ -72,6 +75,8 @@ pub async fn start(config: Config, config_path: Option<PathBuf>) -> sf_core::Res
     // Build event bus.
     let event_bus = Arc::new(EventBus::default());
 
+    let hls_cache = Arc::new(DashMap::new());
+
     let ctx = AppContext {
         db,
         config: Arc::new(config.clone()),
@@ -79,7 +84,18 @@ pub async fn start(config: Config, config_path: Option<PathBuf>) -> sf_core::Res
         event_bus,
         prober,
         tools,
+        hls_cache,
     };
+
+    // Warm up HLS cache for existing Profile B media files.
+    {
+        let warmup_ctx = ctx.clone();
+        tokio::spawn(async move {
+            if let Err(e) = hls_prep::warm_hls_cache(&warmup_ctx).await {
+                tracing::warn!("HLS cache warmup error: {e}");
+            }
+        });
+    }
 
     // Cancellation token for graceful shutdown.
     let cancel = CancellationToken::new();

@@ -7,6 +7,8 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use dashmap::DashMap;
+
 use sf_av::ToolRegistry;
 use sf_core::config::Config;
 use sf_core::events::EventBus;
@@ -44,6 +46,7 @@ impl TestHarness {
             event_bus,
             prober,
             tools,
+            hls_cache: Arc::new(DashMap::new()),
         };
 
         Self { ctx, db }

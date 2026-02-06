@@ -168,6 +168,45 @@ pub fn write_media_segment(seq: u32, decode_time: u64, samples: &[SampleInfo]) -
     result
 }
 
+/// Generate an fMP4 initialization segment with both video and audio tracks.
+///
+/// Produces ftyp + moov with two trak boxes and an mvex with two trex entries.
+pub fn write_init_segment_multi(video: &TrackConfig, audio: &TrackConfig) -> Vec<u8> {
+    let ftyp = boxes::write_ftyp();
+
+    let video_trak = boxes::write_video_trak(
+        video.track_id,
+        video.timescale,
+        0,
+        &video.codec,
+        video.width,
+        video.height,
+        &video.codec_private,
+    );
+
+    let audio_trak = boxes::write_audio_trak(
+        audio.track_id,
+        audio.timescale,
+        0,
+        audio.sample_rate,
+        audio.channels,
+        &audio.codec_private,
+    );
+
+    let mvex = boxes::write_mvex_multi(&[video.track_id, audio.track_id]);
+    let moov = boxes::write_moov_multi(
+        video.timescale,
+        0,
+        &[&video_trak, &audio_trak],
+        &mvex,
+    );
+
+    let mut result = Vec::with_capacity(ftyp.len() + moov.len());
+    result.extend_from_slice(&ftyp);
+    result.extend_from_slice(&moov);
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,7 +1,7 @@
 //! Background conversion processor.
 //!
 //! Polls the database for queued conversion jobs, encodes to Profile B,
-//! generates HLS segments, and updates job status throughout.
+//! populates the in-memory HLS cache, and updates job status throughout.
 
 use std::path::Path;
 use std::time::Duration;
@@ -191,16 +191,8 @@ async fn execute_conversion(
         source_mf.duration_secs,
     )?;
 
-    // Generate HLS segments.
-    let hls_dir = output_path.with_extension("").with_extension("hls");
-    sf_av::generate_hls_segments(&ctx.tools, &output_path, &hls_dir, 6).await?;
-
-    // Upsert HLS cache.
-    sf_db::queries::hls_cache::upsert_hls_cache(
-        &conn,
-        output_mf.id,
-        &hls_dir.to_string_lossy(),
-    )?;
+    // Populate in-memory HLS cache from the new Profile B MP4.
+    crate::hls_prep::populate_hls_cache(ctx, output_mf.id, &output_path).await?;
 
     // Complete the conversion job.
     sf_db::queries::conversion_jobs::complete_conversion(&conn, job_id, output_mf.id)?;

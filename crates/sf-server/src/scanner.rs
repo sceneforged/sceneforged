@@ -70,18 +70,6 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
         for entry in walkdir::WalkDir::new(dir_path)
             .follow_links(true)
             .into_iter()
-            .filter_entry(|e| {
-                // Skip HLS output directories (e.g. movie-pb.hls/) — they
-                // contain .m4s segments and .m3u8 playlists, not scannable media.
-                if e.file_type().is_dir() {
-                    if let Some(name) = e.file_name().to_str() {
-                        if name.ends_with(".hls") {
-                            return false;
-                        }
-                    }
-                }
-                true
-            })
             .filter_map(|e| match e {
                 Ok(entry) => Some(entry),
                 Err(err) => {
@@ -382,6 +370,16 @@ async fn ingest_file(
         duration_secs,
     )?;
 
+    // Populate HLS cache for Profile B files.
+    if profile == sf_core::Profile::B {
+        if let Err(e) = crate::hls_prep::populate_hls_cache(ctx, mf.id, path).await {
+            tracing::warn!(
+                file = %file_path_str, error = %e,
+                "Failed to populate HLS cache during scan"
+            );
+        }
+    }
+
     // Only queue conversion for files that aren't already Profile B.
     if auto_convert && profile != sf_core::Profile::B {
         let job = sf_db::queries::conversion_jobs::create_conversion_job(
@@ -481,7 +479,7 @@ async fn ingest_converted_file(ctx: &AppContext, path: &Path) -> sf_core::Result
         .map(|dv| dv.profile as i32);
     let duration_secs = media_info.duration.map(|d| d.as_secs_f64());
 
-    sf_db::queries::media_files::create_media_file(
+    let mf = sf_db::queries::media_files::create_media_file(
         &conn,
         item_id,
         &file_path_str,
@@ -499,6 +497,16 @@ async fn ingest_converted_file(ctx: &AppContext, path: &Path) -> sf_core::Result
         &profile.to_string(),
         duration_secs,
     )?;
+
+    // Populate HLS cache for Profile B files.
+    if profile == sf_core::Profile::B {
+        if let Err(e) = crate::hls_prep::populate_hls_cache(ctx, mf.id, path).await {
+            tracing::warn!(
+                file = %file_path_str, error = %e,
+                "Failed to populate HLS cache for converted file"
+            );
+        }
+    }
 
     Ok(true)
 }

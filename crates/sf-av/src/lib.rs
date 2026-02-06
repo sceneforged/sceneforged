@@ -32,5 +32,5 @@ pub use workspace::Workspace;
 // Action functions
 pub use actions::{
     add_compat_audio, adaptive_crf, convert_dv_profile, convert_to_profile_b, exec_command,
-    generate_hls_segments, remux, strip_tracks,
+    remux, strip_tracks,
 };
