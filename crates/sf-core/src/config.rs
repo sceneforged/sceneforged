@@ -71,6 +71,10 @@ impl Config {
                 tracing::warn!("Failed to parse config file {}: {e}", path.display());
                 Self::default()
             }),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                tracing::info!("No config file at {}; using defaults", path.display());
+                Self::default()
+            }
             Err(e) => {
                 tracing::warn!("Failed to read config file {}: {e}", path.display());
                 Self::default()
