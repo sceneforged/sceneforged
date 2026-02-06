@@ -140,7 +140,7 @@ test.describe('Error & Failure Handling', () => {
 		await expect(page.getByText('Jobs error')).toBeVisible({ timeout: 15000 });
 	});
 
-	test('API 500 on rules section', async ({ page }) => {
+	test('API 500 on rules page', async ({ page }) => {
 		const api = new MockApi(page);
 		const scenario = populatedState();
 		await api.setup(scenario);
@@ -153,10 +153,7 @@ test.describe('Error & Failure Handling', () => {
 			})
 		);
 
-		await page.goto('/admin/jobs');
-
-		// Expand rules section
-		await page.getByRole('button', { name: /Processing Rules/ }).click();
+		await page.goto('/rules');
 
 		await expect(page.getByText('Rules error')).toBeVisible({ timeout: 15000 });
 	});

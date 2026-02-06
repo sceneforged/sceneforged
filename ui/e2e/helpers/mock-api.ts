@@ -148,7 +148,27 @@ export class MockApi {
 			})
 		);
 
-		// Rules
+		// Rules - individual CRUD
+		await this.page.route('**/api/config/rules/*', (route) => {
+			const method = route.request().method();
+			if (method === 'PUT') {
+				return route.fulfill({
+					status: 200,
+					contentType: 'application/json',
+					body: route.request().postData() ?? '{}'
+				});
+			}
+			if (method === 'DELETE') {
+				return route.fulfill({ status: 204 });
+			}
+			return route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: '{}'
+			});
+		});
+
+		// Rules - collection
 		await this.page.route('**/api/config/rules', (route) => {
 			if (route.request().method() === 'GET') {
 				return route.fulfill({
@@ -157,7 +177,17 @@ export class MockApi {
 					body: JSON.stringify(scenario.rules)
 				});
 			}
-			// PUT — return the sent body
+			// POST — create, return sent body with id
+			if (route.request().method() === 'POST') {
+				const body = JSON.parse(route.request().postData() ?? '{}');
+				body.id = 'new-rule-id';
+				return route.fulfill({
+					status: 201,
+					contentType: 'application/json',
+					body: JSON.stringify(body)
+				});
+			}
+			// PUT — return the sent body (bulk update)
 			return route.fulfill({
 				status: 200,
 				contentType: 'application/json',

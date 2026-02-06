@@ -139,22 +139,28 @@ test.describe('CRUD Operations', () => {
 		const scenario = populatedState();
 		await api.setup(scenario);
 
-		await page.goto('/admin/jobs');
+		await page.goto('/rules');
 
-		// Open rules section
-		await page.getByRole('button', { name: /Processing Rules/ }).click();
+		// Wait for rules to load
+		await expect(page.getByText('Transcode 4K')).toBeVisible();
 
 		// Click New Rule
 		await page.getByRole('button', { name: 'New Rule' }).click();
 
+		// Dialog should appear with rule-name input
+		await expect(page.locator('input#rule-name')).toBeVisible();
+
 		// Fill in rule editor
 		await page.locator('input#rule-name').fill('New Test Rule');
 
-		// Save
-		await page.getByRole('button', { name: 'Save' }).click();
+		// Uncheck enabled so we don't need actions to save
+		await page.locator('input#rule-enabled').uncheck();
 
-		// Editor should close
-		await expect(page.locator('input#rule-name')).not.toBeVisible();
+		// Save
+		await page.getByRole('button', { name: 'Save Rule' }).click();
+
+		// Dialog should close
+		await expect(page.locator('input#rule-name')).not.toBeVisible({ timeout: 5000 });
 	});
 
 	test('edit existing rule', async ({ page }) => {
@@ -162,10 +168,7 @@ test.describe('CRUD Operations', () => {
 		const scenario = populatedState();
 		await api.setup(scenario);
 
-		await page.goto('/admin/jobs');
-
-		// Expand rules
-		await page.getByRole('button', { name: /Processing Rules/ }).click();
+		await page.goto('/rules');
 
 		// Wait for rules to load
 		await expect(page.getByText('Transcode 4K')).toBeVisible();
@@ -173,7 +176,7 @@ test.describe('CRUD Operations', () => {
 		// Click edit on first rule
 		await page.getByTitle('Edit').first().click();
 
-		// Editor should appear with existing rule name
+		// Dialog should appear with rule-name input
 		await expect(page.locator('input#rule-name')).toBeVisible();
 	});
 
@@ -185,9 +188,7 @@ test.describe('CRUD Operations', () => {
 		// Handle confirm dialog
 		page.on('dialog', (dialog) => dialog.accept());
 
-		await page.goto('/admin/jobs');
-
-		await page.getByRole('button', { name: /Processing Rules/ }).click();
+		await page.goto('/rules');
 
 		// Verify rules are visible
 		await expect(page.getByText('Transcode 4K')).toBeVisible();
@@ -201,9 +202,10 @@ test.describe('CRUD Operations', () => {
 		const scenario = populatedState();
 		await api.setup(scenario);
 
-		await page.goto('/admin/jobs');
+		await page.goto('/rules');
 
-		await page.getByRole('button', { name: /Processing Rules/ }).click();
+		// Wait for rules to load
+		await expect(page.getByText('Transcode 4K')).toBeVisible();
 
 		// Should see Active badge
 		await expect(page.getByText('Active').first()).toBeVisible();
@@ -259,7 +261,7 @@ test.describe('CRUD Operations', () => {
 		await page.getByTitle('Delete').first().click();
 	});
 
-	test('create rule on standalone /rules page', async ({ page }) => {
+	test('create rule on standalone /rules page with dialog', async ({ page }) => {
 		const api = new MockApi(page);
 		const scenario = populatedState();
 		await api.setup(scenario);
@@ -272,17 +274,20 @@ test.describe('CRUD Operations', () => {
 		// Click New Rule
 		await page.getByRole('button', { name: 'New Rule' }).click();
 
-		// Editor should appear
+		// Dialog should appear with rule-name input
 		await expect(page.locator('input#rule-name')).toBeVisible();
 
 		// Fill in name
 		await page.locator('input#rule-name').fill('Standalone Rule');
 
-		// Save
-		await page.getByRole('button', { name: 'Save' }).click();
+		// Uncheck enabled so we don't need actions to save
+		await page.locator('input#rule-enabled').uncheck();
 
-		// Editor should close
-		await expect(page.locator('input#rule-name')).not.toBeVisible();
+		// Save
+		await page.getByRole('button', { name: 'Save Rule' }).click();
+
+		// Dialog should close
+		await expect(page.locator('input#rule-name')).not.toBeVisible({ timeout: 5000 });
 	});
 
 	test('empty rule name is rejected', async ({ page }) => {

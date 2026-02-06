@@ -294,6 +294,10 @@ fn validate_config(path: Option<&Path>) -> Result<(), Box<dyn std::error::Error>
             println!("  Watch enabled: {}", config.watch.enabled);
             println!("  Watch paths: {}", config.watch.paths.len());
             println!("  Arr integrations: {}", config.arrs.len());
+            println!(
+                "  HW accel: {}",
+                config.conversion.hw_accel.as_deref().unwrap_or("none (software)")
+            );
         }
         None => {
             println!("No config file specified, using defaults");
@@ -307,33 +311,25 @@ fn validate_config(path: Option<&Path>) -> Result<(), Box<dyn std::error::Error>
 }
 
 fn hash_password(password: &str) -> Result<(), Box<dyn std::error::Error>> {
-    // Simple hash using a basic scheme. In production, use bcrypt or argon2.
-    // For now, generate a hex-encoded SHA-256-style placeholder using UUID
-    // to keep dependencies minimal.
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    let mut hasher = DefaultHasher::new();
-    password.hash(&mut hasher);
-    let hash = hasher.finish();
-    // Print a deterministic but non-cryptographic hash with a prefix
-    println!("$sf$v1${:016x}", hash);
-    println!();
-    println!("NOTE: This is a placeholder hash. For production use, integrate");
-    println!("a proper bcrypt or argon2 hashing library.");
+    let hash = bcrypt::hash(password, 12)?;
+    println!("{hash}");
     Ok(())
 }
 
 fn generate_api_key() -> Result<(), Box<dyn std::error::Error>> {
-    let key = uuid::Uuid::new_v4();
-    println!("sf-{}", key.as_hyphenated());
+    use rand::Rng;
+    let mut buf = [0u8; 32];
+    rand::thread_rng().fill(&mut buf);
+    let hex_str: String = buf.iter().map(|b| format!("{b:02x}")).collect();
+    println!("sf-{hex_str}");
     Ok(())
 }
 
 fn generate_secret() -> Result<(), Box<dyn std::error::Error>> {
-    let a = uuid::Uuid::new_v4();
-    let b = uuid::Uuid::new_v4();
-    // Concatenate two UUIDs (without hyphens) for a 64-char hex secret
-    println!("{}{}", a.as_simple(), b.as_simple());
+    use rand::Rng;
+    let mut buf = [0u8; 64];
+    rand::thread_rng().fill(&mut buf);
+    let hex_str: String = buf.iter().map(|b| format!("{b:02x}")).collect();
+    println!("{hex_str}");
     Ok(())
 }

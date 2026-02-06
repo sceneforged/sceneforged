@@ -28,8 +28,12 @@ use crate::routes;
         routes::libraries::get_library,
         routes::libraries::delete_library,
         routes::libraries::scan_library,
+        routes::libraries::list_library_items,
+        routes::libraries::list_library_recent,
         routes::items::list_items,
         routes::items::get_item,
+        routes::items::list_item_files,
+        routes::items::search_items,
         routes::items::list_children,
         routes::jobs::list_jobs,
         routes::jobs::submit_job,
@@ -40,10 +44,13 @@ use crate::routes;
         routes::config::put_rules,
         routes::admin::dashboard,
         routes::admin::tools,
+        routes::admin::stats,
         routes::conversions::list_conversions,
         routes::conversions::submit_conversion,
         routes::conversions::get_conversion,
         routes::conversions::delete_conversion,
+        routes::conversions::batch_convert,
+        routes::conversions::dv_batch_convert,
         routes::playback::continue_watching,
         routes::playback::get_playback,
         routes::playback::update_progress,
@@ -67,9 +74,14 @@ use crate::routes;
         routes::jobs::SubmitJobRequest,
         routes::conversions::ConversionJobResponse,
         routes::conversions::SubmitConversionRequest,
+        routes::conversions::BatchConvertRequest,
+        routes::conversions::BatchConvertResponse,
+        routes::conversions::DvBatchConvertRequest,
         routes::admin::DashboardResponse,
         routes::admin::DashboardJobs,
         routes::admin::DashboardEventBus,
+        routes::admin::LibraryStatsResponse,
+        routes::admin::ProfileCounts,
         routes::playback::PlaybackResponse,
         routes::playback::UpdateProgressRequest,
         routes::playback::FavoriteResponse,
@@ -105,6 +117,14 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
             "/libraries/{id}/scan",
             post(routes::libraries::scan_library),
         )
+        .route(
+            "/libraries/{id}/items",
+            get(routes::libraries::list_library_items),
+        )
+        .route(
+            "/libraries/{id}/recent",
+            get(routes::libraries::list_library_recent),
+        )
         // Items
         .route("/items", get(routes::items::list_items))
         .route("/items/{id}", get(routes::items::get_item))
@@ -112,6 +132,12 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
             "/items/{id}/children",
             get(routes::items::list_children),
         )
+        .route(
+            "/items/{id}/files",
+            get(routes::items::list_item_files),
+        )
+        // Search
+        .route("/search", get(routes::items::search_items))
         // Jobs
         .route("/jobs", get(routes::jobs::list_jobs))
         .route("/jobs/submit", post(routes::jobs::submit_job))
@@ -148,12 +174,24 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
             get(routes::config::get_conversion).put(routes::config::update_conversion),
         )
         .route("/config/reload", post(routes::config::reload_config))
+        .route(
+            "/config/validate",
+            post(routes::config::validate_config),
+        )
         .route("/config/browse", get(routes::config::browse_path))
         // Conversions
         .route("/conversions", get(routes::conversions::list_conversions))
         .route(
             "/conversions/submit",
             post(routes::conversions::submit_conversion),
+        )
+        .route(
+            "/conversions/batch",
+            post(routes::conversions::batch_convert),
+        )
+        .route(
+            "/conversions/dv-batch",
+            post(routes::conversions::dv_batch_convert),
         )
         .route(
             "/conversions/{id}",
@@ -207,7 +245,8 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
         )
         // Admin
         .route("/admin/dashboard", get(routes::admin::dashboard))
-        .route("/admin/tools", get(routes::admin::tools));
+        .route("/admin/tools", get(routes::admin::tools))
+        .route("/admin/stats", get(routes::admin::stats));
 
     // Always apply auth middleware — it handles both enabled (validates
     // credentials) and disabled (injects anonymous UserId) modes.

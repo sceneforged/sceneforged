@@ -124,6 +124,39 @@ pub fn get_media_file_by_path(conn: &Connection, path: &str) -> Result<Option<Me
     }
 }
 
+/// Count distinct items that have at least one media file with each profile.
+///
+/// Returns a list of `(profile, count)` pairs.
+pub fn count_items_by_profile(conn: &Connection) -> Result<Vec<(String, i64)>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT profile, COUNT(DISTINCT item_id) FROM media_files GROUP BY profile ORDER BY profile",
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?;
+    Ok(rows)
+}
+
+/// Get total storage used by all media files.
+pub fn total_storage_bytes(conn: &Connection) -> Result<i64> {
+    conn.query_row(
+        "SELECT COALESCE(SUM(file_size), 0) FROM media_files",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(|e| Error::database(e.to_string()))
+}
+
+/// Count total media files.
+pub fn count_media_files(conn: &Connection) -> Result<i64> {
+    conn.query_row("SELECT COUNT(*) FROM media_files", [], |row| row.get(0))
+        .map_err(|e| Error::database(e.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

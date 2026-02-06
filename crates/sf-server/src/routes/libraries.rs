@@ -1,6 +1,6 @@
 //! Library CRUD route handlers.
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::context::AppContext;
 use crate::error::AppError;
+use crate::routes::items::ItemResponse;
 
 /// Request body for creating a library.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -163,6 +164,82 @@ pub async fn delete_library(
     );
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Query parameters for library item listing.
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct LibraryItemsParams {
+    #[serde(default)]
+    pub offset: i64,
+    #[serde(default = "default_items_limit")]
+    pub limit: i64,
+}
+
+fn default_items_limit() -> i64 {
+    50
+}
+
+/// GET /api/libraries/:id/items
+#[utoipa::path(
+    get,
+    path = "/api/libraries/{id}/items",
+    params(
+        ("id" = String, Path, description = "Library ID"),
+        LibraryItemsParams,
+    ),
+    responses(
+        (status = 200, description = "Items in library", body = Vec<ItemResponse>),
+        (status = 404, description = "Library not found")
+    )
+)]
+pub async fn list_library_items(
+    State(ctx): State<AppContext>,
+    Path(id): Path<String>,
+    Query(params): Query<LibraryItemsParams>,
+) -> Result<Json<Vec<ItemResponse>>, AppError> {
+    let lib_id: sf_core::LibraryId = id
+        .parse()
+        .map_err(|_| sf_core::Error::Validation("Invalid library ID".into()))?;
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+
+    // Verify library exists.
+    sf_db::queries::libraries::get_library(&conn, lib_id)?
+        .ok_or_else(|| sf_core::Error::not_found("library", lib_id))?;
+
+    let items =
+        sf_db::queries::items::list_items_by_library(&conn, lib_id, params.offset, params.limit)?;
+    let responses: Vec<ItemResponse> = items.iter().map(ItemResponse::from_model).collect();
+    Ok(Json(responses))
+}
+
+/// GET /api/libraries/:id/recent
+#[utoipa::path(
+    get,
+    path = "/api/libraries/{id}/recent",
+    params(("id" = String, Path, description = "Library ID")),
+    responses(
+        (status = 200, description = "Recently added items (last 7 days)", body = Vec<ItemResponse>),
+        (status = 404, description = "Library not found")
+    )
+)]
+pub async fn list_library_recent(
+    State(ctx): State<AppContext>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<ItemResponse>>, AppError> {
+    let lib_id: sf_core::LibraryId = id
+        .parse()
+        .map_err(|_| sf_core::Error::Validation("Invalid library ID".into()))?;
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+
+    // Verify library exists.
+    sf_db::queries::libraries::get_library(&conn, lib_id)?
+        .ok_or_else(|| sf_core::Error::not_found("library", lib_id))?;
+
+    let items = sf_db::queries::items::list_recent_items_by_library(&conn, lib_id, 7)?;
+    let responses: Vec<ItemResponse> = items.iter().map(ItemResponse::from_model).collect();
+    Ok(Json(responses))
 }
 
 /// POST /api/libraries/:id/scan

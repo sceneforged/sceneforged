@@ -14,6 +14,7 @@ use sf_pipeline::{create_actions, ActionContext, PipelineExecutor, ProgressSende
 use sf_rules::RuleEngine;
 
 use crate::context::AppContext;
+use crate::notifications::{self, NotificationManager};
 
 /// Worker identifier for locking jobs.
 const WORKER_ID: &str = "sf-processor";
@@ -82,6 +83,9 @@ async fn process_next_job(ctx: &AppContext) -> sf_core::Result<bool> {
                 EventPayload::JobCompleted { job_id },
             );
             tracing::info!(job_id = %job_id, "Job completed");
+
+            // Fire post-completion notifications (non-blocking).
+            fire_post_job_notifications(ctx, &job);
         }
         Err(e) => {
             let error_msg = e.to_string();
@@ -181,4 +185,19 @@ async fn execute_job(ctx: &AppContext, job: &sf_db::models::Job) -> sf_core::Res
     executor.execute(&action_ctx).await?;
 
     Ok(())
+}
+
+/// Fire non-blocking notifications to Jellyfin and *arr services after a job
+/// completes successfully. Errors in notifications are logged but never fail
+/// the job.
+fn fire_post_job_notifications(ctx: &AppContext, job: &sf_db::models::Job) {
+    let manager = NotificationManager::new();
+
+    // Notify all enabled Jellyfin instances.
+    let jellyfins = ctx.config_store.jellyfins.read().clone();
+    notifications::spawn_jellyfin_notifications(&manager, jellyfins);
+
+    // Notify all enabled arr instances with auto_rescan.
+    let arrs = ctx.config_store.arrs.read().clone();
+    notifications::spawn_arr_notifications(&manager, arrs, job.file_path.clone());
 }

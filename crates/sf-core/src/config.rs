@@ -130,6 +130,17 @@ impl Config {
             );
         }
 
+        if let Some(ref hw) = self.conversion.hw_accel {
+            let valid = ["none", "videotoolbox", "nvenc", "vaapi", "qsv"];
+            if !valid.contains(&hw.as_str()) {
+                warnings.push(format!(
+                    "conversion.hw_accel '{}' is not a recognized method (valid: {})",
+                    hw,
+                    valid.join(", ")
+                ));
+            }
+        }
+
         warnings
     }
 }
@@ -243,6 +254,11 @@ pub struct ConversionConfig {
     pub audio_bitrate: String,
     #[serde(default = "default_adaptive_crf")]
     pub adaptive_crf: bool,
+    /// Hardware acceleration method (none, videotoolbox, nvenc, vaapi, qsv).
+    /// When set to a supported value, ffmpeg will use the corresponding
+    /// hardware decoder and encoder instead of the default libx264.
+    #[serde(default)]
+    pub hw_accel: Option<String>,
 }
 
 fn default_video_crf() -> u32 {
@@ -267,6 +283,7 @@ impl Default for ConversionConfig {
             video_preset: default_video_preset(),
             audio_bitrate: default_audio_bitrate(),
             adaptive_crf: default_adaptive_crf(),
+            hw_accel: None,
         }
     }
 }

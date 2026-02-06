@@ -199,6 +199,178 @@ pub async fn get_conversion(
     Ok(Json(ConversionJobResponse::from_model(&job, item_name)))
 }
 
+/// Request body for batch conversion.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct BatchConvertRequest {
+    pub item_ids: Vec<String>,
+}
+
+/// Response for batch conversion.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct BatchConvertResponse {
+    pub job_ids: Vec<String>,
+    pub errors: Vec<String>,
+}
+
+/// POST /api/conversions/batch
+///
+/// Create a Profile B conversion job for each of the given items.
+#[utoipa::path(
+    post,
+    path = "/api/conversions/batch",
+    request_body = BatchConvertRequest,
+    responses(
+        (status = 200, description = "Batch conversion submitted", body = BatchConvertResponse)
+    )
+)]
+pub async fn batch_convert(
+    State(ctx): State<AppContext>,
+    Json(payload): Json<BatchConvertRequest>,
+) -> Result<Json<BatchConvertResponse>, AppError> {
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    let mut job_ids = Vec::new();
+    let mut errors = Vec::new();
+
+    for id_str in &payload.item_ids {
+        let item_id: sf_core::ItemId = match id_str.parse() {
+            Ok(id) => id,
+            Err(_) => {
+                errors.push(format!("Invalid item_id: {id_str}"));
+                continue;
+            }
+        };
+
+        // Skip items that already have active conversions.
+        match sf_db::queries::conversion_jobs::has_active_conversion_for_item(&conn, item_id) {
+            Ok(true) => {
+                errors.push(format!("Item {id_str} already has an active conversion"));
+                continue;
+            }
+            Err(e) => {
+                errors.push(format!("Error checking item {id_str}: {e}"));
+                continue;
+            }
+            Ok(false) => {}
+        }
+
+        // Find the source media file.
+        let files = match sf_db::queries::media_files::list_media_files_by_item(&conn, item_id) {
+            Ok(f) => f,
+            Err(e) => {
+                errors.push(format!("Error listing files for {id_str}: {e}"));
+                continue;
+            }
+        };
+
+        let source = match files.iter().find(|f| f.role == "source").or(files.first()) {
+            Some(s) => s,
+            None => {
+                errors.push(format!("No media files for item {id_str}"));
+                continue;
+            }
+        };
+
+        match sf_db::queries::conversion_jobs::create_conversion_job(&conn, item_id, source.id) {
+            Ok(job) => {
+                ctx.event_bus.broadcast(
+                    sf_core::events::EventCategory::Admin,
+                    sf_core::events::EventPayload::ConversionQueued { job_id: job.id },
+                );
+                job_ids.push(job.id.to_string());
+            }
+            Err(e) => {
+                errors.push(format!("Error creating job for {id_str}: {e}"));
+            }
+        }
+    }
+
+    Ok(Json(BatchConvertResponse { job_ids, errors }))
+}
+
+/// Request body for DV batch conversion.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct DvBatchConvertRequest {
+    pub item_ids: Vec<String>,
+}
+
+/// POST /api/conversions/dv-batch
+///
+/// Create DV Profile 7 -> Profile 8 conversion jobs for the given items.
+/// Only items with DV Profile 7 source files will have jobs created.
+#[utoipa::path(
+    post,
+    path = "/api/conversions/dv-batch",
+    request_body = DvBatchConvertRequest,
+    responses(
+        (status = 200, description = "DV batch conversion submitted", body = BatchConvertResponse)
+    )
+)]
+pub async fn dv_batch_convert(
+    State(ctx): State<AppContext>,
+    Json(payload): Json<DvBatchConvertRequest>,
+) -> Result<Json<BatchConvertResponse>, AppError> {
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    let mut job_ids = Vec::new();
+    let mut errors = Vec::new();
+
+    for id_str in &payload.item_ids {
+        let item_id: sf_core::ItemId = match id_str.parse() {
+            Ok(id) => id,
+            Err(_) => {
+                errors.push(format!("Invalid item_id: {id_str}"));
+                continue;
+            }
+        };
+
+        // Skip items that already have active conversions.
+        match sf_db::queries::conversion_jobs::has_active_conversion_for_item(&conn, item_id) {
+            Ok(true) => {
+                errors.push(format!("Item {id_str} already has an active conversion"));
+                continue;
+            }
+            Err(e) => {
+                errors.push(format!("Error checking item {id_str}: {e}"));
+                continue;
+            }
+            Ok(false) => {}
+        }
+
+        // Find a DV Profile 7 source media file.
+        let files = match sf_db::queries::media_files::list_media_files_by_item(&conn, item_id) {
+            Ok(f) => f,
+            Err(e) => {
+                errors.push(format!("Error listing files for {id_str}: {e}"));
+                continue;
+            }
+        };
+
+        let dv7_source = files.iter().find(|f| f.has_dolby_vision && f.dv_profile == Some(7));
+
+        let source = match dv7_source {
+            Some(s) => s,
+            None => {
+                errors.push(format!("No DV Profile 7 file for item {id_str}"));
+                continue;
+            }
+        };
+
+        match sf_db::queries::conversion_jobs::create_conversion_job(&conn, item_id, source.id) {
+            Ok(job) => {
+                ctx.event_bus.broadcast(
+                    sf_core::events::EventCategory::Admin,
+                    sf_core::events::EventPayload::ConversionQueued { job_id: job.id },
+                );
+                job_ids.push(job.id.to_string());
+            }
+            Err(e) => {
+                errors.push(format!("Error creating job for {id_str}: {e}"));
+            }
+        }
+    }
+
+    Ok(Json(BatchConvertResponse { job_ids, errors }))
+}
+
 /// DELETE /api/conversions/:id
 ///
 /// Cancel or delete a conversion job. Queued/failed jobs are deleted;

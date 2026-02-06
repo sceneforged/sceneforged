@@ -12,6 +12,7 @@ pub mod context;
 pub mod conversion_processor;
 pub mod error;
 pub mod middleware;
+pub mod notifications;
 pub mod processor;
 pub mod router;
 pub mod routes;

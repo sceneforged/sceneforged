@@ -269,6 +269,69 @@ pub async fn reload_config(State(ctx): State<AppContext>) -> impl IntoResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Config validation
+// ---------------------------------------------------------------------------
+
+/// Validation result for the config.
+#[derive(Serialize)]
+pub struct ValidationResult {
+    pub valid: bool,
+    pub warnings: Vec<String>,
+}
+
+/// POST /api/config/validate
+///
+/// Validate the current configuration and return any warnings.
+pub async fn validate_config(
+    State(ctx): State<AppContext>,
+) -> Result<impl IntoResponse, AppError> {
+    let warnings = ctx.config.validate();
+
+    // Also check library paths exist.
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    let libs = sf_db::queries::libraries::list_libraries(&conn)?;
+    let mut all_warnings = warnings;
+
+    for lib in &libs {
+        for path in &lib.paths {
+            if !std::path::Path::new(path).exists() {
+                all_warnings.push(format!(
+                    "Library '{}': path '{}' does not exist",
+                    lib.name, path
+                ));
+            }
+        }
+    }
+
+    // Check arr connectivity (URL format).
+    let arrs = ctx.config_store.arrs.read();
+    for arr in arrs.iter() {
+        if arr.url.is_empty() {
+            all_warnings.push(format!("Arr '{}': URL is empty", arr.name));
+        }
+        if arr.api_key.is_empty() {
+            all_warnings.push(format!("Arr '{}': API key is empty", arr.name));
+        }
+    }
+
+    // Check jellyfin configs.
+    let jfs = ctx.config_store.jellyfins.read();
+    for jf in jfs.iter() {
+        if jf.url.is_empty() {
+            all_warnings.push(format!("Jellyfin '{}': URL is empty", jf.name));
+        }
+        if jf.api_key.is_empty() {
+            all_warnings.push(format!("Jellyfin '{}': API key is empty", jf.name));
+        }
+    }
+
+    Ok(Json(ValidationResult {
+        valid: all_warnings.is_empty(),
+        warnings: all_warnings,
+    }))
+}
+
+// ---------------------------------------------------------------------------
 // Directory browser
 // ---------------------------------------------------------------------------
 

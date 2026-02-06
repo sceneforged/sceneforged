@@ -11,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 use sf_core::events::{EventCategory, EventPayload};
 
 use crate::context::AppContext;
+use crate::notifications::{self, NotificationManager};
 
 /// Worker identifier for locking conversion jobs.
 const WORKER_ID: &str = "sf-conversion";
@@ -72,6 +73,9 @@ async fn process_next_conversion(ctx: &AppContext) -> sf_core::Result<bool> {
     match execute_conversion(ctx, &job).await {
         Ok(()) => {
             tracing::info!(job_id = %job_id, "Conversion completed");
+
+            // Fire post-completion notifications (non-blocking).
+            fire_post_conversion_notifications(ctx, &job);
         }
         Err(e) => {
             let error_msg = e.to_string();
@@ -207,4 +211,38 @@ async fn execute_conversion(
     );
 
     Ok(())
+}
+
+/// Fire non-blocking notifications to Jellyfin and *arr services after a
+/// conversion completes successfully. Errors in notifications are logged but
+/// never fail the conversion.
+fn fire_post_conversion_notifications(
+    ctx: &AppContext,
+    job: &sf_db::models::ConversionJob,
+) {
+    let manager = NotificationManager::new();
+
+    // Notify all enabled Jellyfin instances.
+    let jellyfins = ctx.config_store.jellyfins.read().clone();
+    notifications::spawn_jellyfin_notifications(&manager, jellyfins);
+
+    // Notify all enabled arr instances with auto_rescan.
+    // For conversion jobs we don't have a direct file_path on the job model,
+    // so we look up the source media file path from the database.
+    let file_path = job
+        .source_media_file_id
+        .and_then(|mf_id| {
+            sf_db::pool::get_conn(&ctx.db)
+                .ok()
+                .and_then(|conn| {
+                    sf_db::queries::media_files::get_media_file(&conn, mf_id)
+                        .ok()
+                        .flatten()
+                        .map(|mf| mf.file_path)
+                })
+        })
+        .unwrap_or_default();
+
+    let arrs = ctx.config_store.arrs.read().clone();
+    notifications::spawn_arr_notifications(&manager, arrs, file_path);
 }

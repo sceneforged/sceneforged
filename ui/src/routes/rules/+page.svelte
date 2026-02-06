@@ -1,11 +1,17 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getConfigRules, updateConfigRules } from '$lib/api/index.js';
+	import { getConfigRules, createRule, updateRule, deleteRule } from '$lib/api/index.js';
 	import type { Rule } from '$lib/types.js';
-	import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '$lib/components/ui/card/index.js';
+	import {
+		Card,
+		CardContent,
+		CardHeader,
+		CardTitle,
+		CardDescription
+	} from '$lib/components/ui/card/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import { Input } from '$lib/components/ui/input/index.js';
+	import RuleEditor from '$lib/components/RuleEditor.svelte';
 	import {
 		BookOpen,
 		RefreshCw,
@@ -14,21 +20,16 @@
 		ChevronRight,
 		Plus,
 		Pencil,
-		Trash2,
-		Save,
-		X
+		Trash2
 	} from '@lucide/svelte';
 
 	let rules = $state<Rule[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
-	// Editor state
+	// Rule editor state
 	let editorOpen = $state(false);
-	let editingIndex = $state<number | null>(null);
-	let editorName = $state('');
-	let editorEnabled = $state(true);
-	let editorPriority = $state(0);
+	let editingRule = $state<Rule | null>(null);
 
 	async function loadData() {
 		loading = true;
@@ -42,88 +43,70 @@
 		}
 	}
 
-	async function handleToggleEnabled(index: number) {
-		const updated = rules.map((r, i) => (i === index ? { ...r, enabled: !r.enabled } : r));
+	async function handleToggleEnabled(rule: Rule) {
 		try {
-			rules = await updateConfigRules(updated);
+			await updateRule(rule.name, {
+				...rule,
+				enabled: !rule.enabled
+			});
+			rules = rules.map((r) =>
+				r.id === rule.id ? { ...r, enabled: !r.enabled } : r
+			);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to update rule';
 		}
 	}
 
-	async function handleDeleteRule(index: number) {
-		const ruleName = rules[index]?.name;
-		if (!confirm(`Delete rule "${ruleName}"?`)) return;
-
-		const updated = rules.filter((_, i) => i !== index);
+	async function handleDeleteRule(rule: Rule) {
+		if (!confirm(`Delete rule "${rule.name}"?`)) return;
 		try {
-			rules = await updateConfigRules(updated);
+			await deleteRule(rule.name);
+			rules = rules.filter((r) => r.id !== rule.id);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to delete rule';
 		}
 	}
 
-	function openEditor(index: number | null = null) {
-		editingIndex = index;
-		if (index !== null && rules[index]) {
-			const rule = rules[index];
-			editorName = rule.name;
-			editorEnabled = rule.enabled;
-			editorPriority = rule.priority;
-		} else {
-			editorName = '';
-			editorEnabled = true;
-			editorPriority = rules.length > 0 ? Math.max(...rules.map((r) => r.priority)) + 1 : 1;
-		}
+	function openEditor(rule: Rule | null = null) {
+		editingRule = rule;
 		editorOpen = true;
 	}
 
-	async function handleSaveRule() {
-		if (!editorName.trim()) return;
-
-		const updatedRule: Rule = {
-			id: editingIndex !== null && rules[editingIndex] ? rules[editingIndex].id : '',
-			name: editorName.trim(),
-			enabled: editorEnabled,
-			priority: editorPriority,
-			expr: editingIndex !== null && rules[editingIndex] ? rules[editingIndex].expr : {},
-			actions: editingIndex !== null && rules[editingIndex] ? rules[editingIndex].actions : []
-		};
-
-		let updated: Rule[];
-		if (editingIndex !== null) {
-			updated = rules.map((r, i) => (i === editingIndex ? updatedRule : r));
+	async function handleSaveRule(ruleData: Omit<Rule, 'id'>) {
+		if (editingRule) {
+			// Update existing rule
+			const updated = await updateRule(editingRule.name, ruleData);
+			rules = rules.map((r) => (r.id === editingRule!.id ? updated : r));
 		} else {
-			updated = [...rules, updatedRule];
-		}
-
-		try {
-			rules = await updateConfigRules(updated);
-			editorOpen = false;
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to save rule';
+			// Create new rule
+			const created = await createRule(ruleData);
+			rules = [...rules, created];
 		}
 	}
 
 	function formatConditions(rule: Rule): string[] {
-		if (!rule.expr) return [];
-		// expr is a recursive expression tree; show a compact JSON summary
-		if (typeof rule.expr === 'object') {
-			const entries = Object.entries(rule.expr as Record<string, unknown>);
-			return entries.map(([key, value]) => {
-				if (typeof value === 'object' && value !== null) {
-					return `${key}: ${JSON.stringify(value)}`;
-				}
-				return `${key}: ${value}`;
-			});
-		}
-		return [String(rule.expr)];
+		if (!rule.match_conditions) return [];
+		const conditions: string[] = [];
+		const mc = rule.match_conditions;
+		if (mc.codecs?.length > 0) conditions.push(`codecs: ${mc.codecs.join(', ')}`);
+		if (mc.containers?.length > 0) conditions.push(`containers: ${mc.containers.join(', ')}`);
+		if (mc.hdr_formats?.length > 0) conditions.push(`hdr: ${mc.hdr_formats.join(', ')}`);
+		if (mc.dolby_vision_profiles?.length > 0)
+			conditions.push(`dv profiles: ${mc.dolby_vision_profiles.join(', ')}`);
+		if (mc.audio_codecs?.length > 0) conditions.push(`audio: ${mc.audio_codecs.join(', ')}`);
+		if (mc.min_resolution)
+			conditions.push(`min: ${mc.min_resolution.width}x${mc.min_resolution.height}`);
+		if (mc.max_resolution)
+			conditions.push(`max: ${mc.max_resolution.width}x${mc.max_resolution.height}`);
+		return conditions;
 	}
 
 	function formatAction(action: Record<string, unknown>): string {
 		const type = action.type as string;
 		if (!type) return 'Unknown action';
-		return type.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+		return type
+			.replace(/_/g, ' ')
+			.replace(/\b\w/g, (l) => l.toUpperCase());
 	}
 
 	onMount(() => {
@@ -150,45 +133,6 @@
 		<div class="rounded-md bg-destructive/10 p-4 text-destructive">
 			{error}
 		</div>
-	{/if}
-
-	<!-- Editor dialog -->
-	{#if editorOpen}
-		<Card class="border-primary">
-			<CardHeader>
-				<CardTitle>{editingIndex !== null ? 'Edit Rule' : 'New Rule'}</CardTitle>
-			</CardHeader>
-			<CardContent>
-				<div class="space-y-4">
-					<div class="space-y-2">
-						<label for="rule-name" class="text-sm font-medium">Name</label>
-						<Input id="rule-name" bind:value={editorName} placeholder="Rule name" />
-					</div>
-					<div class="space-y-2">
-						<label for="rule-priority" class="text-sm font-medium">Priority</label>
-						<Input
-							id="rule-priority"
-							type="number"
-							bind:value={editorPriority}
-						/>
-					</div>
-					<label class="flex items-center gap-2">
-						<input type="checkbox" bind:checked={editorEnabled} class="h-4 w-4" />
-						<span class="text-sm font-medium">Enabled</span>
-					</label>
-					<div class="flex gap-2">
-						<Button onclick={handleSaveRule}>
-							<Save class="mr-2 h-4 w-4" />
-							Save
-						</Button>
-						<Button variant="outline" onclick={() => (editorOpen = false)}>
-							<X class="mr-2 h-4 w-4" />
-							Cancel
-						</Button>
-					</div>
-				</div>
-			</CardContent>
-		</Card>
 	{/if}
 
 	{#if loading}
@@ -221,7 +165,7 @@
 								<div>
 									<CardTitle class="flex items-center gap-2 text-lg">
 										{rule.name}
-										<button onclick={() => handleToggleEnabled(index)}>
+										<button onclick={() => handleToggleEnabled(rule)}>
 											{#if rule.enabled}
 												<Badge variant="default" class="cursor-pointer bg-green-500">
 													<CheckCircle class="mr-1 h-3 w-3" />
@@ -242,7 +186,7 @@
 								<Button
 									variant="ghost"
 									size="icon"
-									onclick={() => openEditor(index)}
+									onclick={() => openEditor(rule)}
 									title="Edit"
 								>
 									<Pencil class="h-4 w-4" />
@@ -250,7 +194,7 @@
 								<Button
 									variant="ghost"
 									size="icon"
-									onclick={() => handleDeleteRule(index)}
+									onclick={() => handleDeleteRule(rule)}
 									title="Delete"
 								>
 									<Trash2 class="h-4 w-4" />
@@ -261,7 +205,9 @@
 					<CardContent>
 						<div class="grid gap-6 md:grid-cols-2">
 							<div class="space-y-3">
-								<h4 class="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+								<h4
+									class="text-sm font-medium uppercase tracking-wide text-muted-foreground"
+								>
 									Match Conditions
 								</h4>
 								{#if formatConditions(rule).length === 0}
@@ -279,7 +225,9 @@
 							</div>
 
 							<div class="space-y-3">
-								<h4 class="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+								<h4
+									class="text-sm font-medium uppercase tracking-wide text-muted-foreground"
+								>
 									Actions ({rule.actions.length})
 								</h4>
 								<ol class="space-y-2">
@@ -302,3 +250,12 @@
 		</div>
 	{/if}
 </div>
+
+<RuleEditor
+	bind:open={editorOpen}
+	rule={editingRule}
+	onsave={handleSaveRule}
+	onclose={() => {
+		editingRule = null;
+	}}
+/>

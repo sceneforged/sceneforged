@@ -28,7 +28,13 @@ export interface ConversionJob {
 	progress_pct: number;
 	encode_fps?: number;
 	eta_secs?: number;
+	elapsed_secs?: number;
 	error?: string;
+	error_message?: string;
+	source_video_codec?: string;
+	source_audio_codec?: string;
+	source_resolution?: string;
+	source_container?: string;
 	created_at: string;
 	started_at?: string;
 	completed_at?: string;
@@ -122,13 +128,38 @@ export interface Rule {
 	name: string;
 	enabled: boolean;
 	priority: number;
-	expr: unknown;
+	match_conditions: MatchConditions;
 	actions: ActionConfig[];
+}
+
+export interface MatchConditions {
+	codecs: string[];
+	containers: string[];
+	hdr_formats: string[];
+	dolby_vision_profiles: number[];
+	audio_codecs: string[];
+	min_resolution: { width: number; height: number } | null;
+	max_resolution: { width: number; height: number } | null;
 }
 
 export interface ActionConfig {
 	type: string;
 	[key: string]: unknown;
+}
+
+// Directory browsing
+export interface DirEntry {
+	name: string;
+	path: string;
+	is_dir: boolean;
+}
+
+// Library statistics
+export interface LibraryStats {
+	total_items: number;
+	profile_a: number;
+	profile_b: number;
+	profile_c: number;
 }
 
 // Dashboard statistics

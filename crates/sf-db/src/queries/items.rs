@@ -173,6 +173,29 @@ pub fn list_children(conn: &Connection, parent_id: ItemId) -> Result<Vec<Item>> 
     Ok(rows)
 }
 
+/// List recently added items for a library (within `days` days).
+pub fn list_recent_items_by_library(
+    conn: &Connection,
+    library_id: LibraryId,
+    days: i64,
+) -> Result<Vec<Item>> {
+    let q = format!(
+        "SELECT {COLS} FROM items WHERE library_id = ?1
+         AND created_at >= datetime('now', '-' || ?2 || ' days')
+         ORDER BY created_at DESC"
+    );
+    let mut stmt = conn.prepare(&q).map_err(|e| Error::database(e.to_string()))?;
+    let rows = stmt
+        .query_map(
+            rusqlite::params![library_id.to_string(), days],
+            Item::from_row,
+        )
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?;
+    Ok(rows)
+}
+
 /// Search items by name (LIKE '%query%').
 pub fn search_items(conn: &Connection, query: &str, limit: i64) -> Result<Vec<Item>> {
     let pattern = format!("%{query}%");

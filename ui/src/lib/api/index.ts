@@ -2,6 +2,7 @@ import { api } from './client.js';
 import type {
 	Library,
 	Item,
+	MediaFile,
 	Job,
 	ConversionJob,
 	PlaybackState,
@@ -14,7 +15,9 @@ import type {
 	JellyfinConfig,
 	ConversionConfig,
 	ContinueWatchingEntry,
-	FavoriteEntry
+	FavoriteEntry,
+	DirEntry,
+	LibraryStats
 } from '../types.js';
 
 export { api, ApiError } from './client.js';
@@ -234,6 +237,23 @@ export async function updateConfigRules(rules: Rule[]): Promise<Rule[]> {
 	return result;
 }
 
+export async function createRule(rule: Omit<Rule, 'id'>): Promise<Rule> {
+	const result = await api.post<Rule>('/config/rules', rule);
+	api.invalidate('/config/rules');
+	return result;
+}
+
+export async function updateRule(name: string, rule: Omit<Rule, 'id'>): Promise<Rule> {
+	const result = await api.put<Rule>(`/config/rules/${encodeURIComponent(name)}`, rule);
+	api.invalidate('/config/rules');
+	return result;
+}
+
+export async function deleteRule(name: string): Promise<void> {
+	await api.delete(`/config/rules/${encodeURIComponent(name)}`);
+	api.invalidate('/config/rules');
+}
+
 // --- Config / Arrs ---
 
 export async function getConfigArrs(): Promise<ArrConfig[]> {
@@ -319,6 +339,89 @@ export async function getDashboard(): Promise<DashboardStats> {
 
 export async function getTools(): Promise<ToolInfo[]> {
 	return api.get<ToolInfo[]>('/admin/tools');
+}
+
+// --- Items: files ---
+
+export async function getItemFiles(itemId: string): Promise<MediaFile[]> {
+	return api.get<MediaFile[]>(`/items/${itemId}/files`);
+}
+
+// --- Search ---
+
+export async function searchItems(query: string, limit = 20): Promise<Item[]> {
+	const searchParams = new URLSearchParams({ q: query, limit: String(limit) });
+	return api.get<Item[]>(`/search?${searchParams}`);
+}
+
+// --- Conversions: item-specific ---
+
+export async function convertItem(itemId: string): Promise<ConversionJob> {
+	const result = await api.post<ConversionJob>('/conversions/submit', { item_id: itemId });
+	api.invalidate('/conversions');
+	return result;
+}
+
+export async function batchConvert(itemIds: string[]): Promise<ConversionJob[]> {
+	const result = await api.post<ConversionJob[]>('/conversions/batch', { item_ids: itemIds });
+	api.invalidate('/conversions');
+	return result;
+}
+
+export async function getConversionsForItem(itemId: string): Promise<ConversionJob[]> {
+	return api.get<ConversionJob[]>(`/conversions?item_id=${encodeURIComponent(itemId)}`, { skipCache: true });
+}
+
+// --- Admin stats ---
+
+export async function getLibraryStats(): Promise<LibraryStats> {
+	return api.get<LibraryStats>('/admin/stats', { skipCache: true });
+}
+
+// --- Config / Validate ---
+
+export async function validateConfig(): Promise<{ valid: boolean; errors: string[] }> {
+	return api.post<{ valid: boolean; errors: string[] }>('/config/validate');
+}
+
+// --- Config / Browse (directory listing) ---
+
+export async function browsePaths(path: string = '/', search?: string): Promise<DirEntry[]> {
+	const params = new URLSearchParams({ path });
+	if (search) params.set('search', search);
+	const result = await api.get<DirEntry[] | { entries: DirEntry[] }>(`/config/browse?${params}`, { skipCache: true });
+	// Handle both { entries: [...] } and [...] response shapes
+	return Array.isArray(result) ? result : result.entries;
+}
+
+// --- Utility formatters ---
+
+export function formatBytes(bytes: number): string {
+	if (bytes === 0) return '0 B';
+	const k = 1024;
+	const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+	const i = Math.floor(Math.log(bytes) / Math.log(k));
+	return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+}
+
+export function formatRuntime(minutes: number | null | undefined): string {
+	if (!minutes) return '';
+	const h = Math.floor(minutes / 60);
+	const m = minutes % 60;
+	if (h > 0) return `${h}h ${m}m`;
+	return `${m}m`;
+}
+
+export function formatDurationSecs(secs: number | null | undefined): string {
+	if (secs == null || secs <= 0) return '-';
+	const s = Math.round(secs);
+	if (s < 60) return `${s}s`;
+	const m = Math.floor(s / 60);
+	const rs = s % 60;
+	if (m < 60) return `${m}m ${rs}s`;
+	const h = Math.floor(m / 60);
+	const rm = m % 60;
+	return `${h}h ${rm}m`;
 }
 
 // --- Auth ---

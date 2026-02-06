@@ -123,7 +123,15 @@ export function createRule(overrides: Partial<Rule> = {}): Rule {
 		name: `Rule ${id}`,
 		enabled: true,
 		priority: 1,
-		expr: {},
+		match_conditions: {
+			codecs: [],
+			containers: [],
+			hdr_formats: [],
+			dolby_vision_profiles: [],
+			audio_codecs: [],
+			min_resolution: null,
+			max_resolution: null
+		},
 		actions: [{ type: 'transcode' } as ActionConfig],
 		...overrides
 	};

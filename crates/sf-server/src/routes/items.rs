@@ -197,6 +197,71 @@ pub async fn get_item(
     Ok(Json(resp))
 }
 
+/// GET /api/items/:id/files
+#[utoipa::path(
+    get,
+    path = "/api/items/{id}/files",
+    params(("id" = String, Path, description = "Item ID")),
+    responses(
+        (status = 200, description = "Media files for item", body = Vec<MediaFileResponse>),
+        (status = 404, description = "Item not found")
+    )
+)]
+pub async fn list_item_files(
+    State(ctx): State<AppContext>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<MediaFileResponse>>, AppError> {
+    let item_id: sf_core::ItemId = id
+        .parse()
+        .map_err(|_| sf_core::Error::Validation("Invalid item ID".into()))?;
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+
+    // Verify item exists.
+    sf_db::queries::items::get_item(&conn, item_id)?
+        .ok_or_else(|| sf_core::Error::not_found("item", item_id))?;
+
+    let media_files = sf_db::queries::media_files::list_media_files_by_item(&conn, item_id)?;
+    let responses: Vec<MediaFileResponse> =
+        media_files.iter().map(MediaFileResponse::from_model).collect();
+    Ok(Json(responses))
+}
+
+/// Query parameters for search.
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct SearchParams {
+    pub q: String,
+    #[serde(default = "default_search_limit")]
+    pub limit: i64,
+}
+
+fn default_search_limit() -> i64 {
+    20
+}
+
+/// GET /api/search
+#[utoipa::path(
+    get,
+    path = "/api/search",
+    params(SearchParams),
+    responses(
+        (status = 200, description = "Search results", body = Vec<ItemResponse>)
+    )
+)]
+pub async fn search_items(
+    State(ctx): State<AppContext>,
+    Query(params): Query<SearchParams>,
+) -> Result<Json<Vec<ItemResponse>>, AppError> {
+    if params.q.is_empty() {
+        return Ok(Json(Vec::new()));
+    }
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    let items = sf_db::queries::items::search_items(&conn, &params.q, params.limit)?;
+    let responses: Vec<ItemResponse> = items.iter().map(ItemResponse::from_model).collect();
+    Ok(Json(responses))
+}
+
 /// GET /api/items/:id/children
 #[utoipa::path(
     get,

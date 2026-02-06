@@ -32,6 +32,9 @@ parking_lot.workspace = true
 async-trait.workspace = true
 async-stream = "0.3"
 futures-core = "0.3"
+hmac.workspace = true
+sha2.workspace = true
+hex.workspace = true
 utoipa = { workspace = true, features = ["axum_extras"] }
 utoipa-swagger-ui = { workspace = true, features = ["axum"] }
 

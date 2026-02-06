@@ -58,15 +58,12 @@ test.describe('Admin Pages', () => {
 			await expect(page.getByText('completed-1.mkv')).toBeVisible();
 		});
 
-		test('rules section at bottom of jobs page', async ({ page }) => {
+		test('rules page shows rules', async ({ page }) => {
 			const api = new MockApi(page);
 			const scenario = populatedState();
 			await api.setup(scenario);
 
-			await page.goto('/admin/jobs');
-
-			// Expand rules section
-			await page.getByRole('button', { name: /Processing Rules/ }).click();
+			await page.goto('/rules');
 
 			// Should show rules
 			await expect(page.getByText('Transcode 4K')).toBeVisible();
@@ -74,13 +71,12 @@ test.describe('Admin Pages', () => {
 			await expect(page.getByText('Legacy Format')).toBeVisible();
 		});
 
-		test('rules section shows empty state when no rules', async ({ page }) => {
+		test('rules page shows empty state when no rules', async ({ page }) => {
 			const api = new MockApi(page);
 			await api.setup(emptyState());
 
-			await page.goto('/admin/jobs');
+			await page.goto('/rules');
 
-			await page.locator('[data-slot="collapsible-trigger"]').click();
 			await expect(page.getByText('No rules configured')).toBeVisible();
 		});
 	});

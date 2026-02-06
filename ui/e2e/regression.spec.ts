@@ -4,28 +4,17 @@ import { populatedState } from './fixtures/scenarios';
 import { createItem, createMediaFile, createJob } from './fixtures/factories';
 
 test.describe('Regression Guards', () => {
-	test('collapsible rules toggles open/closed correctly', async ({ page }) => {
+	test('rules page loads and displays rules correctly', async ({ page }) => {
 		const api = new MockApi(page);
 		const scenario = populatedState();
 		await api.setup(scenario);
 
-		await page.goto('/admin/jobs');
+		await page.goto('/rules');
 
-		// Rules section should be collapsed initially
-		const trigger = page.getByRole('button', { name: /Processing Rules/ });
-		await expect(trigger).toBeVisible();
-
-		// Open it
-		await trigger.click();
+		// Rules should be visible on the standalone rules page
 		await expect(page.getByText('Transcode 4K')).toBeVisible();
-
-		// Close it
-		await trigger.click();
-		await expect(page.getByText('Transcode 4K')).not.toBeVisible();
-
-		// Reopen — verifies no state_unsafe_mutation from rules.sort()
-		await trigger.click();
-		await expect(page.getByText('Transcode 4K')).toBeVisible();
+		await expect(page.getByText('Extract Subtitles')).toBeVisible();
+		await expect(page.getByText('Legacy Format')).toBeVisible();
 	});
 
 	test('getItems handles plain array API response', async ({ page }) => {

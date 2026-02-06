@@ -24,10 +24,47 @@ pub fn adaptive_crf(height: u32) -> u32 {
     }
 }
 
+/// Resolve hardware acceleration method to the appropriate hwaccel flags and
+/// encoder name for ffmpeg.
+///
+/// Returns `(hwaccel_args, encoder, use_crf)` where:
+/// - `hwaccel_args` are the `-hwaccel` flags to pass *before* `-i`
+/// - `encoder` is the video encoder name (e.g. `libx264`, `h264_nvenc`)
+/// - `use_crf` indicates whether the encoder supports CRF-based quality control
+fn resolve_hw_accel(hw_accel: Option<&str>) -> (Vec<&'static str>, &'static str, bool) {
+    match hw_accel {
+        Some("videotoolbox") => (
+            vec!["-hwaccel", "videotoolbox"],
+            "h264_videotoolbox",
+            false,
+        ),
+        Some("nvenc") => (
+            vec!["-hwaccel", "cuda"],
+            "h264_nvenc",
+            false,
+        ),
+        Some("vaapi") => (
+            vec!["-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi"],
+            "h264_vaapi",
+            false,
+        ),
+        Some("qsv") => (
+            vec!["-hwaccel", "qsv"],
+            "h264_qsv",
+            false,
+        ),
+        _ => (vec![], "libx264", true),
+    }
+}
+
 /// Convert a source media file to Profile B (H.264 High / AAC-LC stereo).
 ///
 /// Uses adaptive CRF based on source resolution unless overridden in config.
 /// Output is an MP4 file with `+faststart` for progressive download.
+///
+/// When `hw_accel` is set in the conversion config, the corresponding hardware
+/// encoder is used instead of libx264.  Hardware encoders use bitrate-based
+/// quality control since they do not support CRF.
 ///
 /// 24-hour timeout to handle very large files.
 pub async fn convert_to_profile_b(
@@ -45,21 +82,43 @@ pub async fn convert_to_profile_b(
         config.video_crf
     };
 
+    let (hwaccel_args, encoder, use_crf) =
+        resolve_hw_accel(config.hw_accel.as_deref());
+
     tracing::info!(
-        "Profile B encode: {:?} -> {:?} (crf={}, preset={})",
+        "Profile B encode: {:?} -> {:?} (encoder={}, crf={}, preset={}, hw_accel={:?})",
         input,
         output,
+        encoder,
         crf,
-        config.video_preset
+        config.video_preset,
+        config.hw_accel,
     );
 
     let mut cmd = ToolCommand::new(ffmpeg.path.clone());
     cmd.timeout(Duration::from_secs(86400)); // 24 hours
-    cmd.args(["-y", "-i"]);
+    cmd.args(["-y"]);
+
+    // Hardware acceleration flags must appear before -i.
+    for arg in &hwaccel_args {
+        cmd.arg(*arg);
+    }
+
+    cmd.args(["-i"]);
     cmd.arg(input.to_string_lossy().as_ref());
-    cmd.args(["-c:v", "libx264", "-profile:v", "high"]);
-    cmd.args(["-crf", &crf.to_string()]);
-    cmd.args(["-preset", &config.video_preset]);
+
+    // Video encoder and profile.
+    cmd.args(["-c:v", encoder, "-profile:v", "high"]);
+
+    // Quality settings: CRF for software encoders, bitrate for hardware encoders.
+    if use_crf {
+        cmd.args(["-crf", &crf.to_string()]);
+        cmd.args(["-preset", &config.video_preset]);
+    } else {
+        // Hardware encoders don't support CRF; use bitrate targeting.
+        cmd.args(["-b:v", "5M", "-maxrate", "8M", "-bufsize", "16M"]);
+    }
+
     cmd.args([
         "-vf",
         "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
@@ -85,5 +144,53 @@ mod tests {
         assert_eq!(adaptive_crf(720), 14);
         assert_eq!(adaptive_crf(1080), 15);
         assert_eq!(adaptive_crf(2160), 18);
+    }
+
+    #[test]
+    fn resolve_hw_accel_none() {
+        let (args, encoder, use_crf) = resolve_hw_accel(None);
+        assert!(args.is_empty());
+        assert_eq!(encoder, "libx264");
+        assert!(use_crf);
+    }
+
+    #[test]
+    fn resolve_hw_accel_explicit_none() {
+        let (args, encoder, use_crf) = resolve_hw_accel(Some("none"));
+        assert!(args.is_empty());
+        assert_eq!(encoder, "libx264");
+        assert!(use_crf);
+    }
+
+    #[test]
+    fn resolve_hw_accel_videotoolbox() {
+        let (args, encoder, use_crf) = resolve_hw_accel(Some("videotoolbox"));
+        assert_eq!(args, vec!["-hwaccel", "videotoolbox"]);
+        assert_eq!(encoder, "h264_videotoolbox");
+        assert!(!use_crf);
+    }
+
+    #[test]
+    fn resolve_hw_accel_nvenc() {
+        let (args, encoder, use_crf) = resolve_hw_accel(Some("nvenc"));
+        assert_eq!(args, vec!["-hwaccel", "cuda"]);
+        assert_eq!(encoder, "h264_nvenc");
+        assert!(!use_crf);
+    }
+
+    #[test]
+    fn resolve_hw_accel_vaapi() {
+        let (args, encoder, use_crf) = resolve_hw_accel(Some("vaapi"));
+        assert_eq!(args, vec!["-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi"]);
+        assert_eq!(encoder, "h264_vaapi");
+        assert!(!use_crf);
+    }
+
+    #[test]
+    fn resolve_hw_accel_qsv() {
+        let (args, encoder, use_crf) = resolve_hw_accel(Some("qsv"));
+        assert_eq!(args, vec!["-hwaccel", "qsv"]);
+        assert_eq!(encoder, "h264_qsv");
+        assert!(!use_crf);
     }
 }
