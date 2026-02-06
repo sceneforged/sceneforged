@@ -5,7 +5,7 @@ function createJobsStore() {
 	let activeJobs = $state<Job[]>([]);
 	let jobHistory = $state<Job[]>([]);
 
-	const runningJobs = $derived(activeJobs.filter((j) => j.status === 'running'));
+	const runningJobs = $derived(activeJobs.filter((j) => j.status === 'processing'));
 	const queuedJobs = $derived(activeJobs.filter((j) => j.status === 'queued'));
 
 	return {
@@ -26,7 +26,7 @@ function createJobsStore() {
 			try {
 				const result = await getJobs();
 				activeJobs = result.jobs.filter(
-					(j) => j.status === 'queued' || j.status === 'running'
+					(j) => j.status === 'queued' || j.status === 'processing'
 				);
 				jobHistory = result.jobs.filter(
 					(j) => j.status === 'completed' || j.status === 'failed' || j.status === 'cancelled'
@@ -53,7 +53,7 @@ function createJobsStore() {
 				case 'job_started':
 					activeJobs = activeJobs.map((j) =>
 						j.id === payload.job_id
-							? { ...j, status: 'running' as const }
+							? { ...j, status: 'processing' as const }
 							: j
 					);
 					break;

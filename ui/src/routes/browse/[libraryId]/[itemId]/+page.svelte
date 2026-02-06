@@ -1,14 +1,15 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { getItem, submitConversion, getUserData, addFavorite, removeFavorite } from '$lib/api/index.js';
-	import type { Item } from '$lib/types.js';
+	import type { Item, AppEvent } from '$lib/types.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Progress } from '$lib/components/ui/progress/index.js';
 	import ProgressiveImage from '$lib/components/media/ProgressiveImage.svelte';
 	import { conversionsStore } from '$lib/stores/conversions.svelte.js';
+	import { eventsService } from '$lib/services/events.svelte.js';
 	import {
 		ArrowLeft,
 		Star,
@@ -42,6 +43,7 @@
 	// Conversion state
 	let converting = $state(false);
 	let convertError = $state<string | null>(null);
+	let unsubscribeEvents: (() => void) | null = null;
 
 	const activeConversion = $derived(
 		conversionsStore.activeConversions.find((j) => j.item_id === itemId)
@@ -101,7 +103,14 @@
 	}
 
 	onMount(async () => {
-		await loadItemData();
+		await Promise.all([loadItemData(), conversionsStore.refresh()]);
+		unsubscribeEvents = eventsService.subscribe('admin', (event: AppEvent) => {
+			conversionsStore.handleEvent(event);
+		});
+	});
+
+	onDestroy(() => {
+		if (unsubscribeEvents) unsubscribeEvents();
 	});
 
 	async function loadItemData() {
@@ -232,7 +241,7 @@
 							<Loader2 class="mr-2 h-6 w-6 animate-spin" />
 							{activeConversion.status === 'queued' ? 'Queued...' : `Converting ${activeConversion.progress_pct.toFixed(0)}%`}
 						</Button>
-						{#if activeConversion.status === 'running'}
+						{#if activeConversion.status === 'processing'}
 							<Progress value={activeConversion.progress_pct} max={100} />
 						{/if}
 					{:else}

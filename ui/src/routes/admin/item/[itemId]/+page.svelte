@@ -40,7 +40,7 @@
 
 	// Active conversion jobs for this item
 	const activeConversionJobs = $derived(
-		conversionJobs.filter((j) => j.status === 'queued' || j.status === 'running')
+		conversionJobs.filter((j) => j.status === 'queued' || j.status === 'processing')
 	);
 	const hasActiveConversion = $derived(activeConversionJobs.length > 0);
 
@@ -127,7 +127,7 @@
 		if (payload.type === 'conversion_progress') {
 			conversionJobs = conversionJobs.map((j) =>
 				j.id === payload.job_id
-					? { ...j, progress_pct: payload.progress * 100, status: 'running' }
+					? { ...j, progress_pct: payload.progress * 100, status: 'processing' }
 					: j
 			);
 		} else if (payload.type === 'conversion_completed') {

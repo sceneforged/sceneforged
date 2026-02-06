@@ -3,7 +3,7 @@ export interface Job {
 	id: string;
 	file_path: string;
 	file_name: string;
-	status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+	status: 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
 	rule_name?: string;
 	progress: number;
 	current_step?: string;

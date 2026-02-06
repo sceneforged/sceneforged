@@ -16,7 +16,7 @@
 
 	// Compute elapsed seconds client-side from started_at timestamp
 	const clientElapsed = $derived.by(() => {
-		if (!job.started_at || job.status !== 'running') return job.elapsed_secs ?? null;
+		if (!job.started_at || job.status !== 'processing') return job.elapsed_secs ?? null;
 		const startMs = new Date(job.started_at).getTime();
 		if (isNaN(startMs)) return job.elapsed_secs ?? null;
 		return Math.max(0, Math.floor((now - startMs) / 1000));
@@ -43,7 +43,7 @@
 
 	const statusBadgeClass = $derived.by(() => {
 		switch (job.status) {
-			case 'running':
+			case 'processing':
 				return 'bg-blue-500 text-white';
 			case 'queued':
 				return '';
@@ -88,14 +88,14 @@
 				variant={job.status === 'failed' ? 'destructive' : 'secondary'}
 				class={statusBadgeClass}
 			>
-				{#if job.status === 'running'}
+				{#if job.status === 'processing'}
 					<Activity class="mr-1 h-3 w-3 animate-pulse" />
 				{:else}
 					<Clock class="mr-1 h-3 w-3" />
 				{/if}
 				{job.status}
 			</Badge>
-			{#if onCancel && (job.status === 'queued' || job.status === 'running')}
+			{#if onCancel && (job.status === 'queued' || job.status === 'processing')}
 				<Button
 					variant="ghost"
 					size="sm"
@@ -108,7 +108,7 @@
 		</div>
 	</div>
 
-	{#if job.status === 'running' || job.progress_pct > 0}
+	{#if job.status === 'processing' || job.progress_pct > 0}
 		<div class="space-y-1">
 			<div class="flex justify-between text-xs">
 				<span class="text-muted-foreground">

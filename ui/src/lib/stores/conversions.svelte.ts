@@ -5,7 +5,7 @@ function createConversionsStore() {
 	let activeConversions = $state<ConversionJob[]>([]);
 	let conversionHistory = $state<ConversionJob[]>([]);
 
-	const runningConversions = $derived(activeConversions.filter((j) => j.status === 'running'));
+	const runningConversions = $derived(activeConversions.filter((j) => j.status === 'processing'));
 	const queuedConversions = $derived(activeConversions.filter((j) => j.status === 'queued'));
 
 	return {
@@ -30,7 +30,7 @@ function createConversionsStore() {
 			try {
 				const jobs = await getConversions();
 				activeConversions = jobs.filter(
-					(j) => j.status === 'queued' || j.status === 'running'
+					(j) => j.status === 'queued' || j.status === 'processing'
 				);
 				conversionHistory = jobs.filter(
 					(j) => j.status === 'completed' || j.status === 'failed'
@@ -56,7 +56,7 @@ function createConversionsStore() {
 
 				case 'conversion_started':
 					activeConversions = activeConversions.map((j) =>
-						j.id === payload.job_id ? { ...j, status: 'running' } : j
+						j.id === payload.job_id ? { ...j, status: 'processing' } : j
 					);
 					break;
 
