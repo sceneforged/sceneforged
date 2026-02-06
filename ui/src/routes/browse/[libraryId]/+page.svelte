@@ -1,13 +1,14 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { getLibrary, getItems } from '$lib/api/index.js';
-	import type { Library, Item } from '$lib/types.js';
+	import type { Library, Item, AppEvent } from '$lib/types.js';
 	import { MediaGrid } from '$lib/components/media/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Skeleton } from '$lib/components/ui/skeleton/index.js';
+	import { eventsService } from '$lib/services/events.svelte.js';
 	import { Search, Library as LibraryIcon, Loader2, ArrowLeft } from '@lucide/svelte';
 
 	const libraryId = $derived(page.params.libraryId ?? '');
@@ -21,6 +22,9 @@
 	let searchQuery = $state('');
 	let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 	let initialLoadDone = $state(false);
+	let unsubscribeEvents: (() => void) | null = null;
+	let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
+	let scanning = $state(false);
 
 	const PAGE_SIZE = 24;
 	let currentPage = $state(0);
@@ -39,9 +43,38 @@
 		}, 300);
 	});
 
+	function debouncedRefresh() {
+		if (refreshTimeout) clearTimeout(refreshTimeout);
+		refreshTimeout = setTimeout(() => {
+			loadItems(searchQuery || undefined);
+		}, 2000);
+	}
+
+	function handleEvent(event: AppEvent): void {
+		const { payload } = event;
+		if (payload.type === 'item_added') {
+			debouncedRefresh();
+		} else if (payload.type === 'library_scan_started' && 'library_id' in payload && payload.library_id === libraryId) {
+			scanning = true;
+		} else if (payload.type === 'library_scan_progress' && payload.library_id === libraryId) {
+			scanning = true;
+			debouncedRefresh();
+		} else if (payload.type === 'library_scan_complete' && payload.library_id === libraryId) {
+			scanning = false;
+			if (refreshTimeout) clearTimeout(refreshTimeout);
+			loadItems(searchQuery || undefined);
+		}
+	}
+
 	onMount(async () => {
 		await loadLibraryAndItems();
 		initialLoadDone = true;
+		unsubscribeEvents = eventsService.subscribe('user', handleEvent);
+	});
+
+	onDestroy(() => {
+		if (unsubscribeEvents) unsubscribeEvents();
+		if (refreshTimeout) clearTimeout(refreshTimeout);
 	});
 
 	async function loadLibraryAndItems() {
@@ -133,7 +166,12 @@
 			<LibraryIcon class="h-8 w-8 text-primary" />
 			<div>
 				<h1 class="text-2xl font-bold">{library?.name ?? 'Browse'}</h1>
-				{#if !loading && totalCount > 0}
+				{#if scanning}
+					<p class="flex items-center gap-1 text-sm text-muted-foreground">
+						<Loader2 class="h-3 w-3 animate-spin" />
+						Scanning... {totalCount} item{totalCount !== 1 ? 's' : ''}
+					</p>
+				{:else if !loading && totalCount > 0}
 					<p class="text-sm text-muted-foreground">
 						{totalCount} item{totalCount !== 1 ? 's' : ''}
 					</p>
