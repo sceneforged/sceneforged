@@ -171,8 +171,23 @@ CREATE INDEX idx_playback_user ON playback(user_id);
 CREATE INDEX idx_favorites_user ON favorites(user_id);
 "#;
 
+/// V4: seed the anonymous user used when auth is disabled.
+///
+/// The auth middleware returns this well-known UUID for unauthenticated
+/// requests.  Without a corresponding row in `users`, any INSERT into
+/// `playback` or `favorites` violates the FK constraint.
+const V4_ANONYMOUS_USER: &str = r#"
+INSERT OR IGNORE INTO users (id, username, password_hash, role, created_at)
+VALUES ('00000000-0000-0000-0000-000000000000', 'anonymous', '!disabled', 'user', datetime('now'));
+"#;
+
 /// Ordered list of (version, sql) pairs.
-const MIGRATIONS: &[(i64, &str)] = &[(1, V1_INITIAL), (2, V2_CONVERSION_JOBS), (3, V3_FAVORITES)];
+const MIGRATIONS: &[(i64, &str)] = &[
+    (1, V1_INITIAL),
+    (2, V2_CONVERSION_JOBS),
+    (3, V3_FAVORITES),
+    (4, V4_ANONYMOUS_USER),
+];
 
 /// Run all pending migrations on `conn`.
 ///
