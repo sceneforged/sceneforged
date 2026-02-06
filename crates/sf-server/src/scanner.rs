@@ -48,7 +48,7 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
         "Starting library scan"
     );
 
-    let auto_convert = ctx.config.conversion.auto_convert_on_scan;
+    let auto_convert = ctx.config_store.conversion.read().auto_convert_on_scan;
 
     let mut files_found: u64 = 0;
     let mut files_queued: u64 = 0;
@@ -70,6 +70,18 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
         for entry in walkdir::WalkDir::new(dir_path)
             .follow_links(true)
             .into_iter()
+            .filter_entry(|e| {
+                // Skip HLS output directories (e.g. movie-pb.hls/) — they
+                // contain .m4s segments and .m3u8 playlists, not scannable media.
+                if e.file_type().is_dir() {
+                    if let Some(name) = e.file_name().to_str() {
+                        if name.ends_with(".hls") {
+                            return false;
+                        }
+                    }
+                }
+                true
+            })
             .filter_map(|e| match e {
                 Ok(entry) => Some(entry),
                 Err(err) => {
