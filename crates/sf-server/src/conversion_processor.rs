@@ -4,6 +4,8 @@
 //! populates the in-memory HLS cache, and updates job status throughout.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
@@ -65,12 +67,21 @@ async fn process_next_conversion(ctx: &AppContext) -> sf_core::Result<bool> {
     let job_id = job.id;
     tracing::info!(job_id = %job_id, item_id = %job.item_id, "Processing conversion job");
 
+    // Create a cancellation token for this job so it can be killed from the API.
+    let job_cancel = CancellationToken::new();
+    ctx.active_conversions.insert(job_id, job_cancel.clone());
+
     ctx.event_bus.broadcast(
         EventCategory::Admin,
         EventPayload::ConversionStarted { job_id },
     );
 
-    match execute_conversion(ctx, &job).await {
+    let result = execute_conversion(ctx, &job, job_cancel).await;
+
+    // Always remove from active conversions when done.
+    ctx.active_conversions.remove(&job_id);
+
+    match result {
         Ok(()) => {
             tracing::info!(job_id = %job_id, "Conversion completed");
 
@@ -101,6 +112,7 @@ async fn process_next_conversion(ctx: &AppContext) -> sf_core::Result<bool> {
 async fn execute_conversion(
     ctx: &AppContext,
     job: &sf_db::models::ConversionJob,
+    cancel: CancellationToken,
 ) -> sf_core::Result<()> {
     let job_id = job.id;
     let item_id = job.item_id;
@@ -117,6 +129,7 @@ async fn execute_conversion(
 
     let source_path = Path::new(&source_mf.file_path);
     let source_height = source_mf.resolution_height.map(|h| h as u32);
+    let duration_secs = source_mf.duration_secs;
 
     // Compute output path: <source_dir>/<source_stem>-pb.mp4
     let source_dir = source_path
@@ -131,13 +144,57 @@ async fn execute_conversion(
     // Get conversion config.
     let config = ctx.config_store.conversion.read().clone();
 
-    // Run Profile B encoding.
-    sf_av::convert_to_profile_b(
+    // Use shared state for the progress callback (runs on a blocking context).
+    let db = ctx.db.clone();
+    let event_bus = ctx.event_bus.clone();
+
+    // Track the last integral percent so we only write to DB on real changes.
+    let last_pct = Arc::new(AtomicU8::new(0));
+
+    // Run Profile B encoding with progress streaming.
+    sf_av::convert_to_profile_b_with_progress(
         &ctx.tools,
         source_path,
         &output_path,
         source_height,
         &config,
+        duration_secs,
+        {
+            let db = db.clone();
+            let event_bus = event_bus.clone();
+            let last_pct = last_pct.clone();
+            move |pct, fps| {
+                // Scale to 0..85% (encoding phase is 85% of total, HLS prep is remaining 15%).
+                let scaled_pct = pct * 85.0;
+                let int_pct = scaled_pct as u8;
+
+                // Only update DB/events when the integer percentage changes.
+                if int_pct > last_pct.load(Ordering::Relaxed) {
+                    last_pct.store(int_pct, Ordering::Relaxed);
+
+                    // Compute ETA from pct and start time would require more state;
+                    // for now just report fps.
+                    if let Ok(conn) = sf_db::pool::get_conn(&db) {
+                        let _ = sf_db::queries::conversion_jobs::update_conversion_progress(
+                            &conn,
+                            job_id,
+                            scaled_pct,
+                            fps,
+                            None,
+                        );
+                    }
+
+                    event_bus.broadcast(
+                        EventCategory::Admin,
+                        EventPayload::ConversionProgress {
+                            job_id,
+                            progress: scaled_pct as f32 / 100.0,
+                        },
+                    );
+                }
+            }
+        },
+        Some(cancel),
     )
     .await?;
 

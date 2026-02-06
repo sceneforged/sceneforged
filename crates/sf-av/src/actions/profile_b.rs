@@ -3,6 +3,8 @@
 use std::path::Path;
 use std::time::Duration;
 
+use tokio_util::sync::CancellationToken;
+
 use crate::command::ToolCommand;
 use crate::tools::ToolRegistry;
 
@@ -129,6 +131,108 @@ pub async fn convert_to_profile_b(
     cmd.args(["-map", "0:v:0", "-map", "0:a:0"]);
     cmd.arg(output.to_string_lossy().as_ref());
     cmd.execute().await?;
+
+    Ok(())
+}
+
+/// Like [`convert_to_profile_b`] but streams progress via a callback and
+/// supports cancellation.
+///
+/// `duration_secs` is the source duration used to compute percentage.
+/// `progress_callback` receives `(pct 0.0..1.0, Option<fps>)` periodically.
+pub async fn convert_to_profile_b_with_progress(
+    tools: &ToolRegistry,
+    input: &Path,
+    output: &Path,
+    source_height: Option<u32>,
+    config: &sf_core::config::ConversionConfig,
+    duration_secs: Option<f64>,
+    mut progress_callback: impl FnMut(f64, Option<f64>),
+    cancel: Option<CancellationToken>,
+) -> sf_core::Result<()> {
+    let ffmpeg = tools.require("ffmpeg")?;
+
+    let crf = if config.adaptive_crf {
+        adaptive_crf(source_height.unwrap_or(1080))
+    } else {
+        config.video_crf
+    };
+
+    let (hwaccel_args, encoder, use_crf) =
+        resolve_hw_accel(config.hw_accel.as_deref());
+
+    tracing::info!(
+        "Profile B encode (progress): {:?} -> {:?} (encoder={}, crf={}, preset={}, hw_accel={:?})",
+        input,
+        output,
+        encoder,
+        crf,
+        config.video_preset,
+        config.hw_accel,
+    );
+
+    let mut cmd = ToolCommand::new(ffmpeg.path.clone());
+    cmd.timeout(Duration::from_secs(86400));
+    cmd.args(["-y", "-progress", "pipe:2", "-nostats"]);
+
+    for arg in &hwaccel_args {
+        cmd.arg(*arg);
+    }
+
+    cmd.args(["-i"]);
+    cmd.arg(input.to_string_lossy().as_ref());
+
+    cmd.args(["-c:v", encoder, "-profile:v", "high"]);
+
+    if use_crf {
+        cmd.args(["-crf", &crf.to_string()]);
+        cmd.args(["-preset", &config.video_preset]);
+    } else {
+        cmd.args(["-b:v", "5M", "-maxrate", "8M", "-bufsize", "16M"]);
+    }
+
+    cmd.args([
+        "-vf",
+        "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+    ]);
+    cmd.args(["-force_key_frames", "expr:gte(t,n_forced*2)"]);
+    cmd.args(["-c:a", "aac", "-b:a", &config.audio_bitrate, "-ac", "2"]);
+    cmd.args(["-movflags", "+faststart"]);
+    cmd.args(["-map", "0:v:0", "-map", "0:a:0"]);
+    cmd.arg(output.to_string_lossy().as_ref());
+
+    // Parse ffmpeg -progress output for out_time_us and fps.
+    let mut last_out_time_us: Option<i64> = None;
+    let mut last_fps: Option<f64> = None;
+    let mut last_callback = std::time::Instant::now();
+
+    cmd.execute_with_stderr_callback(
+        |line| {
+            if let Some(val) = line.strip_prefix("out_time_us=") {
+                last_out_time_us = val.trim().parse::<i64>().ok();
+            } else if let Some(val) = line.strip_prefix("fps=") {
+                last_fps = val.trim().parse::<f64>().ok();
+            } else if line.starts_with("progress=") {
+                // End of a progress block — emit callback.
+                if let (Some(out_us), Some(dur)) = (last_out_time_us, duration_secs) {
+                    if dur > 0.0 {
+                        let elapsed_secs = out_us as f64 / 1_000_000.0;
+                        let pct = (elapsed_secs / dur).clamp(0.0, 1.0);
+                        // Throttle to ~2 second intervals.
+                        let now = std::time::Instant::now();
+                        if now.duration_since(last_callback) >= Duration::from_secs(2)
+                            || line.contains("end")
+                        {
+                            progress_callback(pct, last_fps);
+                            last_callback = now;
+                        }
+                    }
+                }
+            }
+        },
+        cancel,
+    )
+    .await?;
 
     Ok(())
 }

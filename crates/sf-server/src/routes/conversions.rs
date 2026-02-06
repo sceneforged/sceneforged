@@ -38,6 +38,10 @@ pub struct ConversionJobResponse {
     pub item_name: Option<String>,
     pub media_file_id: Option<String>,
     pub source_media_file_id: Option<String>,
+    pub source_video_codec: Option<String>,
+    pub source_audio_codec: Option<String>,
+    pub source_resolution: Option<String>,
+    pub source_container: Option<String>,
     pub status: String,
     pub progress_pct: f64,
     pub encode_fps: Option<f64>,
@@ -49,13 +53,28 @@ pub struct ConversionJobResponse {
 }
 
 impl ConversionJobResponse {
-    fn from_model(job: &sf_db::models::ConversionJob, item_name: Option<String>) -> Self {
+    fn from_model(
+        job: &sf_db::models::ConversionJob,
+        item_name: Option<String>,
+        source_mf: Option<&sf_db::models::MediaFile>,
+    ) -> Self {
+        let source_resolution = source_mf.and_then(|mf| {
+            match (mf.resolution_width, mf.resolution_height) {
+                (Some(w), Some(h)) => Some(format!("{w}x{h}")),
+                _ => None,
+            }
+        });
+
         Self {
             id: job.id.to_string(),
             item_id: job.item_id.to_string(),
             item_name,
             media_file_id: job.media_file_id.map(|id| id.to_string()),
             source_media_file_id: job.source_media_file_id.map(|id| id.to_string()),
+            source_video_codec: source_mf.and_then(|mf| mf.video_codec.clone()),
+            source_audio_codec: source_mf.and_then(|mf| mf.audio_codec.clone()),
+            source_resolution,
+            source_container: source_mf.and_then(|mf| mf.container.clone()),
             status: job.status.clone(),
             progress_pct: job.progress_pct,
             encode_fps: job.encode_fps,
@@ -101,23 +120,21 @@ pub async fn submit_conversion(
     }
 
     // Resolve source media file — use provided ID or pick the first source file.
-    let source_mf_id = if let Some(ref mf_id_str) = payload.media_file_id {
-        mf_id_str
+    let source_mf = if let Some(ref mf_id_str) = payload.media_file_id {
+        let mf_id = mf_id_str
             .parse::<sf_core::MediaFileId>()
-            .map_err(|_| sf_core::Error::Validation("Invalid media_file_id".into()))?
+            .map_err(|_| sf_core::Error::Validation("Invalid media_file_id".into()))?;
+        sf_db::queries::media_files::get_media_file(&conn, mf_id)?
+            .ok_or_else(|| sf_core::Error::not_found("media_file", mf_id))?
     } else {
         let files = sf_db::queries::media_files::list_media_files_by_item(&conn, item_id)?;
-        let source = files
-            .iter()
-            .find(|f| f.role == "source")
-            .or(files.first())
-            .ok_or_else(|| {
-                sf_core::Error::Validation("No media files found for item".into())
-            })?;
-        source.id
+        let idx = files.iter().position(|f| f.role == "source").unwrap_or(0);
+        files.into_iter().nth(idx).ok_or_else(|| {
+            sf_core::Error::Validation("No media files found for item".into())
+        })?
     };
 
-    let job = sf_db::queries::conversion_jobs::create_conversion_job(&conn, item_id, source_mf_id)?;
+    let job = sf_db::queries::conversion_jobs::create_conversion_job(&conn, item_id, source_mf.id)?;
 
     let item_name = sf_db::queries::items::get_item(&conn, item_id)?
         .map(|i| i.name);
@@ -129,7 +146,7 @@ pub async fn submit_conversion(
 
     Ok((
         StatusCode::CREATED,
-        Json(ConversionJobResponse::from_model(&job, item_name)),
+        Json(ConversionJobResponse::from_model(&job, item_name, Some(&source_mf))),
     ))
 }
 
@@ -154,19 +171,30 @@ pub async fn list_conversions(
         params.limit,
     )?;
 
-    // Build item_id -> name map for all jobs.
+    // Build item_id -> name map and source_media_file_id -> MediaFile map.
     let mut name_map = std::collections::HashMap::new();
+    let mut source_mf_map = std::collections::HashMap::new();
     for job in &jobs {
         if !name_map.contains_key(&job.item_id) {
             if let Ok(Some(item)) = sf_db::queries::items::get_item(&conn, job.item_id) {
                 name_map.insert(job.item_id, item.name);
             }
         }
+        if let Some(smf_id) = job.source_media_file_id {
+            if !source_mf_map.contains_key(&smf_id) {
+                if let Ok(Some(mf)) = sf_db::queries::media_files::get_media_file(&conn, smf_id) {
+                    source_mf_map.insert(smf_id, mf);
+                }
+            }
+        }
     }
 
     let responses: Vec<ConversionJobResponse> = jobs
         .iter()
-        .map(|job| ConversionJobResponse::from_model(job, name_map.get(&job.item_id).cloned()))
+        .map(|job| {
+            let source_mf = job.source_media_file_id.and_then(|id| source_mf_map.get(&id));
+            ConversionJobResponse::from_model(job, name_map.get(&job.item_id).cloned(), source_mf)
+        })
         .collect();
     Ok(Json(responses))
 }
@@ -196,7 +224,10 @@ pub async fn get_conversion(
     let item_name = sf_db::queries::items::get_item(&conn, job.item_id)?
         .map(|i| i.name);
 
-    Ok(Json(ConversionJobResponse::from_model(&job, item_name)))
+    let source_mf = job.source_media_file_id
+        .and_then(|id| sf_db::queries::media_files::get_media_file(&conn, id).ok().flatten());
+
+    Ok(Json(ConversionJobResponse::from_model(&job, item_name, source_mf.as_ref())))
 }
 
 /// Request body for batch conversion.
@@ -402,7 +433,14 @@ pub async fn delete_conversion(
             sf_db::queries::conversion_jobs::delete_conversion_job(&conn, job_id)?
         }
         "processing" => {
-            sf_db::queries::conversion_jobs::cancel_conversion_job(&conn, job_id)?
+            let cancelled = sf_db::queries::conversion_jobs::cancel_conversion_job(&conn, job_id)?;
+            // Trigger the cancellation token to kill the running ffmpeg process.
+            if cancelled {
+                if let Some((_, token)) = ctx.active_conversions.remove(&job_id) {
+                    token.cancel();
+                }
+            }
+            cancelled
         }
         _ => false,
     };

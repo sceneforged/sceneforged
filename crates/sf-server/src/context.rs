@@ -11,10 +11,12 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use parking_lot::RwLock;
 
+use tokio_util::sync::CancellationToken;
+
 use sf_av::ToolRegistry;
 use sf_core::config::Config;
 use sf_core::events::EventBus;
-use sf_core::MediaFileId;
+use sf_core::{ConversionJobId, MediaFileId};
 use sf_db::pool::DbPool;
 use sf_media::PreparedMedia;
 use sf_probe::Prober;
@@ -178,6 +180,8 @@ pub struct AppContext {
     pub tools: Arc<ToolRegistry>,
     /// In-memory HLS segment cache for zero-copy serving.
     pub hls_cache: Arc<DashMap<MediaFileId, Arc<PreparedMedia>>>,
+    /// Cancellation tokens for active conversion jobs (keyed by job ID).
+    pub active_conversions: Arc<DashMap<ConversionJobId, CancellationToken>>,
 }
 
 #[cfg(test)]

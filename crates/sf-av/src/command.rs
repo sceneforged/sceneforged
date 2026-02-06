@@ -5,6 +5,7 @@ use std::process::ExitStatus;
 use std::time::Duration;
 
 use tokio::process::Command;
+use tokio_util::sync::CancellationToken;
 
 /// Default command timeout: 5 minutes.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
@@ -82,6 +83,111 @@ impl ToolCommand {
     pub fn stdin(&mut self, data: Vec<u8>) -> &mut Self {
         self.stdin_data = Some(data);
         self
+    }
+
+    /// Execute the command, streaming stderr lines to a callback.
+    ///
+    /// This is designed for long-running processes (like ffmpeg) where you want
+    /// real-time progress updates. Stderr is read line-by-line and passed to the
+    /// callback. An optional [`CancellationToken`] can be used to kill the child
+    /// process mid-execution.
+    ///
+    /// Returns the full stdout and the collected stderr on success.
+    pub async fn execute_with_stderr_callback(
+        &self,
+        mut on_stderr: impl FnMut(&str),
+        cancel: Option<CancellationToken>,
+    ) -> sf_core::Result<ToolOutput> {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+
+        let program_name = self
+            .program
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| self.program.to_string_lossy().to_string());
+
+        let mut cmd = Command::new(&self.program);
+        cmd.args(&self.args);
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+
+        let mut child = cmd.spawn().map_err(|e| sf_core::Error::Tool {
+            tool: program_name.clone(),
+            message: format!("failed to spawn: {e}"),
+        })?;
+
+        let stderr_pipe = child.stderr.take().expect("stderr piped");
+        let mut stderr_reader = BufReader::new(stderr_pipe).lines();
+        let mut stderr_buf = String::new();
+
+        let cancelled = loop {
+            let line = if let Some(ref token) = cancel {
+                tokio::select! {
+                    biased;
+                    _ = token.cancelled() => break true,
+                    line = stderr_reader.next_line() => line,
+                }
+            } else {
+                stderr_reader.next_line().await
+            };
+
+            match line {
+                Ok(Some(line)) => {
+                    on_stderr(&line);
+                    stderr_buf.push_str(&line);
+                    stderr_buf.push('\n');
+                }
+                Ok(None) => break false, // EOF
+                Err(e) => {
+                    tracing::debug!("stderr read error for {program_name}: {e}");
+                    break false;
+                }
+            }
+        };
+
+        if cancelled {
+            let _ = child.kill().await;
+            return Err(sf_core::Error::Tool {
+                tool: program_name,
+                message: "cancelled".into(),
+            });
+        }
+
+        // Wait for process exit.
+        let status = tokio::time::timeout(Duration::from_secs(30), child.wait())
+            .await
+            .map_err(|_| sf_core::Error::Tool {
+                tool: program_name.clone(),
+                message: "timed out waiting for process exit after stderr EOF".into(),
+            })?
+            .map_err(|e| sf_core::Error::Tool {
+                tool: program_name.clone(),
+                message: format!("I/O error waiting for process: {e}"),
+            })?;
+
+        // Read remaining stdout.
+        let stdout = if let Some(mut stdout_pipe) = child.stdout.take() {
+            let mut buf = Vec::new();
+            tokio::io::AsyncReadExt::read_to_end(&mut stdout_pipe, &mut buf)
+                .await
+                .unwrap_or(0);
+            String::from_utf8_lossy(&buf).to_string()
+        } else {
+            String::new()
+        };
+
+        if !status.success() {
+            return Err(sf_core::Error::Tool {
+                tool: program_name,
+                message: format!("exited with status {}: {}", status, stderr_buf.trim()),
+            });
+        }
+
+        Ok(ToolOutput {
+            status,
+            stdout,
+            stderr: stderr_buf,
+        })
     }
 
     /// Execute the command, capturing stdout and stderr.

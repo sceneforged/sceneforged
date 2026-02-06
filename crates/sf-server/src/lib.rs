@@ -94,6 +94,7 @@ pub async fn start(config: Config, config_path: Option<PathBuf>) -> sf_core::Res
     let event_bus = Arc::new(EventBus::default());
 
     let hls_cache = Arc::new(DashMap::new());
+    let active_conversions = Arc::new(DashMap::new());
 
     let ctx = AppContext {
         db,
@@ -103,6 +104,7 @@ pub async fn start(config: Config, config_path: Option<PathBuf>) -> sf_core::Res
         prober,
         tools,
         hls_cache,
+        active_conversions,
     };
 
     // Warm up HLS cache for existing Profile B media files.
