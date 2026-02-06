@@ -50,8 +50,8 @@ pub async fn start(config: Config, config_path: Option<PathBuf>) -> sf_core::Res
     }
 
     // Initialize database.
-    let db_path = "sceneforged.db";
-    let db = sf_db::pool::init_pool(db_path)?;
+    let db_path = config.server.db_path.to_string_lossy();
+    let db = sf_db::pool::init_pool(&db_path)?;
     tracing::info!("Database initialized at {db_path}");
 
     // Discover external tools.

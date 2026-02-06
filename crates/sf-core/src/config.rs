@@ -151,6 +151,7 @@ pub struct ServerConfig {
     pub host: String,
     pub port: u16,
     pub static_dir: Option<PathBuf>,
+    pub db_path: PathBuf,
 }
 
 impl Default for ServerConfig {
@@ -159,6 +160,7 @@ impl Default for ServerConfig {
             host: "0.0.0.0".into(),
             port: 8080,
             static_dir: Some(PathBuf::from("/app/static")),
+            db_path: PathBuf::from("/data/sceneforged.db"),
         }
     }
 }

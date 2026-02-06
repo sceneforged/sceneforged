@@ -16,7 +16,7 @@ services:
       - /path/to/media:/media
     environment:
       - RUST_LOG=${RUST_LOG:-info}
-      - SCENEFORGED_CONFIG=/config/config.toml
+      - SCENEFORGED_CONFIG=/config/config.json
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
       interval: 30s
