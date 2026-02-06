@@ -164,21 +164,23 @@ pub fn build_prepared_media(
             (audio_track, &audio_samples[as_start..as_end], as_start, audio_start_tick)
         });
 
-        // Collect all sample data ranges, sorted by file offset.
-        let mut all_ranges: Vec<DataRange> = Vec::new();
+        // Collect video and audio data ranges separately so mdat layout
+        // matches trun data_offset expectations (video first, then audio).
+        let mut video_ranges: Vec<DataRange> = Vec::new();
         let mut video_data_size: u64 = 0;
         for s in seg_video_samples {
-            all_ranges.push(DataRange {
+            video_ranges.push(DataRange {
                 file_offset: s.file_offset,
                 length: s.size as u64,
             });
             video_data_size += s.size as u64;
         }
 
+        let mut audio_ranges: Vec<DataRange> = Vec::new();
         let mut audio_data_size: u64 = 0;
         if let Some((_, audio_seg_samples, _, _)) = &audio_data {
             for s in *audio_seg_samples {
-                all_ranges.push(DataRange {
+                audio_ranges.push(DataRange {
                     file_offset: s.file_offset,
                     length: s.size as u64,
                 });
@@ -186,9 +188,11 @@ pub fn build_prepared_media(
             }
         }
 
-        // Sort by offset and merge adjacent/overlapping ranges.
-        all_ranges.sort_by_key(|r| r.file_offset);
-        let merged_ranges = merge_data_ranges(&all_ranges);
+        // Merge adjacent ranges within each track for efficient reads.
+        video_ranges.sort_by_key(|r| r.file_offset);
+        let merged_video_ranges = merge_data_ranges(&video_ranges);
+        audio_ranges.sort_by_key(|r| r.file_offset);
+        let merged_audio_ranges = merge_data_ranges(&audio_ranges);
 
         let total_data_size = video_data_size + audio_data_size;
 
@@ -286,7 +290,8 @@ pub fn build_prepared_media(
             duration_secs,
             moof_bytes: moof,
             mdat_header: mdat_hdr,
-            data_ranges: merged_ranges,
+            video_data_ranges: merged_video_ranges,
+            audio_data_ranges: merged_audio_ranges,
             data_length: total_data_size,
         });
     }

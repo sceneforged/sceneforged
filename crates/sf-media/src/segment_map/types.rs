@@ -20,8 +20,10 @@ pub struct PrecomputedSegment {
     pub moof_bytes: Vec<u8>,
     /// Pre-built mdat header bytes.
     pub mdat_header: Vec<u8>,
-    /// Byte ranges to read from the source MP4 file.
-    pub data_ranges: Vec<DataRange>,
+    /// Video byte ranges to read from the source MP4 (written to mdat first).
+    pub video_data_ranges: Vec<DataRange>,
+    /// Audio byte ranges to read from the source MP4 (written to mdat after video).
+    pub audio_data_ranges: Vec<DataRange>,
     /// Total length of all data ranges (= mdat payload size).
     pub data_length: u64,
 }

@@ -89,10 +89,16 @@ pub async fn hls_segment(
     buf.extend_from_slice(&seg.moof_bytes);
     buf.extend_from_slice(&seg.mdat_header);
 
-    // Read data ranges from source file.
+    // Read data ranges from source file: video first, then audio, to match
+    // the trun data_offset layout in the moof.
     let file_path = prepared.file_path.clone();
-    let data_ranges: Vec<(u64, u64)> = seg
-        .data_ranges
+    let video_ranges: Vec<(u64, u64)> = seg
+        .video_data_ranges
+        .iter()
+        .map(|r| (r.file_offset, r.length))
+        .collect();
+    let audio_ranges: Vec<(u64, u64)> = seg
+        .audio_data_ranges
         .iter()
         .map(|r| (r.file_offset, r.length))
         .collect();
@@ -107,7 +113,19 @@ pub async fn hls_segment(
             ))
         })?;
         let mut data = Vec::with_capacity(expected_data);
-        for (offset, length) in &data_ranges {
+        // Video data first (matches video trun data_offset).
+        for (offset, length) in &video_ranges {
+            file.seek(SeekFrom::Start(*offset)).map_err(|e| {
+                sf_core::Error::Internal(format!("Seek failed: {e}"))
+            })?;
+            let mut chunk = vec![0u8; *length as usize];
+            file.read_exact(&mut chunk).map_err(|e| {
+                sf_core::Error::Internal(format!("Read failed: {e}"))
+            })?;
+            data.extend_from_slice(&chunk);
+        }
+        // Audio data second (matches audio trun data_offset).
+        for (offset, length) in &audio_ranges {
             file.seek(SeekFrom::Start(*offset)).map_err(|e| {
                 sf_core::Error::Internal(format!("Seek failed: {e}"))
             })?;
