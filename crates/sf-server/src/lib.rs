@@ -50,9 +50,23 @@ pub async fn start(config: Config, config_path: Option<PathBuf>) -> sf_core::Res
     }
 
     // Initialize database.
-    let db_path = config.server.db_path.to_string_lossy();
-    let db = sf_db::pool::init_pool(&db_path)?;
-    tracing::info!("Database initialized at {db_path}");
+    let db_path = &config.server.db_path;
+    let existed = db_path.exists();
+    if let Some(parent) = db_path.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                sf_core::Error::Io { source: e }
+            })?;
+            tracing::info!("Created database directory {}", parent.display());
+        }
+    }
+    let db_str = db_path.to_string_lossy();
+    let db = sf_db::pool::init_pool(&db_str)?;
+    if existed {
+        tracing::info!("Database opened (existing) at {db_str}");
+    } else {
+        tracing::info!("Database created (new) at {db_str}");
+    }
 
     // Discover external tools.
     let tools = Arc::new(sf_av::ToolRegistry::discover(&config.tools));
