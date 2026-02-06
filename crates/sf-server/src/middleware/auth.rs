@@ -10,6 +10,7 @@ use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use sf_core::UserId;
+use sf_db::pool::DbPool;
 
 use crate::context::AppContext;
 
@@ -20,6 +21,64 @@ pub const SESSION_COOKIE: &str = "sceneforged_session";
 /// Deterministic UUID v5 from the DNS namespace + "anonymous".
 const ANONYMOUS_USER_ID: &str = "00000000-0000-0000-0000-000000000000";
 
+/// Validate an auth token from raw HTTP header values.
+///
+/// Called by both [`auth_middleware`] (Axum) and the sendfile handler (raw TCP).
+/// Returns `Some(UserId)` on success, `None` on failure.
+pub fn validate_auth_headers(
+    auth_config: &sf_core::config::AuthConfig,
+    db: &DbPool,
+    authorization: Option<&str>,
+    cookie: Option<&str>,
+) -> Option<UserId> {
+    // If auth is not enabled, return anonymous user.
+    if !auth_config.enabled {
+        return Some(
+            ANONYMOUS_USER_ID
+                .parse()
+                .expect("static anonymous UUID is valid"),
+        );
+    }
+
+    // Check API key in Authorization: Bearer header.
+    if let Some(auth_value) = authorization {
+        if let Some(token) = auth_value.strip_prefix("Bearer ") {
+            if let Some(ref api_key) = auth_config.api_key {
+                if token == api_key {
+                    return Some(
+                        ANONYMOUS_USER_ID
+                            .parse()
+                            .expect("static anonymous UUID is valid"),
+                    );
+                }
+            }
+
+            // Also check against database auth tokens.
+            if let Ok(conn) = sf_db::pool::get_conn(db) {
+                if let Ok(Some(tok)) = sf_db::queries::auth::get_token(&conn, token) {
+                    return Some(tok.user_id);
+                }
+            }
+        }
+    }
+
+    // Check session cookie.
+    if let Some(cookies_str) = cookie {
+        for part in cookies_str.split(';') {
+            let part = part.trim();
+            if let Some(value) = part.strip_prefix(&format!("{SESSION_COOKIE}=")) {
+                if let Ok(conn) = sf_db::pool::get_conn(db) {
+                    if let Ok(Some(tok)) = sf_db::queries::auth::get_token(&conn, value) {
+                        return Some(tok.user_id);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
 /// Authentication middleware. Applied to protected routes only.
 ///
 /// On success, inserts the resolved [`UserId`] into request extensions.
@@ -28,65 +87,28 @@ pub async fn auth_middleware(
     mut request: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, Response> {
-    let auth_config = &ctx.config.auth;
+    let authorization = request
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_owned());
 
-    // If auth is not enabled, inject anonymous user and pass through.
-    if !auth_config.enabled {
-        let anon_id: UserId = ANONYMOUS_USER_ID
-            .parse()
-            .expect("static anonymous UUID is valid");
-        request.extensions_mut().insert(anon_id);
-        return Ok(next.run(request).await);
-    }
+    let cookie = request
+        .headers()
+        .get(axum::http::header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_owned());
 
-    // Check API key in Authorization: Bearer header.
-    if let Some(auth_header) = request.headers().get(axum::http::header::AUTHORIZATION) {
-        if let Ok(val) = auth_header.to_str() {
-            if let Some(token) = val.strip_prefix("Bearer ") {
-                if let Some(ref api_key) = auth_config.api_key {
-                    if token == api_key {
-                        // API key auth — resolve to first user or anonymous.
-                        let user_id = resolve_api_key_user(&ctx);
-                        request.extensions_mut().insert(user_id);
-                        return Ok(next.run(request).await);
-                    }
-                }
-
-                // Also check against database auth tokens.
-                if let Ok(conn) = sf_db::pool::get_conn(&ctx.db) {
-                    if let Ok(Some(tok)) = sf_db::queries::auth::get_token(&conn, token) {
-                        request.extensions_mut().insert(tok.user_id);
-                        return Ok(next.run(request).await);
-                    }
-                }
-            }
+    match validate_auth_headers(
+        &ctx.config.auth,
+        &ctx.db,
+        authorization.as_deref(),
+        cookie.as_deref(),
+    ) {
+        Some(user_id) => {
+            request.extensions_mut().insert(user_id);
+            Ok(next.run(request).await)
         }
+        None => Err((StatusCode::UNAUTHORIZED, "Authentication required").into_response()),
     }
-
-    // Check session cookie.
-    if let Some(cookie_header) = request.headers().get(axum::http::header::COOKIE) {
-        if let Ok(cookies_str) = cookie_header.to_str() {
-            for part in cookies_str.split(';') {
-                let part = part.trim();
-                if let Some(value) = part.strip_prefix(&format!("{SESSION_COOKIE}=")) {
-                    // Validate cookie value against database tokens.
-                    if let Ok(conn) = sf_db::pool::get_conn(&ctx.db) {
-                        if let Ok(Some(tok)) = sf_db::queries::auth::get_token(&conn, value) {
-                            request.extensions_mut().insert(tok.user_id);
-                            return Ok(next.run(request).await);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    Err((StatusCode::UNAUTHORIZED, "Authentication required").into_response())
-}
-
-/// Resolve a user ID for API-key authenticated requests.
-fn resolve_api_key_user(_ctx: &AppContext) -> UserId {
-    ANONYMOUS_USER_ID
-        .parse()
-        .expect("static anonymous UUID is valid")
 }

@@ -36,6 +36,9 @@ hmac.workspace = true
 sha2.workspace = true
 hex.workspace = true
 dashmap.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+libc.workspace = true
 utoipa = { workspace = true, features = ["axum_extras"] }
 utoipa-swagger-ui = { workspace = true, features = ["axum"] }
 

@@ -18,13 +18,17 @@ pub mod processor;
 pub mod router;
 pub mod routes;
 pub mod scanner;
+pub mod sendfile;
 pub mod watcher;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use axum::Router;
 use dashmap::DashMap;
+use hyper_util::rt::TokioIo;
+use hyper_util::service::TowerToHyperService;
 
 use sf_core::config::Config;
 use sf_core::events::EventBus;
@@ -126,7 +130,7 @@ pub async fn start(config: Config, config_path: Option<PathBuf>) -> sf_core::Res
         .parse()
         .map_err(|e| sf_core::Error::Internal(format!("Invalid server address: {e}")))?;
 
-    let app = router::build_router(ctx, config.server.static_dir.clone());
+    let app = router::build_router(ctx.clone(), config.server.static_dir.clone());
 
     tracing::info!("Starting server on {addr}");
 
@@ -136,10 +140,9 @@ pub async fn start(config: Config, config_path: Option<PathBuf>) -> sf_core::Res
 
     let cancel_for_shutdown = cancel.clone();
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(cancel_for_shutdown))
-        .await
-        .map_err(|e| sf_core::Error::Internal(format!("Server error: {e}")))?;
+    // Custom TCP accept loop: peek at each connection to route segment
+    // requests to the sendfile handler, everything else through hyper/Axum.
+    run_accept_loop(listener, ctx, app, cancel_for_shutdown).await;
 
     // Signal all background tasks to stop.
     cancel.cancel();
@@ -149,6 +152,69 @@ pub async fn start(config: Config, config_path: Option<PathBuf>) -> sf_core::Res
 
     tracing::info!("Server shutdown complete");
     Ok(())
+}
+
+/// Accept loop that peeks at each connection to route segment requests to
+/// the sendfile handler and everything else through hyper/Axum.
+async fn run_accept_loop(
+    listener: tokio::net::TcpListener,
+    ctx: AppContext,
+    app: Router,
+    cancel: CancellationToken,
+) {
+    loop {
+        tokio::select! {
+            result = listener.accept() => {
+                match result {
+                    Ok((stream, _addr)) => {
+                        let ctx = ctx.clone();
+                        let app = app.clone();
+                        tokio::spawn(handle_connection(stream, ctx, app));
+                    }
+                    Err(e) => {
+                        tracing::debug!("Accept error: {e}");
+                    }
+                }
+            }
+            _ = shutdown_signal(cancel.clone()) => break,
+        }
+    }
+}
+
+/// Handle a single TCP connection: peek to see if it's a segment request,
+/// then either serve it via sendfile or pass it through to hyper/Axum.
+async fn handle_connection(stream: tokio::net::TcpStream, ctx: AppContext, app: Router) {
+    let mut peek_buf = [0u8; 256];
+    match stream.peek(&mut peek_buf).await {
+        Ok(n) if sendfile::is_segment_request(&peek_buf[..n]) => {
+            let std_stream = match stream.into_std() {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::debug!("Failed to convert to std TcpStream: {e}");
+                    return;
+                }
+            };
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = sendfile::handle_sendfile_segment(std_stream, &ctx) {
+                    tracing::debug!("Sendfile segment error: {e}");
+                }
+            })
+            .await
+            .ok();
+        }
+        _ => {
+            // Normal Axum/hyper path.
+            let io = TokioIo::new(stream);
+            let hyper_service = TowerToHyperService::new(app.into_service());
+            if let Err(e) = hyper::server::conn::http1::Builder::new()
+                .serve_connection(io, hyper_service)
+                .with_upgrades()
+                .await
+            {
+                tracing::debug!("Hyper connection error: {e}");
+            }
+        }
+    }
 }
 
 /// Wait for a shutdown signal (SIGINT or SIGTERM).

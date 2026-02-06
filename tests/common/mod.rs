@@ -14,8 +14,12 @@ use sf_core::config::Config;
 use sf_core::events::EventBus;
 use sf_db::pool::{init_memory_pool, DbPool};
 use sf_probe::{CompositeProber, Prober, RustProber};
+use hyper_util::rt::TokioIo;
+use hyper_util::service::TowerToHyperService;
+
 use sf_server::context::{AppContext, ConfigStore};
 use sf_server::router::build_router;
+use sf_server::sendfile;
 
 /// Test harness wrapping a fully-constructed [`AppContext`] backed by an
 /// in-memory database.
@@ -82,6 +86,63 @@ impl TestHarness {
 
         tokio::spawn(async move {
             axum::serve(listener, app).await.ok();
+        });
+
+        (harness, addr)
+    }
+
+    /// Start a server with the custom accept loop (peek + sendfile routing)
+    /// on a random port. This uses the same connection dispatch logic as the
+    /// real server: segment requests go through sendfile, everything else
+    /// through hyper/Axum.
+    pub async fn with_sendfile_server() -> (Self, SocketAddr) {
+        Self::with_sendfile_server_config(Config::default()).await
+    }
+
+    /// Start a sendfile-routed server with custom config on a random port.
+    pub async fn with_sendfile_server_config(config: Config) -> (Self, SocketAddr) {
+        let harness = Self::with_config(config);
+        let ctx = harness.ctx.clone();
+        let app = build_router(ctx.clone(), None);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("failed to bind random port");
+        let addr = listener.local_addr().expect("failed to get local addr");
+
+        tokio::spawn(async move {
+            loop {
+                let (stream, _) = match listener.accept().await {
+                    Ok(conn) => conn,
+                    Err(_) => break,
+                };
+                let ctx = ctx.clone();
+                let app = app.clone();
+                tokio::spawn(async move {
+                    let mut peek_buf = [0u8; 256];
+                    match stream.peek(&mut peek_buf).await {
+                        Ok(n) if sendfile::is_segment_request(&peek_buf[..n]) => {
+                            let std_stream = match stream.into_std() {
+                                Ok(s) => s,
+                                Err(_) => return,
+                            };
+                            tokio::task::spawn_blocking(move || {
+                                let _ = sendfile::handle_sendfile_segment(std_stream, &ctx);
+                            })
+                            .await
+                            .ok();
+                        }
+                        _ => {
+                            let io = TokioIo::new(stream);
+                            let hyper_service = TowerToHyperService::new(app.into_service());
+                            let _ = hyper::server::conn::http1::Builder::new()
+                                .serve_connection(io, hyper_service)
+                                .with_upgrades()
+                                .await;
+                        }
+                    }
+                });
+            }
         });
 
         (harness, addr)
