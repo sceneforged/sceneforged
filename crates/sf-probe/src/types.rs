@@ -45,6 +45,42 @@ impl MediaInfo {
             .find(|t| t.default)
             .or_else(|| self.audio_tracks.first())
     }
+
+    /// Classify this file's media profile based on its actual properties.
+    ///
+    /// - **Profile B** (universal): MP4 container, H.264 video, AAC audio, SDR, no DV.
+    /// - **Profile A** (high-quality): HDR, Dolby Vision, or 4K+ resolution.
+    /// - **Profile C** (default): everything else.
+    pub fn classify_profile(&self) -> sf_core::Profile {
+        let video = match self.primary_video() {
+            Some(v) => v,
+            None => return sf_core::Profile::C,
+        };
+
+        // Profile B: MP4 + H.264 + AAC + SDR + no DV
+        if self.container == Container::Mp4
+            && video.codec == VideoCodec::H264
+            && video.hdr_format == HdrFormat::Sdr
+            && video.dolby_vision.is_none()
+        {
+            // Must have an AAC audio track
+            if let Some(audio) = self.primary_audio() {
+                if audio.codec == AudioCodec::Aac {
+                    return sf_core::Profile::B;
+                }
+            }
+        }
+
+        // Profile A: HDR or DV or 4K+
+        if video.hdr_format != HdrFormat::Sdr
+            || video.dolby_vision.is_some()
+            || video.width >= 3840
+        {
+            return sf_core::Profile::A;
+        }
+
+        sf_core::Profile::C
+    }
 }
 
 /// A video track within a media file.
@@ -230,6 +266,183 @@ mod tests {
         let primary = info.primary_audio().unwrap();
         assert_eq!(primary.codec, AudioCodec::Eac3);
         assert_eq!(primary.channels, 6);
+    }
+
+    #[test]
+    fn classify_profile_b_mp4_h264_aac() {
+        let info = MediaInfo {
+            file_path: PathBuf::from("/movie.mp4"),
+            file_size: 1000,
+            container: Container::Mp4,
+            duration: None,
+            video_tracks: vec![VideoTrack {
+                codec: VideoCodec::H264,
+                width: 1920,
+                height: 1080,
+                frame_rate: Some(24.0),
+                bit_depth: Some(8),
+                hdr_format: HdrFormat::Sdr,
+                dolby_vision: None,
+                default: true,
+                language: None,
+            }],
+            audio_tracks: vec![AudioTrack {
+                codec: AudioCodec::Aac,
+                channels: 2,
+                sample_rate: Some(48000),
+                language: None,
+                atmos: false,
+                default: true,
+            }],
+            subtitle_tracks: vec![],
+        };
+        assert_eq!(info.classify_profile(), sf_core::Profile::B);
+    }
+
+    #[test]
+    fn classify_profile_a_hdr() {
+        let info = MediaInfo {
+            file_path: PathBuf::from("/movie.mkv"),
+            file_size: 1000,
+            container: Container::Mkv,
+            duration: None,
+            video_tracks: vec![VideoTrack {
+                codec: VideoCodec::H265,
+                width: 3840,
+                height: 2160,
+                frame_rate: None,
+                bit_depth: Some(10),
+                hdr_format: HdrFormat::Hdr10,
+                dolby_vision: None,
+                default: true,
+                language: None,
+            }],
+            audio_tracks: vec![AudioTrack {
+                codec: AudioCodec::TrueHd,
+                channels: 8,
+                sample_rate: Some(48000),
+                language: None,
+                atmos: true,
+                default: true,
+            }],
+            subtitle_tracks: vec![],
+        };
+        assert_eq!(info.classify_profile(), sf_core::Profile::A);
+    }
+
+    #[test]
+    fn classify_profile_a_4k_sdr() {
+        let info = MediaInfo {
+            file_path: PathBuf::from("/movie.mkv"),
+            file_size: 1000,
+            container: Container::Mkv,
+            duration: None,
+            video_tracks: vec![VideoTrack {
+                codec: VideoCodec::H265,
+                width: 3840,
+                height: 2160,
+                frame_rate: None,
+                bit_depth: Some(8),
+                hdr_format: HdrFormat::Sdr,
+                dolby_vision: None,
+                default: true,
+                language: None,
+            }],
+            audio_tracks: vec![AudioTrack {
+                codec: AudioCodec::Ac3,
+                channels: 6,
+                sample_rate: Some(48000),
+                language: None,
+                atmos: false,
+                default: true,
+            }],
+            subtitle_tracks: vec![],
+        };
+        assert_eq!(info.classify_profile(), sf_core::Profile::A);
+    }
+
+    #[test]
+    fn classify_profile_c_mkv_h265() {
+        let info = MediaInfo {
+            file_path: PathBuf::from("/movie.mkv"),
+            file_size: 1000,
+            container: Container::Mkv,
+            duration: None,
+            video_tracks: vec![VideoTrack {
+                codec: VideoCodec::H265,
+                width: 1920,
+                height: 1080,
+                frame_rate: None,
+                bit_depth: Some(8),
+                hdr_format: HdrFormat::Sdr,
+                dolby_vision: None,
+                default: true,
+                language: None,
+            }],
+            audio_tracks: vec![AudioTrack {
+                codec: AudioCodec::Dts,
+                channels: 6,
+                sample_rate: Some(48000),
+                language: None,
+                atmos: false,
+                default: true,
+            }],
+            subtitle_tracks: vec![],
+        };
+        assert_eq!(info.classify_profile(), sf_core::Profile::C);
+    }
+
+    #[test]
+    fn classify_profile_c_mp4_h264_non_aac_audio() {
+        // MP4 + H.264 but DTS audio → not Profile B
+        let info = MediaInfo {
+            file_path: PathBuf::from("/movie.mp4"),
+            file_size: 1000,
+            container: Container::Mp4,
+            duration: None,
+            video_tracks: vec![VideoTrack {
+                codec: VideoCodec::H264,
+                width: 1920,
+                height: 1080,
+                frame_rate: None,
+                bit_depth: Some(8),
+                hdr_format: HdrFormat::Sdr,
+                dolby_vision: None,
+                default: true,
+                language: None,
+            }],
+            audio_tracks: vec![AudioTrack {
+                codec: AudioCodec::Ac3,
+                channels: 6,
+                sample_rate: Some(48000),
+                language: None,
+                atmos: false,
+                default: true,
+            }],
+            subtitle_tracks: vec![],
+        };
+        assert_eq!(info.classify_profile(), sf_core::Profile::C);
+    }
+
+    #[test]
+    fn classify_profile_c_no_video() {
+        let info = MediaInfo {
+            file_path: PathBuf::from("/audio.mp4"),
+            file_size: 1000,
+            container: Container::Mp4,
+            duration: None,
+            video_tracks: vec![],
+            audio_tracks: vec![AudioTrack {
+                codec: AudioCodec::Aac,
+                channels: 2,
+                sample_rate: Some(48000),
+                language: None,
+                atmos: false,
+                default: true,
+            }],
+            subtitle_tracks: vec![],
+        };
+        assert_eq!(info.classify_profile(), sf_core::Profile::C);
     }
 
     #[test]

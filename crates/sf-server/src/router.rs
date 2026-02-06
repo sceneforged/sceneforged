@@ -209,12 +209,12 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
         .route("/admin/dashboard", get(routes::admin::dashboard))
         .route("/admin/tools", get(routes::admin::tools));
 
-    // Apply auth middleware to protected routes if auth is enabled.
-    let protected_routes = if ctx.config.auth.enabled {
-        protected_routes.layer(middleware::from_fn_with_state(ctx.clone(), auth_middleware))
-    } else {
-        protected_routes
-    };
+    // Always apply auth middleware — it handles both enabled (validates
+    // credentials) and disabled (injects anonymous UserId) modes.
+    // Without this, Extension<UserId> extractors on playback/favorites
+    // routes would fail with 500 when auth is disabled.
+    let protected_routes =
+        protected_routes.layer(middleware::from_fn_with_state(ctx.clone(), auth_middleware));
 
     // Combine auth and protected under /api.
     let api = auth_routes.merge(protected_routes);

@@ -38,6 +38,14 @@ impl IntoResponse for AppError {
         let status = StatusCode::from_u16(self.inner.http_status())
             .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 
+        if status.is_server_error() {
+            tracing::error!(
+                status = %status,
+                error = %self.inner,
+                "Server error in API handler"
+            );
+        }
+
         let code = match &self.inner {
             sf_core::Error::NotFound { .. } => "not_found",
             sf_core::Error::Unauthorized(_) => "unauthorized",
