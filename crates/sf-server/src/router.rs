@@ -13,7 +13,7 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::context::AppContext;
-use crate::middleware::auth::auth_middleware;
+use crate::middleware::auth::{admin_middleware, auth_middleware};
 use crate::middleware::request_id::request_id_middleware;
 use crate::routes;
 
@@ -257,12 +257,13 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
         .route(
             "/images/{item_id}/{type}/{size}",
             get(routes::images::get_image),
-        )
-        // Admin
+        );
+
+    // Admin routes — require admin role in addition to authentication.
+    let admin_routes = Router::new()
         .route("/admin/dashboard", get(routes::admin::dashboard))
         .route("/admin/tools", get(routes::admin::tools))
         .route("/admin/stats", get(routes::admin::stats))
-        // User management
         .route(
             "/admin/users",
             get(routes::users::list_users).post(routes::users::create_user),
@@ -270,7 +271,10 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
         .route(
             "/admin/users/{id}",
             put(routes::users::update_user).delete(routes::users::delete_user),
-        );
+        )
+        .layer(middleware::from_fn_with_state(ctx.clone(), admin_middleware));
+
+    let protected_routes = protected_routes.merge(admin_routes);
 
     // Always apply auth middleware — it handles both enabled (validates
     // credentials) and disabled (injects anonymous UserId) modes.

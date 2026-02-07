@@ -4,7 +4,7 @@ use chrono::Utc;
 use rusqlite::Connection;
 use sf_core::{Error, ItemId, Result, UserId};
 
-use crate::models::Playback;
+use crate::models::{Item, Playback};
 
 const COLS: &str = "user_id, item_id, position_secs, completed, play_count, last_played_at";
 
@@ -121,6 +121,109 @@ pub fn mark_unplayed(conn: &Connection, user_id: UserId, item_id: ItemId) -> Res
     Ok(n > 0)
 }
 
+/// Return the "next up" episodes for a user.
+///
+/// For each series that has in-progress (partially watched, not completed)
+/// episodes, finds the *next* unwatched episode after the most recently
+/// watched one.  Handles cross-season boundaries.
+pub fn next_up(conn: &Connection, user_id: UserId, limit: i64) -> Result<Vec<Item>> {
+    // Strategy:
+    // 1. Find the latest in-progress episode per series (via playback).
+    // 2. For each, find the next episode (same season higher ep, or next season ep 1).
+    let sql =
+        "WITH watched AS (
+            SELECT
+                ep.id AS watched_ep_id,
+                ep.parent_id AS season_id,
+                ep.episode_number AS ep_num,
+                season.parent_id AS series_id,
+                season.season_number AS season_num,
+                p.last_played_at
+            FROM playback p
+            JOIN items ep ON ep.id = p.item_id AND ep.item_kind = 'episode'
+            JOIN items season ON season.id = ep.parent_id AND season.item_kind = 'season'
+            WHERE p.user_id = ?1
+              AND (p.position_secs > 0 OR p.completed = 1)
+        ),
+        latest_per_series AS (
+            SELECT *,
+                ROW_NUMBER() OVER (PARTITION BY series_id ORDER BY last_played_at DESC) AS rn
+            FROM watched
+        ),
+        candidates AS (
+            SELECT series_id, season_id, season_num, ep_num, watched_ep_id
+            FROM latest_per_series
+            WHERE rn = 1
+        )
+        SELECT next_ep.id, next_ep.library_id, next_ep.item_kind, next_ep.name,
+               next_ep.sort_name, next_ep.year, next_ep.overview,
+               next_ep.runtime_minutes, next_ep.community_rating,
+               next_ep.provider_ids, next_ep.parent_id,
+               next_ep.season_number, next_ep.episode_number,
+               next_ep.created_at, next_ep.updated_at
+        FROM items next_ep
+        JOIN items next_season ON next_season.id = next_ep.parent_id AND next_season.item_kind = 'season'
+        JOIN candidates c ON next_season.parent_id = c.series_id
+        WHERE next_ep.item_kind = 'episode'
+          AND (
+              (next_season.id = c.season_id AND next_ep.episode_number > c.ep_num)
+              OR
+              (next_season.season_number > c.season_num)
+          )
+          AND next_ep.id NOT IN (
+              SELECT item_id FROM playback WHERE user_id = ?1 AND completed = 1
+          )
+        ORDER BY next_season.season_number ASC, next_ep.episode_number ASC
+        LIMIT ?2";
+
+    // We want only ONE result per series — deduplicate in application code
+    // since SQLite doesn't have DISTINCT ON.
+    let mut stmt = conn.prepare(sql).map_err(|e| Error::database(e.to_string()))?;
+    let rows = stmt
+        .query_map(
+            rusqlite::params![user_id.to_string(), limit * 5],
+            Item::from_row,
+        )
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    // Deduplicate: one next-up per series (first = lowest season/ep = correct).
+    let mut seen_series = std::collections::HashSet::new();
+    let mut result = Vec::new();
+    for item in rows {
+        // The series_id is the grandparent (season's parent_id).
+        // We can derive it from the season's parent, but we already have parent_id (the season).
+        // Look up the season's parent_id as series_id.
+        let season_id = item.parent_id;
+        if let Some(sid) = season_id {
+            // Get the series id from the season.
+            let series_id: Option<String> = conn
+                .query_row(
+                    "SELECT parent_id FROM items WHERE id = ?1",
+                    [sid.to_string()],
+                    |r| r.get(0),
+                )
+                .ok()
+                .flatten();
+            let key = series_id.unwrap_or_else(|| sid.to_string());
+            if seen_series.insert(key) {
+                result.push(item);
+                if result.len() >= limit as usize {
+                    break;
+                }
+            }
+        } else {
+            result.push(item);
+            if result.len() >= limit as usize {
+                break;
+            }
+        }
+    }
+
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,5 +266,49 @@ mod tests {
         upsert_playback(&conn, uid, iid, 10.0, false).unwrap();
         let list = list_recent_playback(&conn, uid, 10).unwrap();
         assert_eq!(list.len(), 1);
+    }
+
+    #[test]
+    fn next_up_basic() {
+        let pool = init_memory_pool().unwrap();
+        let conn = pool.get().unwrap();
+        let user = users::create_user(&conn, "viewer", "h", "user").unwrap();
+        let lib =
+            libraries::create_library(&conn, "TV", "tvshows", &[], &serde_json::json!({}))
+                .unwrap();
+
+        // Create series -> season -> 3 episodes.
+        let series = items::create_item(
+            &conn, lib.id, "series", "Breaking Bad", None, Some(2008), None, None, None,
+            None, None, None, None,
+        )
+        .unwrap();
+        let season = items::create_item(
+            &conn, lib.id, "season", "Season 1", None, None, None, None, None, None,
+            Some(series.id), Some(1), None,
+        )
+        .unwrap();
+        let ep1 = items::create_item(
+            &conn, lib.id, "episode", "Ep 1", None, None, None, None, None, None,
+            Some(season.id), Some(1), Some(1),
+        )
+        .unwrap();
+        let ep2 = items::create_item(
+            &conn, lib.id, "episode", "Ep 2", None, None, None, None, None, None,
+            Some(season.id), Some(1), Some(2),
+        )
+        .unwrap();
+        let _ep3 = items::create_item(
+            &conn, lib.id, "episode", "Ep 3", None, None, None, None, None, None,
+            Some(season.id), Some(1), Some(3),
+        )
+        .unwrap();
+
+        // User watched episode 1 partially.
+        upsert_playback(&conn, user.id, ep1.id, 300.0, false).unwrap();
+
+        let results = next_up(&conn, user.id, 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, ep2.id, "should suggest episode 2 after watching ep 1");
     }
 }

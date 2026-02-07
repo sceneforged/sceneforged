@@ -232,6 +232,72 @@ CREATE INDEX IF NOT EXISTS idx_items_library_name_kind ON items(library_id, name
 CREATE INDEX IF NOT EXISTS idx_items_parent_kind_season ON items(parent_id, item_kind, season_number);
 "#;
 
+/// V8: Add ON DELETE CASCADE to child tables that were missing it.
+///
+/// SQLite cannot ALTER constraints, so each table is recreated.
+const V8_FK_CASCADES: &str = r#"
+-- 1. hls_cache: add CASCADE on media_file_id
+CREATE TABLE hls_cache_new (
+    media_file_id TEXT PRIMARY KEY REFERENCES media_files(id) ON DELETE CASCADE,
+    playlist      TEXT NOT NULL,
+    segments      TEXT NOT NULL,
+    created_at    TEXT NOT NULL
+);
+INSERT INTO hls_cache_new SELECT * FROM hls_cache;
+DROP TABLE hls_cache;
+ALTER TABLE hls_cache_new RENAME TO hls_cache;
+
+-- 2. conversion_jobs: add CASCADE on item_id, media_file_id, source_media_file_id
+CREATE TABLE conversion_jobs_new (
+    id                   TEXT PRIMARY KEY,
+    item_id              TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    media_file_id        TEXT REFERENCES media_files(id) ON DELETE CASCADE,
+    status               TEXT NOT NULL DEFAULT 'queued',
+    progress_pct         REAL DEFAULT 0.0,
+    encode_fps           REAL,
+    eta_secs             INTEGER,
+    error                TEXT,
+    created_at           TEXT NOT NULL,
+    started_at           TEXT,
+    completed_at         TEXT,
+    locked_by            TEXT,
+    locked_at            TEXT,
+    source_media_file_id TEXT REFERENCES media_files(id) ON DELETE CASCADE
+);
+INSERT INTO conversion_jobs_new SELECT * FROM conversion_jobs;
+DROP TABLE conversion_jobs;
+ALTER TABLE conversion_jobs_new RENAME TO conversion_jobs;
+CREATE INDEX idx_conversion_jobs_status ON conversion_jobs(status);
+CREATE INDEX idx_conversion_jobs_item ON conversion_jobs(item_id);
+
+-- 3. playback: add CASCADE on item_id
+CREATE TABLE playback_new (
+    user_id        TEXT NOT NULL REFERENCES users(id),
+    item_id        TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    position_secs  REAL NOT NULL DEFAULT 0.0,
+    completed      INTEGER DEFAULT 0,
+    play_count     INTEGER DEFAULT 0,
+    last_played_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, item_id)
+);
+INSERT INTO playback_new SELECT * FROM playback;
+DROP TABLE playback;
+ALTER TABLE playback_new RENAME TO playback;
+CREATE INDEX idx_playback_user ON playback(user_id);
+
+-- 4. favorites: add CASCADE on item_id
+CREATE TABLE favorites_new (
+    user_id    TEXT NOT NULL REFERENCES users(id),
+    item_id    TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, item_id)
+);
+INSERT INTO favorites_new SELECT * FROM favorites;
+DROP TABLE favorites;
+ALTER TABLE favorites_new RENAME TO favorites;
+CREATE INDEX idx_favorites_user ON favorites(user_id);
+"#;
+
 /// Ordered list of (version, sql) pairs.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, V1_INITIAL),
@@ -241,6 +307,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (5, V5_SUBTITLE_TRACKS),
     (6, V6_ITEMS_FTS),
     (7, V7_SCANNER_INDEXES),
+    (8, V8_FK_CASCADES),
 ];
 
 /// Run all pending migrations on `conn`.
@@ -332,5 +399,49 @@ mod tests {
                 .unwrap();
             assert!(exists, "table {t} should exist");
         }
+    }
+
+    #[test]
+    fn test_fk_cascade_deletes() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        run_migrations(&conn).unwrap();
+
+        // Create a library + item + media_file, then child rows in cascade tables.
+        conn.execute_batch(
+            "INSERT INTO libraries (id, name, media_type, paths, created_at)
+             VALUES ('lib1', 'Test', 'movies', '[]', '2025-01-01');
+             INSERT INTO users (id, username, password_hash, role, created_at)
+             VALUES ('u1', 'test', 'h', 'user', '2025-01-01');
+             INSERT INTO items (id, library_id, item_kind, name, created_at, updated_at)
+             VALUES ('i1', 'lib1', 'movie', 'Test Movie', '2025-01-01', '2025-01-01');
+             INSERT INTO media_files (id, item_id, file_path, file_name, file_size, created_at)
+             VALUES ('mf1', 'i1', '/test.mkv', 'test.mkv', 1000, '2025-01-01');
+             INSERT INTO hls_cache (media_file_id, playlist, segments, created_at)
+             VALUES ('mf1', '#EXTM3U', '[]', '2025-01-01');
+             INSERT INTO conversion_jobs (id, item_id, media_file_id, created_at)
+             VALUES ('cj1', 'i1', 'mf1', '2025-01-01');
+             INSERT INTO playback (user_id, item_id, position_secs, last_played_at)
+             VALUES ('u1', 'i1', 120.0, '2025-01-01');
+             INSERT INTO favorites (user_id, item_id, created_at)
+             VALUES ('u1', 'i1', '2025-01-01');",
+        )
+        .unwrap();
+
+        // Deleting the library should cascade through items -> media_files -> hls_cache etc.
+        conn.execute("DELETE FROM libraries WHERE id = 'lib1'", [])
+            .expect("library delete should cascade");
+
+        // Verify all child rows are gone.
+        let count = |table: &str| -> i64 {
+            conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap()
+        };
+        assert_eq!(count("items"), 0, "items should be cascade-deleted");
+        assert_eq!(count("media_files"), 0, "media_files should be cascade-deleted");
+        assert_eq!(count("hls_cache"), 0, "hls_cache should be cascade-deleted");
+        assert_eq!(count("conversion_jobs"), 0, "conversion_jobs should be cascade-deleted");
+        assert_eq!(count("playback"), 0, "playback should be cascade-deleted");
+        assert_eq!(count("favorites"), 0, "favorites should be cascade-deleted");
     }
 }

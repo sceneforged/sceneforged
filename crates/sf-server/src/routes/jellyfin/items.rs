@@ -1,13 +1,14 @@
 //! Jellyfin items/library browsing endpoints.
 
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
 
 use crate::context::AppContext;
 use crate::error::AppError;
+use crate::middleware::auth::validate_auth_headers;
 
 use super::dto::{self, BaseItemDto, ItemsResult, SearchHint, SearchHintResult};
 
@@ -262,15 +263,69 @@ pub async fn show_episodes(
     }))
 }
 
-/// GET /Shows/NextUp — next unwatched episode.
+/// Well-known anonymous user ID (matches middleware/auth.rs).
+fn anonymous_user_id() -> sf_core::UserId {
+    "00000000-0000-0000-0000-000000000000"
+        .parse()
+        .expect("static anonymous UUID is valid")
+}
+
+/// Resolve a user ID from Jellyfin request headers.
+fn resolve_user_from_headers(ctx: &AppContext, headers: &HeaderMap) -> sf_core::UserId {
+    let authorization = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
+    let cookie = headers
+        .get(axum::http::header::COOKIE)
+        .and_then(|v| v.to_str().ok());
+    let x_emby_token = headers
+        .get("X-Emby-Token")
+        .and_then(|v| v.to_str().ok());
+
+    validate_auth_headers(&ctx.config.auth, &ctx.db, authorization, cookie, x_emby_token)
+        .unwrap_or_else(anonymous_user_id)
+}
+
+/// GET /Shows/NextUp — next unwatched episode for the authenticated user.
 pub async fn next_up(
-    State(_ctx): State<AppContext>,
-) -> Json<ItemsResult> {
-    // Stub — requires per-user playback tracking, can be expanded later.
-    Json(ItemsResult {
-        items: Vec::new(),
-        total_record_count: 0,
-    })
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+    Query(params): Query<ItemsQuery>,
+) -> Result<Json<ItemsResult>, AppError> {
+    let user_id = resolve_user_from_headers(&ctx, &headers);
+    let limit = params.limit.unwrap_or(20).min(100);
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    let items = sf_db::queries::playback::next_up(&conn, user_id, limit)?;
+
+    let dtos: Vec<BaseItemDto> = items
+        .iter()
+        .map(|item| {
+            let images = sf_db::queries::images::list_images_by_item(&conn, item.id)
+                .unwrap_or_default();
+            let mut d = dto::item_to_dto(item, &images);
+            // Set series info for episode DTOs.
+            if let Some(season_id) = item.parent_id {
+                d.season_id = Some(season_id.to_string());
+                // Look up series_id from the season's parent.
+                if let Ok(Some(season)) = sf_db::queries::items::get_item(&conn, season_id) {
+                    if let Some(series_id) = season.parent_id {
+                        d.series_id = Some(series_id.to_string());
+                        if let Ok(Some(series)) = sf_db::queries::items::get_item(&conn, series_id) {
+                            d.series_name = Some(series.name);
+                        }
+                    }
+                }
+            }
+            d
+        })
+        .collect();
+
+    let count = dtos.len();
+    Ok(Json(ItemsResult {
+        items: dtos,
+        total_record_count: count,
+    }))
 }
 
 /// GET /Search/Hints

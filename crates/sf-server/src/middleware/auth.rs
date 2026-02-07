@@ -199,3 +199,38 @@ pub async fn auth_middleware(
         None => Err((StatusCode::UNAUTHORIZED, "Authentication required").into_response()),
     }
 }
+
+/// Admin-only middleware. Must be applied *after* [`auth_middleware`] so that
+/// `UserId` is already present in extensions.
+///
+/// Returns 403 Forbidden if the authenticated user does not have the `admin` role.
+/// When auth is disabled (single-user mode), all requests are allowed through.
+pub async fn admin_middleware(
+    State(ctx): State<AppContext>,
+    request: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, Response> {
+    // When auth is disabled, skip role check — single-user mode has full access.
+    if !ctx.config.auth.enabled {
+        return Ok(next.run(request).await);
+    }
+
+    let user_id = request
+        .extensions()
+        .get::<UserId>()
+        .copied()
+        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Authentication required").into_response())?;
+
+    let conn = sf_db::pool::get_conn(&ctx.db)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response())?;
+
+    let user = sf_db::queries::users::get_user_by_id(&conn, user_id)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response())?
+        .ok_or_else(|| (StatusCode::FORBIDDEN, "Access denied").into_response())?;
+
+    if user.role != "admin" {
+        return Err((StatusCode::FORBIDDEN, "Admin access required").into_response());
+    }
+
+    Ok(next.run(request).await)
+}

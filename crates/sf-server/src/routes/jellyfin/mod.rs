@@ -70,6 +70,8 @@ pub fn jellyfin_router() -> Router<AppContext> {
             "/Items/{id}/Images/{image_type}/{index}",
             get(items::get_image),
         )
+        // Download (reuses direct stream handler)
+        .route("/Items/{id}/Download", get(streaming::video_stream))
         // Streaming
         .route(
             "/Videos/{id}/stream",
