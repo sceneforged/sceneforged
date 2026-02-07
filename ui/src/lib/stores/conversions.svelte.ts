@@ -63,7 +63,12 @@ function createConversionsStore() {
 				case 'conversion_progress':
 					activeConversions = activeConversions.map((j) =>
 						j.id === payload.job_id
-							? { ...j, progress_pct: payload.progress * 100 }
+							? {
+									...j,
+									progress_pct: payload.progress * 100,
+									encode_fps: payload.encode_fps ?? j.encode_fps,
+									eta_secs: payload.eta_secs ?? j.eta_secs
+								}
 							: j
 					);
 					break;

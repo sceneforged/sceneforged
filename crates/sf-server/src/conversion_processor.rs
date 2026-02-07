@@ -184,11 +184,32 @@ async fn execute_conversion(
                         );
                     }
 
+                    // Estimate ETA from progress and fps.
+                    let eta = if pct > 0.01 {
+                        duration_secs.and_then(|dur| {
+                            fps.map(|f| {
+                                if f > 0.0 {
+                                    let remaining_pct = 1.0 - pct;
+                                    let elapsed_pct = pct;
+                                    // time_so_far / elapsed_pct = total_time
+                                    // remaining = total_time * remaining_pct
+                                    (dur * remaining_pct / elapsed_pct) as f64
+                                } else {
+                                    0.0
+                                }
+                            })
+                        })
+                    } else {
+                        None
+                    };
+
                     event_bus.broadcast(
                         EventCategory::Admin,
                         EventPayload::ConversionProgress {
                             job_id,
                             progress: scaled_pct as f32 / 100.0,
+                            encode_fps: fps,
+                            eta_secs: eta,
                         },
                     );
                 }
@@ -215,6 +236,8 @@ async fn execute_conversion(
         EventPayload::ConversionProgress {
             job_id,
             progress: 0.9,
+            encode_fps: None,
+            eta_secs: None,
         },
     );
 

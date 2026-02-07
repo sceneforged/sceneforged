@@ -33,6 +33,7 @@
 
 	// Scan state
 	let scanningLibrary = $state<string | null>(null);
+	let scanProgress = $state<{ files_found: number; files_queued: number } | null>(null);
 	let deletingLibrary = $state<string | null>(null);
 
 	async function loadLibraries() {
@@ -117,10 +118,24 @@
 		loadLibraries();
 		unsubscribe = eventsService.subscribe('all', (event) => {
 			const { payload } = event;
-			if (payload.type === 'library_scan_complete') {
+			if (payload.type === 'library_scan_started') {
+				scanningLibrary = payload.library_id;
+				scanProgress = { files_found: 0, files_queued: 0 };
+			} else if (payload.type === 'library_scan_progress') {
+				if (scanningLibrary === payload.library_id) {
+					scanProgress = {
+						files_found: payload.files_found,
+						files_queued: payload.files_queued
+					};
+				}
+			} else if (payload.type === 'library_scan_complete') {
 				if (scanningLibrary === payload.library_id) {
 					scanningLibrary = null;
+					scanProgress = null;
 				}
+				loadLibraries();
+			} else if (payload.type === 'item_added' || payload.type === 'item_updated') {
+				// Refresh library list to update counts when items change
 				loadLibraries();
 			}
 		});
@@ -271,7 +286,11 @@
 								>
 									{#if scanningLibrary === lib.id}
 										<Loader2 class="mr-2 h-4 w-4 animate-spin" />
-										Scanning
+										{#if scanProgress}
+											{scanProgress.files_found} found
+										{:else}
+											Scanning
+										{/if}
 									{:else}
 										Scan
 									{/if}

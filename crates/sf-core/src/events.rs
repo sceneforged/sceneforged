@@ -102,6 +102,8 @@ pub enum EventPayload {
     ConversionProgress {
         job_id: ConversionJobId,
         progress: f32,
+        encode_fps: Option<f64>,
+        eta_secs: Option<f64>,
     },
     ConversionCompleted {
         job_id: ConversionJobId,
@@ -296,7 +298,7 @@ mod tests {
             EventPayload::ItemRemoved { item_id: ItemId::new() },
             EventPayload::ConversionQueued { job_id: ConversionJobId::new() },
             EventPayload::ConversionStarted { job_id: ConversionJobId::new() },
-            EventPayload::ConversionProgress { job_id: ConversionJobId::new(), progress: 0.75 },
+            EventPayload::ConversionProgress { job_id: ConversionJobId::new(), progress: 0.75, encode_fps: Some(24.5), eta_secs: Some(120.0) },
             EventPayload::ConversionCompleted { job_id: ConversionJobId::new() },
             EventPayload::ConversionFailed { job_id: ConversionJobId::new(), error: "fail".into() },
         ];

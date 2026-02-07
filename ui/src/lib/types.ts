@@ -201,7 +201,7 @@ export type EventPayload =
 	| { type: 'item_removed'; item_id: string }
 	| { type: 'conversion_queued'; job_id: string }
 	| { type: 'conversion_started'; job_id: string }
-	| { type: 'conversion_progress'; job_id: string; progress: number }
+	| { type: 'conversion_progress'; job_id: string; progress: number; encode_fps?: number; eta_secs?: number }
 	| { type: 'conversion_completed'; job_id: string }
 	| { type: 'conversion_failed'; job_id: string; error: string }
 	| { type: 'heartbeat' };
