@@ -10,6 +10,7 @@ pub mod images;
 pub mod items;
 pub mod jobs;
 pub mod libraries;
+pub mod metadata;
 pub mod metrics;
 pub mod playback;
 pub mod stream;

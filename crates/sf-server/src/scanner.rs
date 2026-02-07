@@ -403,6 +403,26 @@ async fn ingest_file(
         EventPayload::ItemAdded { item_id: item.id },
     );
 
+    // Auto-enrich from TMDB if configured.
+    // For episodes, enrich the series rather than each episode individually.
+    let enrich_item_id = if item.item_kind == "episode" {
+        // Walk up to find series: episode → season → series.
+        item.parent_id
+            .and_then(|season_id| {
+                sf_db::pool::get_conn(&ctx.db).ok().and_then(|c| {
+                    sf_db::queries::items::get_item(&c, season_id)
+                        .ok()
+                        .flatten()
+                        .and_then(|s| s.parent_id)
+                })
+            })
+    } else {
+        Some(item.id)
+    };
+    if let Some(eid) = enrich_item_id {
+        auto_enrich(ctx, eid).await;
+    }
+
     // Create the media_file record with detected profile.
     let mf = sf_db::queries::media_files::create_media_file(
         &conn,
@@ -562,6 +582,71 @@ async fn ingest_converted_file(ctx: &AppContext, path: &Path) -> sf_core::Result
     }
 
     Ok(true)
+}
+
+/// Best-effort TMDB enrichment for a single item during scan.
+/// Silently returns on any failure (missing API key, no results, network error).
+async fn auto_enrich(ctx: &AppContext, item_id: sf_core::ItemId) {
+    let (api_key, language) = {
+        let meta = ctx.config_store.metadata.read();
+        if !meta.auto_enrich {
+            return;
+        }
+        let api_key = match meta.tmdb_api_key.clone() {
+            Some(k) if !k.is_empty() => k,
+            _ => return,
+        };
+        (api_key, meta.language.clone())
+    };
+
+    // Check if already enriched (has provider_ids with tmdb key).
+    let item = match sf_db::pool::get_conn(&ctx.db)
+        .ok()
+        .and_then(|c| sf_db::queries::items::get_item(&c, item_id).ok().flatten())
+    {
+        Some(i) => i,
+        None => return,
+    };
+    if item.provider_ids.contains("\"tmdb\"") {
+        return; // Already enriched.
+    }
+
+    let client = crate::tmdb::TmdbClient::new(api_key, language);
+    let is_tv = item.item_kind == "series";
+
+    let results = if is_tv {
+        client.search_tv(&item.name, item.year.map(|y| y as u32)).await
+    } else {
+        client.search_movie(&item.name, item.year.map(|y| y as u32)).await
+    };
+
+    let results = match results {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::debug!(item_id = %item_id, error = %e, "Auto-enrich TMDB search failed");
+            return;
+        }
+    };
+
+    let tmdb_id = match results.first() {
+        Some(r) => r.id,
+        None => return,
+    };
+
+    // Use the enrich_item_with_body helper to do the actual enrichment.
+    if crate::routes::metadata::enrich_item_with_body(
+        ctx.clone(),
+        item_id.to_string(),
+        crate::routes::metadata::EnrichRequest {
+            tmdb_id: Some(tmdb_id),
+            media_type: if is_tv { Some("tv".into()) } else { Some("movie".into()) },
+        },
+    )
+    .await
+    .is_err()
+    {
+        tracing::debug!(item_id = %item_id, "Auto-enrich failed");
+    }
 }
 
 fn emit_progress_if_needed(

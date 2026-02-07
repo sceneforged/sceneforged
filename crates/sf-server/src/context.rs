@@ -44,6 +44,10 @@ pub struct ConfigStore {
     pub jellyfins: RwLock<Vec<sf_core::config::JellyfinConfig>>,
     /// Conversion defaults.
     pub conversion: RwLock<sf_core::config::ConversionConfig>,
+    /// Metadata enrichment settings (TMDB key, auto-enrich, language).
+    pub metadata: RwLock<sf_core::config::MetadataConfig>,
+    /// Image storage settings.
+    pub images: RwLock<sf_core::config::ImageConfig>,
     /// Full config snapshot for persisting all sections (server, auth, etc.).
     base_config: RwLock<Config>,
     /// Path to the config file for persistence (None = no persistence).
@@ -58,6 +62,8 @@ impl ConfigStore {
             arrs: RwLock::new(config.arrs.clone()),
             jellyfins: RwLock::new(config.jellyfins.clone()),
             conversion: RwLock::new(config.conversion.clone()),
+            metadata: RwLock::new(config.metadata.clone()),
+            images: RwLock::new(config.images.clone()),
             base_config: RwLock::new(config.clone()),
             config_path,
         }
@@ -90,6 +96,8 @@ impl ConfigStore {
         config.arrs = self.arrs.read().clone();
         config.jellyfins = self.jellyfins.read().clone();
         config.conversion = self.conversion.read().clone();
+        config.metadata = self.metadata.read().clone();
+        config.images = self.images.read().clone();
 
         // Serialize the full config to a JSON map, then add rules separately
         // (rules use sf_rules serialization to avoid deep monomorphization).
@@ -142,6 +150,8 @@ impl ConfigStore {
             *self.arrs.write() = config.arrs.clone();
             *self.jellyfins.write() = config.jellyfins.clone();
             *self.conversion.write() = config.conversion.clone();
+            *self.metadata.write() = config.metadata.clone();
+            *self.images.write() = config.images.clone();
             *self.base_config.write() = config;
         }
 

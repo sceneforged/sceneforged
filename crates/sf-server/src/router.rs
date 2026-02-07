@@ -138,6 +138,12 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
         )
         // Search
         .route("/search", get(routes::items::search_items))
+        // TMDB / Metadata enrichment
+        .route("/tmdb/search", get(routes::metadata::tmdb_search))
+        .route(
+            "/items/{id}/enrich",
+            post(routes::metadata::enrich_item),
+        )
         // Jobs
         .route("/jobs", get(routes::jobs::list_jobs))
         .route("/jobs/submit", post(routes::jobs::submit_job))

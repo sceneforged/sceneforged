@@ -19,6 +19,7 @@ pub mod router;
 pub mod routes;
 pub mod scanner;
 pub mod sendfile;
+pub mod tmdb;
 pub mod watcher;
 
 use std::net::SocketAddr;
