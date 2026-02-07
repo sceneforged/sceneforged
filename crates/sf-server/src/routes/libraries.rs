@@ -249,7 +249,8 @@ pub async fn list_library_recent(
     params(("id" = String, Path, description = "Library ID")),
     responses(
         (status = 202, description = "Scan queued"),
-        (status = 404, description = "Library not found")
+        (status = 404, description = "Library not found"),
+        (status = 409, description = "Scan already in progress")
     )
 )]
 pub async fn scan_library(
@@ -263,6 +264,14 @@ pub async fn scan_library(
     let conn = sf_db::pool::get_conn(&ctx.db)?;
     let lib = sf_db::queries::libraries::get_library(&conn, lib_id)?
         .ok_or_else(|| sf_core::Error::not_found("library", lib_id))?;
+
+    // Prevent concurrent scans of the same library.
+    if !ctx.active_scans.insert(lib_id) {
+        return Ok((
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({"error": "scan already in progress"})),
+        ));
+    }
 
     ctx.event_bus.broadcast(
         sf_core::events::EventCategory::User,

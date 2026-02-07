@@ -207,18 +207,16 @@ fn probe_mkv(path: &Path) -> sf_core::Result<MediaInfo> {
 // ---------------------------------------------------------------------------
 
 fn probe_mp4(path: &Path) -> sf_core::Result<MediaInfo> {
-    let mut file = File::open(path).map_err(|e| sf_core::Error::Probe(e.to_string()))?;
+    let file = File::open(path).map_err(|e| sf_core::Error::Probe(e.to_string()))?;
     let file_size = file
         .metadata()
         .map_err(|e| sf_core::Error::Probe(e.to_string()))?
         .len();
 
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)
-        .map_err(|e| sf_core::Error::Probe(e.to_string()))?;
-
-    let mut cursor = std::io::Cursor::new(&buffer);
-    let context = mp4parse::read_mp4(&mut cursor)
+    // Use BufReader instead of reading the entire file into memory.
+    // mp4parse::read_mp4 accepts Read + Seek, so streaming works fine.
+    let mut reader = BufReader::new(file);
+    let context = mp4parse::read_mp4(&mut reader)
         .map_err(|e| sf_core::Error::Probe(format!("MP4 parse error: {e:?}")))?;
 
     let duration = compute_mp4_duration(&context);

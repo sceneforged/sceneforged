@@ -243,7 +243,7 @@
 	<div class="flex items-center gap-1 text-sm">
 		<Button variant="ghost" size="sm" onclick={() => goto(`/browse/${libraryId}`)}>
 			<ArrowLeft class="mr-1 h-4 w-4" />
-			Library
+			Back to Library
 		</Button>
 		{#if parentItem}
 			<ChevronRight class="h-4 w-4 text-muted-foreground" />
@@ -478,6 +478,7 @@
 				<!-- Episode info for TV episodes -->
 				{#if item.item_kind === 'episode' && (item.season_number != null || item.episode_number != null)}
 					<div class="mb-6">
+						<h3 class="mb-1 text-sm font-semibold">Episode Info</h3>
 						<div class="text-sm text-muted-foreground">
 							{#if item.season_number != null}
 								<span>Season {item.season_number}</span>

@@ -226,6 +226,12 @@ CREATE TRIGGER items_fts_update AFTER UPDATE ON items BEGIN
 END;
 "#;
 
+/// V7: Composite indexes for scanner performance.
+const V7_SCANNER_INDEXES: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_items_library_name_kind ON items(library_id, name, item_kind);
+CREATE INDEX IF NOT EXISTS idx_items_parent_kind_season ON items(parent_id, item_kind, season_number);
+"#;
+
 /// Ordered list of (version, sql) pairs.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, V1_INITIAL),
@@ -234,6 +240,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (4, V4_ANONYMOUS_USER),
     (5, V5_SUBTITLE_TRACKS),
     (6, V6_ITEMS_FTS),
+    (7, V7_SCANNER_INDEXES),
 ];
 
 /// Run all pending migrations on `conn`.

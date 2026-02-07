@@ -38,6 +38,7 @@ hex.workspace = true
 bcrypt.workspace = true
 rand.workspace = true
 dashmap.workspace = true
+rusqlite.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
 libc.workspace = true

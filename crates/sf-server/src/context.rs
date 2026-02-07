@@ -8,7 +8,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
 use parking_lot::RwLock;
 
 use tokio_util::sync::CancellationToken;
@@ -18,7 +18,7 @@ use sf_core::config::Config;
 use sf_core::events::EventBus;
 use tokio::sync::Notify;
 
-use sf_core::{ConversionJobId, MediaFileId};
+use sf_core::{ConversionJobId, LibraryId, MediaFileId};
 use sf_db::pool::DbPool;
 use sf_media::PreparedMedia;
 use sf_probe::Prober;
@@ -196,6 +196,8 @@ pub struct AppContext {
     pub hls_loading: Arc<DashMap<MediaFileId, Arc<Notify>>>,
     /// Cancellation tokens for active conversion jobs (keyed by job ID).
     pub active_conversions: Arc<DashMap<ConversionJobId, CancellationToken>>,
+    /// Libraries currently being scanned (prevents concurrent scans of the same library).
+    pub active_scans: Arc<DashSet<LibraryId>>,
 }
 
 #[cfg(test)]

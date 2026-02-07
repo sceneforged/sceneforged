@@ -171,6 +171,26 @@ pub fn count_media_files(conn: &Connection) -> Result<i64> {
         .map_err(|e| Error::database(e.to_string()))
 }
 
+/// List all media file paths for a library (used for batch existence checks during scan).
+pub fn list_media_file_paths_for_library(
+    conn: &Connection,
+    library_id: sf_core::LibraryId,
+) -> Result<Vec<String>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT mf.file_path FROM media_files mf
+             JOIN items i ON mf.item_id = i.id
+             WHERE i.library_id = ?1",
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+    let rows = stmt
+        .query_map([library_id.to_string()], |row| row.get::<_, String>(0))
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?;
+    Ok(rows)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
