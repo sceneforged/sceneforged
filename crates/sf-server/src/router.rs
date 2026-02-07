@@ -244,6 +244,15 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
             "/stream/{media_file_id}/{segment}",
             get(routes::stream::hls_segment),
         )
+        // Subtitles
+        .route(
+            "/items/{id}/subtitles",
+            get(routes::subtitles::list_subtitles),
+        )
+        .route(
+            "/stream/{media_file_id}/subtitles/{track_index}",
+            get(routes::subtitles::get_subtitle),
+        )
         // Images
         .route(
             "/images/{item_id}/{type}/{size}",

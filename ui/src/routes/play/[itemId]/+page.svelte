@@ -10,11 +10,22 @@
 
 	const itemId = $derived(page.params.itemId);
 
+	interface SubtitleTrack {
+		id: string;
+		media_file_id: string;
+		track_index: number;
+		codec: string;
+		language: string | null;
+		forced: boolean;
+		default_track: boolean;
+	}
+
 	let item = $state<Item | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let streamUrl = $state<string | null>(null);
 	let startPosition = $state(0);
+	let subtitleTracks = $state<SubtitleTrack[]>([]);
 
 	onMount(async () => {
 		await loadPlaybackInfo();
@@ -43,6 +54,16 @@
 				streamUrl = `/api/stream/${playableFile.id}/direct`;
 			} else {
 				streamUrl = `/api/stream/${playableFile.id}/index.m3u8`;
+			}
+
+			// Fetch subtitle tracks
+			try {
+				const resp = await fetch(`/api/items/${itemId}/subtitles`);
+				if (resp.ok) {
+					subtitleTracks = await resp.json();
+				}
+			} catch {
+				// No subtitles available
 			}
 
 			// Restore playback position
@@ -138,6 +159,7 @@
 					src={streamUrl}
 					title={item?.name}
 					{startPosition}
+					{subtitleTracks}
 					onProgress={handleProgress}
 					onEnded={handleEnded}
 					onError={handleError}

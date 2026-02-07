@@ -4,7 +4,8 @@
 //! `rusqlite::Row`.
 
 use sf_core::{
-    ConversionJobId, ImageId, ItemId, JobId, LibraryId, MediaFileId, SessionId, UserId,
+    ConversionJobId, ImageId, ItemId, JobId, LibraryId, MediaFileId, SessionId, SubtitleTrackId,
+    UserId,
 };
 use uuid::Uuid;
 
@@ -237,6 +238,39 @@ impl Image {
             provider: row.get(4)?,
             width: row.get(5)?,
             height: row.get(6)?,
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SubtitleTrack
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct SubtitleTrack {
+    pub id: SubtitleTrackId,
+    pub media_file_id: MediaFileId,
+    pub track_index: i32,
+    pub codec: String,
+    pub language: Option<String>,
+    pub forced: bool,
+    pub default_track: bool,
+    pub created_at: String,
+}
+
+impl SubtitleTrack {
+    /// Build from a row selected as:
+    /// id, media_file_id, track_index, codec, language, forced, default_track, created_at
+    pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: parse_id(row, 0)?,
+            media_file_id: parse_id(row, 1)?,
+            track_index: row.get(2)?,
+            codec: row.get(3)?,
+            language: row.get(4)?,
+            forced: row.get::<_, i32>(5).unwrap_or(0) != 0,
+            default_track: row.get::<_, i32>(6).unwrap_or(0) != 0,
+            created_at: row.get(7)?,
         })
     }
 }

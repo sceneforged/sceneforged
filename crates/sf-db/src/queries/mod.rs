@@ -9,4 +9,5 @@ pub mod jobs;
 pub mod libraries;
 pub mod media_files;
 pub mod playback;
+pub mod subtitle_tracks;
 pub mod users;

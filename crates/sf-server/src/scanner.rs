@@ -443,6 +443,21 @@ async fn ingest_file(
         duration_secs,
     )?;
 
+    // Store subtitle tracks from probe data.
+    for (idx, sub) in media_info.subtitle_tracks.iter().enumerate() {
+        if let Err(e) = sf_db::queries::subtitle_tracks::create_subtitle_track(
+            &conn,
+            mf.id,
+            idx as i32,
+            &sub.codec,
+            sub.language.as_deref(),
+            sub.forced,
+            sub.default,
+        ) {
+            tracing::warn!(error = %e, "Failed to store subtitle track {idx}");
+        }
+    }
+
     // Populate HLS cache for Profile B files.
     if profile == sf_core::Profile::B {
         if let Err(e) = crate::hls_prep::populate_hls_cache(ctx, mf.id, path).await {

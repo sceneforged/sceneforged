@@ -181,12 +181,28 @@ INSERT OR IGNORE INTO users (id, username, password_hash, role, created_at)
 VALUES ('00000000-0000-0000-0000-000000000000', 'anonymous', '!disabled', 'user', datetime('now'));
 "#;
 
+/// V5: subtitle tracks table.
+const V5_SUBTITLE_TRACKS: &str = r#"
+CREATE TABLE subtitle_tracks (
+    id              TEXT PRIMARY KEY,
+    media_file_id   TEXT NOT NULL REFERENCES media_files(id) ON DELETE CASCADE,
+    track_index     INTEGER NOT NULL,
+    codec           TEXT NOT NULL,
+    language        TEXT,
+    forced          INTEGER DEFAULT 0,
+    default_track   INTEGER DEFAULT 0,
+    created_at      TEXT NOT NULL
+);
+CREATE INDEX idx_subtitle_tracks_media ON subtitle_tracks(media_file_id);
+"#;
+
 /// Ordered list of (version, sql) pairs.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, V1_INITIAL),
     (2, V2_CONVERSION_JOBS),
     (3, V3_FAVORITES),
     (4, V4_ANONYMOUS_USER),
+    (5, V5_SUBTITLE_TRACKS),
 ];
 
 /// Run all pending migrations on `conn`.

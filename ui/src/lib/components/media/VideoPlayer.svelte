@@ -9,14 +9,26 @@
 		Maximize,
 		Minimize,
 		SkipBack,
-		SkipForward
+		SkipForward,
+		Subtitles
 	} from '@lucide/svelte';
+
+	interface SubtitleTrack {
+		id: string;
+		media_file_id: string;
+		track_index: number;
+		codec: string;
+		language: string | null;
+		forced: boolean;
+		default_track: boolean;
+	}
 
 	interface Props {
 		src: string;
 		poster?: string;
 		title?: string;
 		startPosition?: number;
+		subtitleTracks?: SubtitleTrack[];
 		onProgress?: (positionSeconds: number) => void;
 		onEnded?: () => void;
 		onError?: (error: string) => void;
@@ -27,6 +39,7 @@
 		poster,
 		title,
 		startPosition = 0,
+		subtitleTracks = [],
 		onProgress,
 		onEnded,
 		onError
@@ -47,6 +60,8 @@
 	let controlsTimeout: ReturnType<typeof setTimeout> | null = null;
 	let progressInterval: ReturnType<typeof setInterval> | null = null;
 	let lastReportedPosition = 0;
+	let activeSubtitleIndex = $state<number | null>(null);
+	let showSubtitleMenu = $state(false);
 
 	// Format time display
 	function formatTime(seconds: number): string {
@@ -279,9 +294,18 @@
 		onended={handleEnded}
 		onvolumechange={handleVolumeChange}
 		onclick={togglePlay}
+		crossorigin="anonymous"
 		playsinline
 	>
-		<track kind="captions" />
+		{#each subtitleTracks as track, i}
+			<track
+				kind="subtitles"
+				src={`/api/stream/${track.media_file_id}/subtitles/${track.track_index}`}
+				srclang={track.language ?? 'und'}
+				label={track.language ?? `Track ${track.track_index + 1}`}
+				default={track.default_track && activeSubtitleIndex === null}
+			/>
+		{/each}
 	</video>
 
 	<!-- Click to play overlay -->
@@ -386,6 +410,56 @@
 			<div class="ml-auto text-sm text-white">
 				{formatTime(currentTime)} / {formatTime(duration)}
 			</div>
+
+			<!-- Subtitles -->
+			{#if subtitleTracks.length > 0}
+				<div class="relative">
+					<button
+						class="text-white transition-colors hover:text-primary"
+						onclick={() => (showSubtitleMenu = !showSubtitleMenu)}
+						aria-label="Subtitles"
+					>
+						<Subtitles class="h-5 w-5" />
+					</button>
+					{#if showSubtitleMenu}
+						<div class="absolute bottom-full right-0 mb-2 rounded bg-black/90 py-1 text-sm">
+							<button
+								class="block w-full whitespace-nowrap px-4 py-1 text-left text-white hover:bg-white/20"
+								class:text-primary={activeSubtitleIndex === null}
+								onclick={() => {
+									activeSubtitleIndex = null;
+									showSubtitleMenu = false;
+									if (videoElement) {
+										for (let i = 0; i < videoElement.textTracks.length; i++) {
+											videoElement.textTracks[i].mode = 'disabled';
+										}
+									}
+								}}
+							>
+								Off
+							</button>
+							{#each subtitleTracks as track, i}
+								<button
+									class="block w-full whitespace-nowrap px-4 py-1 text-left text-white hover:bg-white/20"
+									class:text-primary={activeSubtitleIndex === i}
+									onclick={() => {
+										activeSubtitleIndex = i;
+										showSubtitleMenu = false;
+										if (videoElement) {
+											for (let j = 0; j < videoElement.textTracks.length; j++) {
+												videoElement.textTracks[j].mode = j === i ? 'showing' : 'disabled';
+											}
+										}
+									}}
+								>
+									{track.language ?? `Track ${track.track_index + 1}`}
+									{#if track.forced} (Forced){/if}
+								</button>
+							{/each}
+						</div>
+					{/if}
+				</div>
+			{/if}
 
 			<!-- Fullscreen -->
 			<button

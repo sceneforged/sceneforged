@@ -92,6 +92,8 @@ typed_id! {
     ConversionJobId,
     /// Unique identifier for a processing rule.
     RuleId,
+    /// Unique identifier for a subtitle track.
+    SubtitleTrackId,
 }
 
 #[cfg(test)]
