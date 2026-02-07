@@ -3,6 +3,9 @@ import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+	define: {
+		__GIT_SHA__: JSON.stringify('test')
+	},
 	plugins: [tailwindcss(), svelte({ hot: false })],
 	resolve: {
 		conditions: ['browser'],

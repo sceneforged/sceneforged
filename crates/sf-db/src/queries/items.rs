@@ -196,6 +196,95 @@ pub fn list_recent_items_by_library(
     Ok(rows)
 }
 
+/// Find an item by name, kind, and library — used for series/season deduplication.
+pub fn find_item_by_name_and_kind(
+    conn: &Connection,
+    library_id: LibraryId,
+    name: &str,
+    item_kind: &str,
+) -> Result<Option<Item>> {
+    let q = format!(
+        "SELECT {COLS} FROM items WHERE library_id = ?1 AND name = ?2 AND item_kind = ?3 LIMIT 1"
+    );
+    let result = conn.query_row(
+        &q,
+        rusqlite::params![library_id.to_string(), name, item_kind],
+        Item::from_row,
+    );
+    match result {
+        Ok(i) => Ok(Some(i)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(Error::database(e.to_string())),
+    }
+}
+
+/// Find an existing series item or create one.
+pub fn find_or_create_series(
+    conn: &Connection,
+    library_id: LibraryId,
+    name: &str,
+    year: Option<i32>,
+) -> Result<Item> {
+    if let Some(existing) = find_item_by_name_and_kind(conn, library_id, name, "series")? {
+        return Ok(existing);
+    }
+    create_item(
+        conn,
+        library_id,
+        "series",
+        name,
+        None,
+        year,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+}
+
+/// Find an existing season item or create one under a series.
+pub fn find_or_create_season(
+    conn: &Connection,
+    library_id: LibraryId,
+    series_id: ItemId,
+    season_number: i32,
+) -> Result<Item> {
+    // Look for existing season under this series.
+    let q = format!(
+        "SELECT {COLS} FROM items WHERE parent_id = ?1 AND item_kind = 'season' AND season_number = ?2 LIMIT 1"
+    );
+    let result = conn.query_row(
+        &q,
+        rusqlite::params![series_id.to_string(), season_number],
+        Item::from_row,
+    );
+    match result {
+        Ok(season) => return Ok(season),
+        Err(rusqlite::Error::QueryReturnedNoRows) => {}
+        Err(e) => return Err(Error::database(e.to_string())),
+    }
+
+    let name = format!("Season {season_number}");
+    create_item(
+        conn,
+        library_id,
+        "season",
+        &name,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(series_id),
+        Some(season_number),
+        None,
+    )
+}
+
 /// Search items by name (LIKE '%query%').
 pub fn search_items(conn: &Connection, query: &str, limit: i64) -> Result<Vec<Item>> {
     let pattern = format!("%{query}%");

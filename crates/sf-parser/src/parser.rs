@@ -92,6 +92,13 @@ fn extract_metadata(tokens: &[SpannedToken<'_>], release: &mut ParsedRelease) {
                 }
             }
 
+            // Season / Episode
+            Token::SeasonEpisode(text) => {
+                if release.season.is_none() {
+                    parse_season_episode(text, release);
+                }
+            }
+
             // Resolution
             Token::Resolution(text) => {
                 if release.resolution.is_none() {
@@ -282,6 +289,35 @@ fn extract_title(
 // Helpers
 // -------------------------------------------------------------------------
 
+/// Parse a SeasonEpisode token like "S01E01" or "S02E03E04" into
+/// season, episode, and optional episode_end fields.
+fn parse_season_episode(text: &str, release: &mut ParsedRelease) {
+    let upper = text.to_uppercase();
+    // Split on 'S' to get the season part, then split on 'E' for episodes.
+    // Format: S<season>E<ep1>[E<ep2>]
+    let after_s = &upper[1..]; // skip the leading 'S'
+    if let Some(e_pos) = after_s.find('E') {
+        if let Ok(season) = after_s[..e_pos].parse::<u32>() {
+            release.season = Some(season);
+        }
+        // Parse all E## segments
+        let ep_part = &after_s[e_pos..]; // "E01" or "E01E02"
+        let episodes: Vec<u32> = ep_part
+            .split('E')
+            .filter(|s| !s.is_empty())
+            .filter_map(|s| s.parse().ok())
+            .collect();
+        if let Some(&first) = episodes.first() {
+            release.episode = Some(first);
+        }
+        if episodes.len() > 1 {
+            if let Some(&last) = episodes.last() {
+                release.episode_end = Some(last);
+            }
+        }
+    }
+}
+
 /// Replace dots, underscores with spaces and trim.
 fn clean_title(raw: &str) -> String {
     raw.replace('.', " ")
@@ -319,6 +355,7 @@ fn is_keyword(token: &Token) -> bool {
             | Token::Hyphen
             | Token::Underscore
             | Token::Year(_)
+            | Token::SeasonEpisode(_)
     )
 }
 
@@ -347,6 +384,7 @@ fn is_title_stop(token: &Token) -> bool {
     matches!(
         token,
         Token::Year(_)
+            | Token::SeasonEpisode(_)
             | Token::Resolution(_)
             | Token::SourceBluRay(_)
             | Token::SourceWebDL(_)
@@ -398,6 +436,7 @@ fn token_text<'a>(token: &Token<'a>) -> Option<&'a str> {
         Token::Word(s)
         | Token::Number(s)
         | Token::Year(s)
+        | Token::SeasonEpisode(s)
         | Token::Resolution(s)
         | Token::SourceBluRay(s)
         | Token::SourceWebDL(s)
@@ -462,7 +501,10 @@ mod tests {
     #[test]
     fn test_breaking_bad() {
         let r = parse("Breaking.Bad.S01E01.720p.WEB-DL.DD5.1.H.264-DEMAND");
-        assert_eq!(r.title, "Breaking Bad S01E01");
+        assert_eq!(r.title, "Breaking Bad");
+        assert_eq!(r.season, Some(1));
+        assert_eq!(r.episode, Some(1));
+        assert_eq!(r.episode_end, None);
         assert_eq!(r.resolution.as_deref(), Some("720p"));
         assert_eq!(r.source.as_deref(), Some("WEB-DL"));
     }
@@ -550,5 +592,30 @@ mod tests {
     fn test_hdr10_plus() {
         let r = parse("Movie.2023.2160p.BluRay.HDR10+.x265-GROUP");
         assert_eq!(r.hdr.as_deref(), Some("HDR10+"));
+    }
+
+    #[test]
+    fn test_multi_episode() {
+        let r = parse("Show.Name.S02E03E04.1080p.WEB-DL.x264-GROUP");
+        assert_eq!(r.title, "Show Name");
+        assert_eq!(r.season, Some(2));
+        assert_eq!(r.episode, Some(3));
+        assert_eq!(r.episode_end, Some(4));
+    }
+
+    #[test]
+    fn test_tv_show_with_year() {
+        let r = parse("The.Mandalorian.2019.S01E01.1080p.WEB-DL.x264-GROUP");
+        assert_eq!(r.title, "The Mandalorian");
+        assert_eq!(r.year, Some(2019));
+        assert_eq!(r.season, Some(1));
+        assert_eq!(r.episode, Some(1));
+    }
+
+    #[test]
+    fn test_movie_has_no_season() {
+        let r = parse("The.Matrix.1999.1080p.BluRay.x264-GROUP");
+        assert_eq!(r.season, None);
+        assert_eq!(r.episode, None);
     }
 }

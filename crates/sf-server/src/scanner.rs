@@ -340,22 +340,63 @@ async fn ingest_file(
 
     let conn = sf_db::pool::get_conn(&ctx.db)?;
 
-    // Create an item for this file.
-    let item = sf_db::queries::items::create_item(
-        &conn,
-        library_id,
-        "movie",
-        &parsed.title,
-        None,
-        parsed.year.map(|y| y as i32),
-        None, // overview
-        None, // runtime_minutes
-        None, // community_rating
-        None, // provider_ids
-        None, // parent_id
-        None, // season_number
-        None, // episode_number
-    )?;
+    // Create item(s) — for TV episodes we need series → season → episode hierarchy.
+    let item = if parsed.season.is_some() && parsed.episode.is_some() {
+        let season_num = parsed.season.unwrap() as i32;
+        let episode_num = parsed.episode.unwrap() as i32;
+
+        let series = sf_db::queries::items::find_or_create_series(
+            &conn,
+            library_id,
+            &parsed.title,
+            parsed.year.map(|y| y as i32),
+        )?;
+        let season = sf_db::queries::items::find_or_create_season(
+            &conn,
+            library_id,
+            series.id,
+            season_num,
+        )?;
+
+        // Build episode name: "S01E01" or "S01E01E02" for multi-ep.
+        let ep_name = if let Some(end) = parsed.episode_end {
+            format!("{} S{:02}E{:02}E{:02}", parsed.title, season_num, episode_num, end)
+        } else {
+            format!("{} S{:02}E{:02}", parsed.title, season_num, episode_num)
+        };
+
+        sf_db::queries::items::create_item(
+            &conn,
+            library_id,
+            "episode",
+            &ep_name,
+            None,
+            parsed.year.map(|y| y as i32),
+            None,
+            None,
+            None,
+            None,
+            Some(season.id),
+            Some(season_num),
+            Some(episode_num),
+        )?
+    } else {
+        sf_db::queries::items::create_item(
+            &conn,
+            library_id,
+            "movie",
+            &parsed.title,
+            None,
+            parsed.year.map(|y| y as i32),
+            None, // overview
+            None, // runtime_minutes
+            None, // community_rating
+            None, // provider_ids
+            None, // parent_id
+            None, // season_number
+            None, // episode_number
+        )?
+    };
 
     ctx.event_bus.broadcast(
         EventCategory::User,

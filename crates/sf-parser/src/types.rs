@@ -29,6 +29,15 @@ pub struct ParsedRelease {
     /// Release year (1900--2099).
     pub year: Option<u32>,
 
+    /// Season number (from S01E01-style tags).
+    pub season: Option<u32>,
+
+    /// Episode number (from S01E01-style tags).
+    pub episode: Option<u32>,
+
+    /// End episode for multi-episode releases (e.g. S01E01E02 → episode_end = 2).
+    pub episode_end: Option<u32>,
+
     /// Video resolution, e.g. `"1080p"`, `"2160p"`, `"720p"`.
     pub resolution: Option<String>,
 
@@ -63,6 +72,9 @@ impl ParsedRelease {
         Self {
             title: title.into(),
             year: None,
+            season: None,
+            episode: None,
+            episode_end: None,
             resolution: None,
             source: None,
             video_codec: None,

@@ -204,6 +204,13 @@ pub enum Token<'src> {
     Version(&'src str),
 
     // -----------------------------------------------------------------
+    // Season / Episode
+    // -----------------------------------------------------------------
+    /// Season+episode tag, e.g. S01E01, S01E01E02 (multi-episode).
+    #[regex(r"(?i)S\d{1,2}E\d{1,2}(E\d{1,2})*", priority = 12)]
+    SeasonEpisode(&'src str),
+
+    // -----------------------------------------------------------------
     // Year
     // -----------------------------------------------------------------
     /// Four-digit year 1900--2099.
@@ -308,5 +315,26 @@ mod tests {
             .iter()
             .any(|t| matches!(t.token, Token::AudioDD51(_)));
         assert!(has_dd51, "Should detect DD5.1");
+    }
+
+    #[test]
+    fn tokenize_season_episode() {
+        let tokens = tokenize("Breaking.Bad.S01E01.720p");
+        let has_se = tokens
+            .iter()
+            .any(|t| matches!(t.token, Token::SeasonEpisode(_)));
+        assert!(has_se, "Should detect S01E01");
+    }
+
+    #[test]
+    fn tokenize_multi_episode() {
+        let tokens = tokenize("Show.S02E03E04.1080p");
+        let se = tokens
+            .iter()
+            .find(|t| matches!(t.token, Token::SeasonEpisode(_)))
+            .expect("Should detect multi-episode");
+        if let Token::SeasonEpisode(text) = se.token {
+            assert_eq!(text, "S02E03E04");
+        }
     }
 }
