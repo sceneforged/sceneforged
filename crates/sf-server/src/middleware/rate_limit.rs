@@ -43,3 +43,32 @@ pub async fn rate_limit_middleware(
 
     Ok(next.run(request).await)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_limiter_with_valid_rpm() {
+        let limiter = create_limiter(100);
+        // Should allow at least one request immediately.
+        assert!(limiter.check().is_ok());
+    }
+
+    #[test]
+    fn create_limiter_with_zero_uses_default() {
+        // NonZeroU32::new(0) returns None, so the unwrap_or fallback to 300 kicks in.
+        let limiter = create_limiter(0);
+        assert!(limiter.check().is_ok());
+    }
+
+    #[test]
+    fn limiter_exhausts_quota() {
+        // Tiny quota: 1 request per minute.
+        let limiter = create_limiter(1);
+        // First request should succeed.
+        assert!(limiter.check().is_ok());
+        // Second request should be rate-limited.
+        assert!(limiter.check().is_err());
+    }
+}

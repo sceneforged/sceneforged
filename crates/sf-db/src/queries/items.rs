@@ -474,4 +474,121 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "The Matrix");
     }
+
+    #[test]
+    fn list_children_ordered() {
+        let (conn, lib_id) = setup();
+        let series = create_item(
+            &conn, lib_id, "series", "Breaking Bad", None, Some(2008),
+            None, None, None, None, None, None, None,
+        )
+        .unwrap();
+        let season = create_item(
+            &conn, lib_id, "season", "Season 1", None, None,
+            None, None, None, None, Some(series.id), Some(1), None,
+        )
+        .unwrap();
+
+        // Create episodes out of order.
+        create_item(
+            &conn, lib_id, "episode", "Episode 3", None, None,
+            None, Some(47), None, None, Some(season.id), Some(1), Some(3),
+        )
+        .unwrap();
+        create_item(
+            &conn, lib_id, "episode", "Episode 1", None, None,
+            None, Some(58), None, None, Some(season.id), Some(1), Some(1),
+        )
+        .unwrap();
+        create_item(
+            &conn, lib_id, "episode", "Episode 2", None, None,
+            None, Some(48), None, None, Some(season.id), Some(1), Some(2),
+        )
+        .unwrap();
+
+        let children = list_children(&conn, season.id).unwrap();
+        assert_eq!(children.len(), 3);
+        assert_eq!(children[0].episode_number, Some(1));
+        assert_eq!(children[1].episode_number, Some(2));
+        assert_eq!(children[2].episode_number, Some(3));
+    }
+
+    #[test]
+    fn list_recent_items() {
+        let (conn, lib_id) = setup();
+        create_item(
+            &conn, lib_id, "movie", "Recent Movie", None, Some(2024),
+            None, None, None, None, None, None, None,
+        )
+        .unwrap();
+
+        let recent = list_recent_items_by_library(&conn, lib_id, 7).unwrap();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].name, "Recent Movie");
+    }
+
+    #[test]
+    fn find_item_by_name_and_kind_found() {
+        let (conn, lib_id) = setup();
+        create_item(
+            &conn, lib_id, "series", "Breaking Bad", None, Some(2008),
+            None, None, None, None, None, None, None,
+        )
+        .unwrap();
+
+        let found = find_item_by_name_and_kind(&conn, lib_id, "Breaking Bad", "series")
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.name, "Breaking Bad");
+        assert_eq!(found.item_kind, "series");
+
+        let not_found = find_item_by_name_and_kind(&conn, lib_id, "Breaking Bad", "movie").unwrap();
+        assert!(not_found.is_none());
+    }
+
+    #[test]
+    fn find_or_create_series_dedup() {
+        let (conn, lib_id) = setup();
+        let s1 = find_or_create_series(&conn, lib_id, "The Wire", Some(2002)).unwrap();
+        let s2 = find_or_create_series(&conn, lib_id, "The Wire", Some(2002)).unwrap();
+        assert_eq!(s1.id, s2.id); // Same item, not duplicated.
+    }
+
+    #[test]
+    fn find_or_create_season_dedup() {
+        let (conn, lib_id) = setup();
+        let series = find_or_create_series(&conn, lib_id, "The Wire", None).unwrap();
+        let se1 = find_or_create_season(&conn, lib_id, series.id, 1).unwrap();
+        let se2 = find_or_create_season(&conn, lib_id, series.id, 1).unwrap();
+        assert_eq!(se1.id, se2.id);
+
+        let se3 = find_or_create_season(&conn, lib_id, series.id, 2).unwrap();
+        assert_ne!(se1.id, se3.id);
+    }
+
+    #[test]
+    fn search_items_fallback() {
+        // search_items tries FTS5 first, then falls back to LIKE.
+        // In unit tests the FTS5 rank column issue triggers the fallback.
+        let (conn, lib_id) = setup();
+        create_item(
+            &conn, lib_id, "movie", "The Matrix", None, Some(1999),
+            None, None, None, None, None, None, None,
+        )
+        .unwrap();
+        create_item(
+            &conn, lib_id, "movie", "Inception", None, None,
+            None, None, None, None, None, None, None,
+        )
+        .unwrap();
+
+        // LIKE fallback should still find "Matrix".
+        let results = search_items(&conn, "Matrix", 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "The Matrix");
+
+        // Empty query should match everything.
+        let results = search_items(&conn, "", 10).unwrap();
+        assert_eq!(results.len(), 2);
+    }
 }

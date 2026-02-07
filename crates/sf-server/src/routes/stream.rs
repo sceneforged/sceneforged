@@ -306,4 +306,27 @@ mod tests {
         assert_eq!(guess_content_type("movie.webm", None), "video/webm");
         assert_eq!(guess_content_type("file.xyz", None), "application/octet-stream");
     }
+
+    #[test]
+    fn content_type_all_variants() {
+        assert_eq!(guess_content_type("x.m4v", Some("m4v")), "video/mp4");
+        assert_eq!(guess_content_type("x.avi", Some("avi")), "video/x-msvideo");
+        assert_eq!(guess_content_type("x.ts", Some("ts")), "video/mp2t");
+        assert_eq!(guess_content_type("x.mov", Some("mov")), "video/quicktime");
+        assert_eq!(guess_content_type("x.wmv", Some("wmv")), "video/x-ms-wmv");
+        assert_eq!(guess_content_type("x.flv", Some("flv")), "video/x-flv");
+    }
+
+    #[test]
+    fn content_type_container_overrides_extension() {
+        // Container is mp4 but filename is .mkv — container wins.
+        assert_eq!(guess_content_type("movie.mkv", Some("mp4")), "video/mp4");
+    }
+
+    #[test]
+    fn parse_range_with_end() {
+        let (start, end) = parse_range_header("bytes=10-20").unwrap();
+        assert_eq!(start, 10);
+        assert_eq!(end, Some(20));
+    }
 }

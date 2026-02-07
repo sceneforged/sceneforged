@@ -231,4 +231,53 @@ mod tests {
         // Should not panic when there is no path.
         store.persist();
     }
+
+    #[test]
+    fn config_store_persist_and_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+
+        let mut config = Config::default();
+        config.arrs.push(sf_core::config::ArrConfig {
+            name: "radarr".into(),
+            arr_type: "radarr".into(),
+            url: "http://localhost:7878".into(),
+            api_key: "test-key".into(),
+            enabled: true,
+            auto_rescan: true,
+            auto_rename: false,
+        });
+
+        let store = ConfigStore::new(&config, Some(path.clone()));
+        store.persist();
+
+        // The file should exist and contain JSON.
+        let contents = std::fs::read_to_string(&path).unwrap();
+        let val: serde_json::Value = serde_json::from_str(&contents).unwrap();
+        assert!(val.is_object());
+
+        // Clear arrs in memory, then reload from file.
+        store.arrs.write().clear();
+        assert!(store.arrs.read().is_empty());
+
+        store.reload();
+        assert_eq!(store.arrs.read().len(), 1);
+        assert_eq!(store.arrs.read()[0].name, "radarr");
+    }
+
+    #[test]
+    fn config_store_reload_no_path() {
+        let config = Config::default();
+        let store = ConfigStore::new(&config, None);
+        // Should not panic when there is no path.
+        store.reload();
+    }
+
+    #[test]
+    fn config_store_reload_missing_file() {
+        let config = Config::default();
+        let store = ConfigStore::new(&config, Some("/tmp/nonexistent_config_12345.json".into()));
+        // Should not panic when file doesn't exist.
+        store.reload();
+    }
 }
