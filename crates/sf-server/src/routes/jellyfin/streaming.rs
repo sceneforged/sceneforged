@@ -80,6 +80,30 @@ pub async fn playback_info(
                     width: None,
                     height: None,
                 });
+                idx += 1;
+            }
+
+            // Subtitle streams from subtitle_tracks table.
+            if let Ok(subtitle_tracks) = sf_db::queries::subtitle_tracks::list_by_media_file(&conn, mf.id) {
+                for track in &subtitle_tracks {
+                    let display = track.language.as_deref().unwrap_or("Unknown");
+                    let mut title = display.to_string();
+                    if track.forced {
+                        title.push_str(" (Forced)");
+                    }
+                    streams.push(MediaStreamDto {
+                        stream_type: "Subtitle".to_string(),
+                        index: idx,
+                        codec: Some(track.codec.clone()),
+                        language: track.language.clone(),
+                        display_title: Some(title),
+                        is_default: track.default_track,
+                        is_forced: track.forced,
+                        width: None,
+                        height: None,
+                    });
+                    idx += 1;
+                }
             }
 
             MediaSourceDto {

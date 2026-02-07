@@ -4,12 +4,13 @@
 //! playback tracking.
 
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use serde::Deserialize;
 
 use crate::context::AppContext;
 use crate::error::AppError;
+use crate::middleware::auth::validate_auth_headers;
 
 use super::dto::TICKS_PER_SECOND;
 
@@ -35,20 +36,46 @@ pub struct PlaystateReport {
     pub play_session_id: Option<String>,
 }
 
-/// Resolve a user ID for playstate updates.
-/// For now, use the anonymous user. Once Jellyfin auth is wired through
-/// the auth middleware, this will come from request extensions.
+/// Well-known anonymous user ID (matches middleware/auth.rs).
 fn anonymous_user_id() -> sf_core::UserId {
     "00000000-0000-0000-0000-000000000000"
         .parse()
         .expect("static anonymous UUID is valid")
 }
 
+/// Resolve a user ID from Jellyfin request headers.
+/// Falls back to anonymous user if no valid token is found.
+fn resolve_user_from_headers(ctx: &AppContext, headers: &HeaderMap) -> sf_core::UserId {
+    let authorization = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
+
+    let cookie = headers
+        .get(axum::http::header::COOKIE)
+        .and_then(|v| v.to_str().ok());
+
+    let x_emby_token = headers
+        .get("X-Emby-Token")
+        .and_then(|v| v.to_str().ok());
+
+    validate_auth_headers(
+        &ctx.config.auth,
+        &ctx.db,
+        authorization,
+        cookie,
+        x_emby_token,
+    )
+    .unwrap_or_else(anonymous_user_id)
+}
+
 /// POST /Sessions/Playing — client started playback.
 pub async fn playing(
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Json(report): Json<PlaystateReport>,
 ) -> Result<StatusCode, AppError> {
+    let user_id = resolve_user_from_headers(&ctx, &headers);
+
     if let Some(ref id_str) = report.item_id {
         if let Ok(item_id) = id_str.parse::<sf_core::ItemId>() {
             let position_secs = report
@@ -59,7 +86,7 @@ pub async fn playing(
             let conn = sf_db::pool::get_conn(&ctx.db)?;
             let _ = sf_db::queries::playback::upsert_playback(
                 &conn,
-                anonymous_user_id(),
+                user_id,
                 item_id,
                 position_secs,
                 false,
@@ -72,8 +99,11 @@ pub async fn playing(
 /// POST /Sessions/Playing/Progress — client reporting progress.
 pub async fn progress(
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Json(report): Json<PlaystateReport>,
 ) -> Result<StatusCode, AppError> {
+    let user_id = resolve_user_from_headers(&ctx, &headers);
+
     if let Some(ref id_str) = report.item_id {
         if let Ok(item_id) = id_str.parse::<sf_core::ItemId>() {
             let position_secs = report
@@ -84,7 +114,7 @@ pub async fn progress(
             let conn = sf_db::pool::get_conn(&ctx.db)?;
             let _ = sf_db::queries::playback::upsert_playback(
                 &conn,
-                anonymous_user_id(),
+                user_id,
                 item_id,
                 position_secs,
                 false,
@@ -97,8 +127,11 @@ pub async fn progress(
 /// POST /Sessions/Playing/Stopped — client stopped playback.
 pub async fn stopped(
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Json(report): Json<PlaystateReport>,
 ) -> Result<StatusCode, AppError> {
+    let user_id = resolve_user_from_headers(&ctx, &headers);
+
     if let Some(ref id_str) = report.item_id {
         if let Ok(item_id) = id_str.parse::<sf_core::ItemId>() {
             let position_secs = report
@@ -109,7 +142,7 @@ pub async fn stopped(
             let conn = sf_db::pool::get_conn(&ctx.db)?;
             let _ = sf_db::queries::playback::upsert_playback(
                 &conn,
-                anonymous_user_id(),
+                user_id,
                 item_id,
                 position_secs,
                 false, // Jellyfin clients don't signal completion via stopped

@@ -84,11 +84,14 @@ pub struct EnrichResponse {
 }
 
 /// POST /api/items/{id}/enrich — trigger TMDB lookup and apply metadata.
+/// Accepts an optional JSON body with `tmdb_id` and `type` fields.
 pub async fn enrich_item(
     State(ctx): State<AppContext>,
     Path(item_id): Path<String>,
+    body: Option<Json<EnrichRequest>>,
 ) -> Result<(StatusCode, Json<EnrichResponse>), AppError> {
-    enrich_item_with_body(ctx, item_id, EnrichRequest { tmdb_id: None, media_type: None }).await
+    let request = body.map(|j| j.0).unwrap_or(EnrichRequest { tmdb_id: None, media_type: None });
+    enrich_item_with_body(ctx, item_id, request).await
 }
 
 /// POST /api/items/{id}/enrich with optional body.

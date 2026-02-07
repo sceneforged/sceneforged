@@ -43,22 +43,31 @@
 		}, 300);
 	});
 
-	function debouncedRefresh() {
+	let lastRefreshTime = 0;
+	function throttledRefresh() {
+		const now = Date.now();
+		if (now - lastRefreshTime < 3000) {
+			if (refreshTimeout) clearTimeout(refreshTimeout);
+			refreshTimeout = setTimeout(() => {
+				lastRefreshTime = Date.now();
+				loadItems(searchQuery || undefined);
+			}, 3000 - (now - lastRefreshTime));
+			return;
+		}
+		lastRefreshTime = now;
 		if (refreshTimeout) clearTimeout(refreshTimeout);
-		refreshTimeout = setTimeout(() => {
-			loadItems(searchQuery || undefined);
-		}, 2000);
+		loadItems(searchQuery || undefined);
 	}
 
 	function handleEvent(event: AppEvent): void {
 		const { payload } = event;
 		if (payload.type === 'item_added') {
-			debouncedRefresh();
+			throttledRefresh();
 		} else if (payload.type === 'library_scan_started' && 'library_id' in payload && payload.library_id === libraryId) {
 			scanning = true;
 		} else if (payload.type === 'library_scan_progress' && payload.library_id === libraryId) {
 			scanning = true;
-			debouncedRefresh();
+			throttledRefresh();
 		} else if (payload.type === 'library_scan_complete' && payload.library_id === libraryId) {
 			scanning = false;
 			if (refreshTimeout) clearTimeout(refreshTimeout);

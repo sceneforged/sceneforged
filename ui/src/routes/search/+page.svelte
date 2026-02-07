@@ -1,16 +1,28 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { goto } from '$app/navigation';
 	import { searchItems } from '$lib/api/index.js';
 	import type { Item } from '$lib/types.js';
 	import MediaGrid from '$lib/components/media/MediaGrid.svelte';
-	import { Search, Loader2 } from '@lucide/svelte';
+	import { libraryStore } from '$lib/stores/library.svelte.js';
+	import { Search, Loader2, Filter } from '@lucide/svelte';
 
 	let query = $state(page.url.searchParams.get('q') ?? '');
 	let results = $state<Item[]>([]);
 	let loading = $state(false);
 	let searched = $state(false);
 	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+	// Filters
+	let selectedLibrary = $state('');
+	let selectedKind = $state('');
+
+	const ITEM_KINDS = [
+		{ value: '', label: 'All Types' },
+		{ value: 'movie', label: 'Movie' },
+		{ value: 'series', label: 'Series' },
+		{ value: 'season', label: 'Season' },
+		{ value: 'episode', label: 'Episode' }
+	];
 
 	// Run search when query changes from URL
 	$effect(() => {
@@ -30,10 +42,24 @@
 		debounceTimer = setTimeout(() => doSearch(query.trim()), 300);
 	});
 
+	// Re-search when filters change
+	$effect(() => {
+		// Track filter values so this effect re-runs
+		const _lib = selectedLibrary;
+		const _kind = selectedKind;
+		if (query.trim().length >= 2) {
+			if (debounceTimer) clearTimeout(debounceTimer);
+			debounceTimer = setTimeout(() => doSearch(query.trim()), 100);
+		}
+	});
+
 	async function doSearch(q: string) {
 		loading = true;
 		try {
-			results = await searchItems(q, 50);
+			results = await searchItems(q, 50, {
+				library_id: selectedLibrary || undefined,
+				item_kind: selectedKind || undefined
+			});
 		} catch {
 			results = [];
 		} finally {
@@ -71,6 +97,28 @@
 			class="w-full rounded-lg border bg-background py-3 pl-10 pr-4 text-base focus:outline-none focus:ring-2 focus:ring-primary"
 			autofocus
 		/>
+	</div>
+
+	<!-- Filters -->
+	<div class="flex flex-wrap items-center gap-3">
+		<Filter class="h-4 w-4 text-muted-foreground" />
+		<select
+			bind:value={selectedLibrary}
+			class="rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+		>
+			<option value="">All Libraries</option>
+			{#each libraryStore.libraries as lib (lib.id)}
+				<option value={lib.id}>{lib.name}</option>
+			{/each}
+		</select>
+		<select
+			bind:value={selectedKind}
+			class="rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+		>
+			{#each ITEM_KINDS as kind}
+				<option value={kind.value}>{kind.label}</option>
+			{/each}
+		</select>
 	</div>
 
 	{#if loading}

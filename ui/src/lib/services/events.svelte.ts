@@ -54,11 +54,13 @@ function createEventsService() {
 		eventSource.onopen = () => {
 			connected = true;
 			reconnectAttempts = 0;
+			console.debug('[SSE] Connection opened');
 		};
 
 		eventSource.onmessage = (event: MessageEvent) => {
 			try {
 				const data = JSON.parse(event.data) as AppEvent;
+				console.debug(`[SSE] Event: ${data.payload.type}`, data);
 				routeEvent(data);
 			} catch (e) {
 				console.error('Failed to parse SSE event:', e);
@@ -73,8 +75,8 @@ function createEventsService() {
 			reconnectAttempts++;
 			const delay = getReconnectDelay();
 
-			console.log(
-				`SSE connection lost. Reconnecting in ${Math.round(delay / 1000)}s (attempt ${reconnectAttempts})`
+			console.warn(
+				`[SSE] Connection lost. Reconnecting in ${Math.round(delay / 1000)}s (attempt ${reconnectAttempts})`
 			);
 
 			reconnectTimer = setTimeout(attemptConnect, delay);

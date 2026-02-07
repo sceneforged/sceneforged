@@ -206,6 +206,14 @@ export type EventPayload =
 	| { type: 'conversion_failed'; job_id: string; error: string }
 	| { type: 'heartbeat' };
 
+// User management types
+export interface User {
+	id: string;
+	username: string;
+	role: string;
+	created_at: string;
+}
+
 // Config types
 export interface ArrConfig {
 	name: string;

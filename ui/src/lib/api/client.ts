@@ -144,7 +144,8 @@ class ApiClient {
 						// body is already a plain string
 					}
 
-					throw new ApiError(response.status, code, body, requestId);
+					console.error(`[API] ${options.method ?? 'GET'} ${url} failed: ${response.status} ${code} - ${body}`);
+				throw new ApiError(response.status, code, body, requestId);
 				}
 
 				// Handle 204 No Content

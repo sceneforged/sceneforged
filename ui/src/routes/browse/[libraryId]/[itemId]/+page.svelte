@@ -2,14 +2,17 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { getItem, getItemChildren, submitConversion, getUserData, addFavorite, removeFavorite } from '$lib/api/index.js';
+	import { getItem, getItemChildren, submitConversion, getUserData, addFavorite, removeFavorite, searchTmdb, enrichItem } from '$lib/api/index.js';
 	import type { Item, AppEvent } from '$lib/types.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Progress } from '$lib/components/ui/progress/index.js';
+	import { Input } from '$lib/components/ui/input/index.js';
+	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import ProgressiveImage from '$lib/components/media/ProgressiveImage.svelte';
 	import MediaGrid from '$lib/components/media/MediaGrid.svelte';
 	import { conversionsStore } from '$lib/stores/conversions.svelte.js';
+	import { authStore } from '$lib/stores/auth.svelte.js';
 	import { eventsService } from '$lib/services/events.svelte.js';
 	import {
 		ArrowLeft,
@@ -23,7 +26,8 @@
 		Loader2,
 		AlertCircle,
 		HardDrive,
-		ChevronRight
+		ChevronRight,
+		Search as SearchIcon
 	} from '@lucide/svelte';
 
 	const libraryId = $derived(page.params.libraryId);
@@ -219,6 +223,66 @@
 	function isEpisodePlayable(ep: Item): boolean {
 		return ep.media_files?.some((f) => f.role === 'universal' || f.profile === 'B') ?? false;
 	}
+
+	// TMDB Identify
+	let showIdentifyDialog = $state(false);
+	let tmdbQuery = $state('');
+	let tmdbResults = $state<Array<{ tmdb_id: number; title: string | null; year: string | null; overview: string | null; poster_path: string | null }>>([]);
+	let tmdbSearching = $state(false);
+	let tmdbEnriching = $state(false);
+	let tmdbError = $state<string | null>(null);
+	let tmdbSearchTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	const tmdbMediaType = $derived(
+		item?.item_kind === 'series' || item?.item_kind === 'season' || item?.item_kind === 'episode' ? 'tv' : 'movie'
+	);
+
+	function openIdentify() {
+		tmdbQuery = item?.name ?? '';
+		tmdbResults = [];
+		tmdbError = null;
+		showIdentifyDialog = true;
+		if (tmdbQuery) doTmdbSearch(tmdbQuery);
+	}
+
+	function handleTmdbInput(e: Event) {
+		const value = (e.target as HTMLInputElement).value;
+		tmdbQuery = value;
+		if (tmdbSearchTimeout) clearTimeout(tmdbSearchTimeout);
+		if (value.trim().length < 2) {
+			tmdbResults = [];
+			return;
+		}
+		tmdbSearchTimeout = setTimeout(() => doTmdbSearch(value.trim()), 400);
+	}
+
+	async function doTmdbSearch(q: string) {
+		tmdbSearching = true;
+		tmdbError = null;
+		try {
+			const resp = await searchTmdb(q, tmdbMediaType);
+			tmdbResults = resp.results;
+		} catch (e) {
+			tmdbError = e instanceof Error ? e.message : 'Search failed';
+		} finally {
+			tmdbSearching = false;
+		}
+	}
+
+	async function selectTmdbResult(tmdbId: number) {
+		if (!item || tmdbEnriching) return;
+		tmdbEnriching = true;
+		tmdbError = null;
+		try {
+			await enrichItem(item.id, tmdbId, tmdbMediaType);
+			showIdentifyDialog = false;
+			await loadItemData();
+		} catch (e) {
+			tmdbError = e instanceof Error ? e.message : 'Enrichment failed';
+		} finally {
+			tmdbEnriching = false;
+		}
+	}
 </script>
 
 <svelte:head>
@@ -336,6 +400,11 @@
 			<div class="md:col-span-2">
 				<div class="mb-4 flex items-center gap-3">
 					<h1 class="text-2xl font-bold sm:text-3xl">{item.name}</h1>
+					{#if authStore.isAdmin}
+						<Button variant="ghost" size="sm" onclick={openIdentify} title="Identify with TMDB">
+							<SearchIcon class="h-4 w-4" />
+						</Button>
+					{/if}
 					<button
 						onclick={toggleFavorite}
 						disabled={togglingFavorite}
@@ -540,3 +609,79 @@
 		</div>
 	{/if}
 </div>
+
+<!-- TMDB Identify Dialog -->
+<Dialog.Root bind:open={showIdentifyDialog}>
+	<Dialog.Content class="max-w-lg max-h-[80vh]">
+		<Dialog.Header>
+			<Dialog.Title>Identify with TMDB</Dialog.Title>
+			<Dialog.Description>Search for the correct match</Dialog.Description>
+		</Dialog.Header>
+		<div class="space-y-4">
+			<div class="relative">
+				<SearchIcon class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+				<Input
+					value={tmdbQuery}
+					oninput={handleTmdbInput}
+					placeholder="Search TMDB..."
+					class="pl-9"
+				/>
+			</div>
+
+			{#if tmdbError}
+				<p class="text-sm text-destructive">{tmdbError}</p>
+			{/if}
+
+			{#if tmdbSearching}
+				<div class="flex justify-center py-4">
+					<Loader2 class="h-5 w-5 animate-spin text-muted-foreground" />
+				</div>
+			{:else if tmdbResults.length > 0}
+				<div class="max-h-[50vh] space-y-2 overflow-y-auto">
+					{#each tmdbResults as result}
+						<button
+							type="button"
+							class="flex w-full items-start gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-muted/50"
+							disabled={tmdbEnriching}
+							onclick={() => selectTmdbResult(result.tmdb_id)}
+						>
+							{#if result.poster_path}
+								<img
+									src="https://image.tmdb.org/t/p/w92{result.poster_path}"
+									alt=""
+									class="h-20 w-14 shrink-0 rounded object-cover"
+								/>
+							{:else}
+								<div class="flex h-20 w-14 shrink-0 items-center justify-center rounded bg-muted">
+									<Film class="h-6 w-6 text-muted-foreground/30" />
+								</div>
+							{/if}
+							<div class="min-w-0 flex-1">
+								<p class="font-medium">
+									{result.title ?? 'Unknown'}
+									{#if result.year}
+										<span class="font-normal text-muted-foreground">({result.year})</span>
+									{/if}
+								</p>
+								{#if result.overview}
+									<p class="mt-1 text-xs leading-relaxed text-muted-foreground line-clamp-3">
+										{result.overview}
+									</p>
+								{/if}
+							</div>
+						</button>
+					{/each}
+				</div>
+			{:else if tmdbQuery.trim().length >= 2}
+				<p class="py-4 text-center text-sm text-muted-foreground">No results found</p>
+			{/if}
+
+			{#if tmdbEnriching}
+				<div class="flex items-center justify-center gap-2 py-2">
+					<Loader2 class="h-4 w-4 animate-spin" />
+					<span class="text-sm">Applying metadata...</span>
+				</div>
+			{/if}
+		</div>
+	</Dialog.Content>
+</Dialog.Root>

@@ -23,7 +23,17 @@ export default defineConfig({
 	},
 	server: {
 		proxy: {
-			'/api': 'http://localhost:8080',
+			'/api': {
+				target: 'http://localhost:8080',
+				configure: (proxy) => {
+					proxy.on('proxyRes', (proxyRes) => {
+						if (proxyRes.headers['content-type']?.includes('text/event-stream')) {
+							proxyRes.headers['cache-control'] = 'no-cache';
+							proxyRes.headers['x-accel-buffering'] = 'no';
+						}
+					});
+				}
+			},
 			'/webhook': 'http://localhost:8080',
 			'/metrics': 'http://localhost:8080',
 			'/health': 'http://localhost:8080'

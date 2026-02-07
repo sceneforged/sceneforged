@@ -8,6 +8,7 @@ import type {
 	PlaybackState,
 	FavoriteState,
 	UserData,
+	User,
 	Rule,
 	DashboardStats,
 	ToolInfo,
@@ -349,8 +350,14 @@ export async function getItemFiles(itemId: string): Promise<MediaFile[]> {
 
 // --- Search ---
 
-export async function searchItems(query: string, limit = 20): Promise<Item[]> {
+export async function searchItems(
+	query: string,
+	limit = 20,
+	opts?: { library_id?: string; item_kind?: string }
+): Promise<Item[]> {
 	const searchParams = new URLSearchParams({ q: query, limit: String(limit) });
+	if (opts?.library_id) searchParams.set('library_id', opts.library_id);
+	if (opts?.item_kind) searchParams.set('item_kind', opts.item_kind);
 	return api.get<Item[]>(`/search?${searchParams}`);
 }
 
@@ -440,7 +447,64 @@ export async function logout(): Promise<void> {
 export async function getAuthStatus(): Promise<{
 	authenticated: boolean;
 	username?: string;
+	user_id?: string;
+	role?: string;
 	auth_enabled: boolean;
 }> {
 	return api.get('/auth/status', { skipCache: true });
+}
+
+// --- Admin: Users ---
+
+export async function listUsers(): Promise<User[]> {
+	return api.get<User[]>('/admin/users', { skipCache: true });
+}
+
+export async function createUser(data: {
+	username: string;
+	password: string;
+	role?: string;
+}): Promise<User> {
+	const result = await api.post<User>('/admin/users', data);
+	api.invalidate('/admin/users');
+	return result;
+}
+
+export async function updateUser(
+	id: string,
+	data: { role?: string; password?: string }
+): Promise<void> {
+	await api.put<void>(`/admin/users/${id}`, data);
+	api.invalidate('/admin/users');
+}
+
+export async function deleteUser(id: string): Promise<void> {
+	await api.delete(`/admin/users/${id}`);
+	api.invalidate('/admin/users');
+}
+
+// --- TMDB ---
+
+export async function searchTmdb(
+	query: string,
+	type: string = 'movie'
+): Promise<{
+	results: Array<{
+		tmdb_id: number;
+		title: string | null;
+		year: string | null;
+		overview: string | null;
+		poster_path: string | null;
+	}>;
+}> {
+	const params = new URLSearchParams({ q: query, type });
+	return api.get(`/tmdb/search?${params}`, { skipCache: true });
+}
+
+export async function enrichItem(
+	itemId: string,
+	tmdbId: number,
+	mediaType: string
+): Promise<{ updated: boolean; tmdb_id: number | null; images_downloaded: number }> {
+	return api.post(`/items/${itemId}/enrich`, { tmdb_id: tmdbId, type: mediaType });
 }

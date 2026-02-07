@@ -11,6 +11,7 @@
 		LayoutDashboard,
 		Library,
 		Briefcase,
+		Users,
 		Settings,
 		Sun,
 		Moon,
@@ -204,6 +205,16 @@
 							<a href="/admin/jobs" {...props}>
 								<Briefcase class="h-4 w-4" />
 								<span>Jobs</span>
+							</a>
+						{/snippet}
+					</Sidebar.MenuButton>
+				</Sidebar.MenuItem>
+				<Sidebar.MenuItem>
+					<Sidebar.MenuButton isActive={isActive('/admin/users')} tooltipContent="Users">
+						{#snippet child({ props })}
+							<a href="/admin/users" {...props}>
+								<Users class="h-4 w-4" />
+								<span>Users</span>
 							</a>
 						{/snippet}
 					</Sidebar.MenuButton>

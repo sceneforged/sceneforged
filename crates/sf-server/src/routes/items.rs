@@ -233,6 +233,8 @@ pub struct SearchParams {
     pub q: String,
     #[serde(default = "default_search_limit")]
     pub limit: i64,
+    pub library_id: Option<String>,
+    pub item_kind: Option<String>,
 }
 
 fn default_search_limit() -> i64 {
@@ -257,7 +259,24 @@ pub async fn search_items(
     }
 
     let conn = sf_db::pool::get_conn(&ctx.db)?;
-    let items = sf_db::queries::items::search_items(&conn, &params.q, params.limit)?;
+
+    let library_id = params
+        .library_id
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.parse::<sf_core::LibraryId>())
+        .transpose()
+        .map_err(|_| sf_core::Error::Validation("Invalid library_id".into()))?;
+
+    let items = sf_db::queries::items::search_items_fts(
+        &conn,
+        &params.q,
+        library_id,
+        params.item_kind.as_deref().filter(|s| !s.is_empty()),
+        params.limit,
+    )
+    .or_else(|_| sf_db::queries::items::search_items(&conn, &params.q, params.limit))?;
+
     let responses: Vec<ItemResponse> = items.iter().map(ItemResponse::from_model).collect();
     Ok(Json(responses))
 }

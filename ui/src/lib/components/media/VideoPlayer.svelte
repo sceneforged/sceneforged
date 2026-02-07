@@ -62,6 +62,7 @@
 	let lastReportedPosition = 0;
 	let activeSubtitleIndex = $state<number | null>(null);
 	let showSubtitleMenu = $state(false);
+	let seekTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	// Format time display
 	function formatTime(seconds: number): string {
@@ -98,6 +99,7 @@
 
 			hls.on(Hls.Events.ERROR, (_event, data) => {
 				if (data.fatal) {
+					console.error(`[HLS] Fatal error: type=${data.type} details=${data.details}`, data);
 					switch (data.type) {
 						case Hls.ErrorTypes.NETWORK_ERROR:
 							onError?.('Network error occurred');
@@ -112,6 +114,8 @@
 							hls?.destroy();
 							break;
 					}
+				} else {
+					console.warn(`[HLS] Non-fatal error: type=${data.type} details=${data.details}`);
 				}
 			});
 		} else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
@@ -137,6 +141,9 @@
 		}
 		if (controlsTimeout) {
 			clearTimeout(controlsTimeout);
+		}
+		if (seekTimeout) {
+			clearTimeout(seekTimeout);
 		}
 		if (progressInterval) {
 			clearInterval(progressInterval);
@@ -211,7 +218,12 @@
 
 	function handleSeekInput(event: Event) {
 		const input = event.target as HTMLInputElement;
-		seek(parseFloat(input.value));
+		const value = parseFloat(input.value);
+		if (!isFinite(value) || !isFinite(duration) || duration <= 0) return;
+		if (seekTimeout) clearTimeout(seekTimeout);
+		seekTimeout = setTimeout(() => {
+			seek(value);
+		}, 150);
 	}
 
 	async function toggleFullscreen() {
