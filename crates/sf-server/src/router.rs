@@ -261,7 +261,16 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
         // Admin
         .route("/admin/dashboard", get(routes::admin::dashboard))
         .route("/admin/tools", get(routes::admin::tools))
-        .route("/admin/stats", get(routes::admin::stats));
+        .route("/admin/stats", get(routes::admin::stats))
+        // User management
+        .route(
+            "/admin/users",
+            get(routes::users::list_users).post(routes::users::create_user),
+        )
+        .route(
+            "/admin/users/{id}",
+            put(routes::users::update_user).delete(routes::users::delete_user),
+        );
 
     // Always apply auth middleware — it handles both enabled (validates
     // credentials) and disabled (injects anonymous UserId) modes.

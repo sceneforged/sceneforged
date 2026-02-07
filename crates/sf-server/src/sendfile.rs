@@ -87,6 +87,7 @@ struct ParsedRequest {
     path: String,
     authorization: Option<String>,
     cookie: Option<String>,
+    x_emby_token: Option<String>,
 }
 
 /// Read HTTP request headers from a blocking TCP stream.
@@ -136,6 +137,7 @@ fn read_request_headers(stream: &mut TcpStream) -> io::Result<ParsedRequest> {
 
     let mut authorization = None;
     let mut cookie = None;
+    let mut x_emby_token = None;
 
     for line in lines {
         let line = line.trim();
@@ -148,6 +150,7 @@ fn read_request_headers(stream: &mut TcpStream) -> io::Result<ParsedRequest> {
             match name_lower.as_str() {
                 "authorization" => authorization = Some(value.to_owned()),
                 "cookie" => cookie = Some(value.to_owned()),
+                "x-emby-token" => x_emby_token = Some(value.to_owned()),
                 _ => {}
             }
         }
@@ -157,6 +160,7 @@ fn read_request_headers(stream: &mut TcpStream) -> io::Result<ParsedRequest> {
         path,
         authorization,
         cookie,
+        x_emby_token,
     })
 }
 
@@ -370,6 +374,7 @@ pub fn handle_sendfile_segment(mut stream: TcpStream, ctx: &AppContext) -> io::R
         &ctx.db,
         req.authorization.as_deref(),
         req.cookie.as_deref(),
+        req.x_emby_token.as_deref(),
     )
     .is_none()
     {

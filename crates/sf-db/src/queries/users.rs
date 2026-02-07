@@ -66,6 +66,41 @@ pub fn get_user_by_username(conn: &Connection, username: &str) -> Result<Option<
     }
 }
 
+/// List all users (excluding password hashes in the result for security).
+pub fn list_users(conn: &Connection) -> Result<Vec<User>> {
+    let mut stmt = conn
+        .prepare("SELECT id, username, password_hash, role, created_at FROM users ORDER BY username ASC")
+        .map_err(|e| Error::database(e.to_string()))?;
+    let rows = stmt
+        .query_map([], User::from_row)
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?;
+    Ok(rows)
+}
+
+/// Update a user's role.
+pub fn update_user_role(conn: &Connection, id: UserId, role: &str) -> Result<bool> {
+    let n = conn
+        .execute(
+            "UPDATE users SET role = ?1 WHERE id = ?2",
+            rusqlite::params![role, id.to_string()],
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+    Ok(n > 0)
+}
+
+/// Update a user's password hash.
+pub fn update_password(conn: &Connection, id: UserId, password_hash: &str) -> Result<bool> {
+    let n = conn
+        .execute(
+            "UPDATE users SET password_hash = ?1 WHERE id = ?2",
+            rusqlite::params![password_hash, id.to_string()],
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+    Ok(n > 0)
+}
+
 /// Delete a user by ID. Returns true if a row was deleted.
 pub fn delete_user(conn: &Connection, id: UserId) -> Result<bool> {
     let n = conn

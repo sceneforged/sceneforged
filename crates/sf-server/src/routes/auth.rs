@@ -32,6 +32,10 @@ pub struct AuthResponse {
 pub struct AuthStatusResponse {
     pub auth_enabled: bool,
     pub authenticated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
 }
 
 /// POST /api/auth/login
@@ -61,27 +65,55 @@ pub async fn login(
         ));
     }
 
-    // Check credentials against config.
-    let valid = match (&auth_config.username, &auth_config.password_hash) {
-        (Some(expected_user), Some(expected_hash)) => {
-            payload.username == *expected_user && payload.password == *expected_hash
-        }
-        _ => false,
-    };
-
-    if !valid {
-        return Err(sf_core::Error::Unauthorized("Invalid credentials".into()).into());
-    }
-
-    // Create a session token in the database.
     let conn =
         sf_db::pool::get_conn(&ctx.db).map_err(|e| sf_core::Error::Internal(e.to_string()))?;
 
-    // Find or create the user record.
+    // Look up user in the database.
     let user = match sf_db::queries::users::get_user_by_username(&conn, &payload.username)? {
         Some(u) => u,
-        None => sf_db::queries::users::create_user(&conn, &payload.username, "config", "admin")?,
+        None => {
+            // Fall back to config-based auth (legacy single-user mode).
+            match (&auth_config.username, &auth_config.password_hash) {
+                (Some(expected_user), Some(expected_hash))
+                    if payload.username == *expected_user && payload.password == *expected_hash =>
+                {
+                    // Auto-migrate: create user with bcrypt hash.
+                    let hash = bcrypt::hash(&payload.password, bcrypt::DEFAULT_COST)
+                        .map_err(|e| sf_core::Error::Internal(format!("bcrypt error: {e}")))?;
+                    sf_db::queries::users::create_user(&conn, &payload.username, &hash, "admin")?
+                }
+                _ => {
+                    return Err(
+                        sf_core::Error::Unauthorized("Invalid credentials".into()).into(),
+                    );
+                }
+            }
+        }
     };
+
+    // Verify password against stored bcrypt hash.
+    // If the hash is "config" or "!disabled" (legacy), skip bcrypt check but
+    // verify against config for backwards compat.
+    let password_valid = if user.password_hash.starts_with("$2") {
+        bcrypt::verify(&payload.password, &user.password_hash).unwrap_or(false)
+    } else {
+        // Legacy: plaintext or config-based password.
+        match &auth_config.password_hash {
+            Some(expected) => payload.password == *expected,
+            None => false,
+        }
+    };
+
+    if !password_valid {
+        return Err(sf_core::Error::Unauthorized("Invalid credentials".into()).into());
+    }
+
+    // Auto-upgrade: if password hash isn't bcrypt, upgrade it now.
+    if !user.password_hash.starts_with("$2") {
+        if let Ok(hash) = bcrypt::hash(&payload.password, bcrypt::DEFAULT_COST) {
+            let _ = sf_db::queries::users::update_password(&conn, user.id, &hash);
+        }
+    }
 
     let token = uuid::Uuid::new_v4().to_string();
     let expires = Utc::now()
@@ -142,34 +174,44 @@ pub async fn auth_status(
         return Json(AuthStatusResponse {
             auth_enabled: false,
             authenticated: true,
+            user_id: None,
+            role: Some("admin".into()),
         });
     }
 
-    let authenticated = if let Some(token) = extract_token(&headers) {
+    if let Some(token) = extract_token(&headers) {
         if let Some(ref api_key) = auth_config.api_key {
             if token == *api_key {
                 return Json(AuthStatusResponse {
                     auth_enabled: true,
                     authenticated: true,
+                    user_id: None,
+                    role: Some("admin".into()),
                 });
             }
         }
 
         if let Ok(conn) = sf_db::pool::get_conn(&ctx.db) {
-            sf_db::queries::auth::get_token(&conn, &token)
-                .ok()
-                .flatten()
-                .is_some()
-        } else {
-            false
+            if let Ok(Some(tok)) = sf_db::queries::auth::get_token(&conn, &token) {
+                let role = sf_db::queries::users::get_user_by_id(&conn, tok.user_id)
+                    .ok()
+                    .flatten()
+                    .map(|u| u.role);
+                return Json(AuthStatusResponse {
+                    auth_enabled: true,
+                    authenticated: true,
+                    user_id: Some(tok.user_id.to_string()),
+                    role,
+                });
+            }
         }
-    } else {
-        false
-    };
+    }
 
     Json(AuthStatusResponse {
         auth_enabled: true,
-        authenticated,
+        authenticated: false,
+        user_id: None,
+        role: None,
     })
 }
 
