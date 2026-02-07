@@ -65,6 +65,9 @@ pub enum EventPayload {
         library_id: LibraryId,
         files_found: u64,
         files_queued: u64,
+        phase: String,
+        files_total: u64,
+        files_processed: u64,
     },
     LibraryScanComplete {
         library_id: LibraryId,
@@ -84,6 +87,9 @@ pub enum EventPayload {
     // -- Item lifecycle ------------------------------------------------------
     ItemAdded {
         item_id: ItemId,
+        item_name: String,
+        item_kind: String,
+        library_id: LibraryId,
     },
     ItemUpdated {
         item_id: ItemId,
@@ -241,7 +247,7 @@ mod tests {
         let job_id = JobId::new();
 
         for _ in 0..10 {
-            bus.broadcast(EventCategory::User, EventPayload::ItemAdded { item_id: ItemId::new() });
+            bus.broadcast(EventCategory::User, EventPayload::ItemAdded { item_id: ItemId::new(), item_name: "Test".into(), item_kind: "movie".into(), library_id: LibraryId::new() });
         }
         bus.broadcast(EventCategory::Admin, EventPayload::JobStarted { job_id });
 
@@ -289,11 +295,11 @@ mod tests {
             EventPayload::JobCompleted { job_id: JobId::new() },
             EventPayload::JobFailed { job_id: JobId::new(), error: "err".into() },
             EventPayload::LibraryScanStarted { library_id: LibraryId::new() },
-            EventPayload::LibraryScanProgress { library_id: LibraryId::new(), files_found: 10, files_queued: 5 },
+            EventPayload::LibraryScanProgress { library_id: LibraryId::new(), files_found: 10, files_queued: 5, phase: "walking".into(), files_total: 20, files_processed: 10 },
             EventPayload::LibraryScanComplete { library_id: LibraryId::new(), files_found: 100, files_queued: 95, files_skipped: 3, errors: 2 },
             EventPayload::LibraryCreated { library_id: LibraryId::new(), name: "Test".into() },
             EventPayload::LibraryDeleted { library_id: LibraryId::new() },
-            EventPayload::ItemAdded { item_id: ItemId::new() },
+            EventPayload::ItemAdded { item_id: ItemId::new(), item_name: "Test".into(), item_kind: "movie".into(), library_id: LibraryId::new() },
             EventPayload::ItemUpdated { item_id: ItemId::new() },
             EventPayload::ItemRemoved { item_id: ItemId::new() },
             EventPayload::ConversionQueued { job_id: ConversionJobId::new() },

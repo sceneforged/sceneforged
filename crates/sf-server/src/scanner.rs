@@ -210,21 +210,24 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
             // Batch existence check via HashSet.
             if known_paths.contains(&file_path_str) {
                 files_skipped += 1;
-                emit_progress_if_needed(
-                    &ctx,
-                    library_id,
-                    files_found,
-                    files_queued,
-                );
+                if files_found % PROGRESS_INTERVAL == 0 {
+                    emit_scan_progress(&ctx, library_id, files_found, files_queued, "walking", 0, files_found);
+                }
                 continue;
             }
 
             files_to_probe.push(path.to_path_buf());
 
             // Emit progress at intervals.
-            emit_progress_if_needed(&ctx, library_id, files_found, files_queued);
+            if files_found % PROGRESS_INTERVAL == 0 {
+                emit_scan_progress(&ctx, library_id, files_found, files_queued, "walking", 0, files_found);
+            }
         }
     }
+
+    // Emit walking → probing transition.
+    let total_to_probe = files_to_probe.len() as u64;
+    emit_scan_progress(&ctx, library_id, files_found, files_queued, "probing", total_to_probe, 0);
 
     // --- Parallel probe phase ---
     let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(PROBE_CONCURRENCY));
@@ -284,12 +287,15 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
 
     // Collect probe results and write to DB in batches.
     let mut batch: Vec<ProbeResult> = Vec::with_capacity(DB_BATCH_SIZE);
+    let mut probes_completed: u64 = 0;
 
     for handle in probe_handles {
+        probes_completed += 1;
         match handle.await {
             Ok(Ok(result)) => {
                 batch.push(result);
                 if batch.len() >= DB_BATCH_SIZE {
+                    emit_scan_progress(&ctx, library_id, files_found, files_queued, "writing", total_to_probe, probes_completed);
                     let (queued, errs) = flush_batch(
                         &ctx,
                         library_id,
@@ -312,6 +318,10 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
                 tracing::warn!(error = %e, "Probe task panicked");
                 errors += 1;
             }
+        }
+        // Emit probe progress every few files.
+        if probes_completed % 5 == 0 || probes_completed == total_to_probe {
+            emit_scan_progress(&ctx, library_id, files_found, files_queued, "probing", total_to_probe, probes_completed);
         }
     }
 
@@ -364,6 +374,7 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
     }
 
     // --- Wait for TMDB enrichment workers to finish ---
+    emit_scan_progress(&ctx, library_id, files_found, files_queued, "enriching", total_to_probe, total_to_probe);
     drop(enrich_tx);
     for handle in enrich_handles {
         let _ = handle.await;
@@ -635,7 +646,12 @@ fn ingest_probed_file(
 
     ctx.event_bus.broadcast(
         EventCategory::User,
-        EventPayload::ItemAdded { item_id: item.id },
+        EventPayload::ItemAdded {
+            item_id: item.id,
+            item_name: item.name.clone(),
+            item_kind: item.item_kind.clone(),
+            library_id,
+        },
     );
 
     // Determine which item to enrich (series for episodes, self for movies).
@@ -909,20 +925,24 @@ async fn auto_enrich(ctx: &AppContext, item_id: sf_core::ItemId) {
     }
 }
 
-fn emit_progress_if_needed(
+fn emit_scan_progress(
     ctx: &AppContext,
     library_id: sf_core::LibraryId,
     files_found: u64,
     files_queued: u64,
+    phase: &str,
+    files_total: u64,
+    files_processed: u64,
 ) {
-    if files_found % PROGRESS_INTERVAL == 0 {
-        ctx.event_bus.broadcast(
-            EventCategory::User,
-            EventPayload::LibraryScanProgress {
-                library_id,
-                files_found,
-                files_queued,
-            },
-        );
-    }
+    ctx.event_bus.broadcast(
+        EventCategory::User,
+        EventPayload::LibraryScanProgress {
+            library_id,
+            files_found,
+            files_queued,
+            phase: phase.to_string(),
+            files_total,
+            files_processed,
+        },
+    );
 }

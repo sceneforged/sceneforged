@@ -192,11 +192,11 @@ export type EventPayload =
 	| { type: 'job_completed'; job_id: string }
 	| { type: 'job_failed'; job_id: string; error: string }
 	| { type: 'library_scan_started'; library_id: string }
-	| { type: 'library_scan_progress'; library_id: string; files_found: number; files_queued: number }
+	| { type: 'library_scan_progress'; library_id: string; files_found: number; files_queued: number; phase: string; files_total: number; files_processed: number }
 	| { type: 'library_scan_complete'; library_id: string; files_found: number; files_queued: number; files_skipped: number; errors: number }
 	| { type: 'library_created'; library_id: string; name: string }
 	| { type: 'library_deleted'; library_id: string }
-	| { type: 'item_added'; item_id: string }
+	| { type: 'item_added'; item_id: string; item_name: string; item_kind: string; library_id: string }
 	| { type: 'item_updated'; item_id: string }
 	| { type: 'item_removed'; item_id: string }
 	| { type: 'conversion_queued'; job_id: string }

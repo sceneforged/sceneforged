@@ -56,7 +56,9 @@ function createConversionsStore() {
 
 				case 'conversion_started':
 					activeConversions = activeConversions.map((j) =>
-						j.id === payload.job_id ? { ...j, status: 'processing' } : j
+						j.id === payload.job_id
+							? { ...j, status: 'processing', started_at: new Date().toISOString() }
+							: j
 					);
 					break;
 
