@@ -1,0 +1,361 @@
+//! Jellyfin items/library browsing endpoints.
+
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+use axum::Json;
+use serde::Deserialize;
+
+use crate::context::AppContext;
+use crate::error::AppError;
+
+use super::dto::{self, BaseItemDto, ItemsResult, SearchHint, SearchHintResult};
+
+/// Case-insensitive query params (Jellyfin clients send both camelCase and PascalCase).
+#[derive(Debug, Deserialize)]
+pub struct ItemsQuery {
+    #[serde(alias = "parentId", alias = "ParentId")]
+    pub parent_id: Option<String>,
+    #[serde(alias = "includeItemTypes", alias = "IncludeItemTypes")]
+    pub include_item_types: Option<String>,
+    #[serde(alias = "startIndex", alias = "StartIndex")]
+    pub start_index: Option<i64>,
+    #[serde(alias = "limit", alias = "Limit")]
+    pub limit: Option<i64>,
+    #[serde(alias = "sortBy", alias = "SortBy")]
+    pub sort_by: Option<String>,
+    #[serde(alias = "searchTerm", alias = "SearchTerm")]
+    pub search_term: Option<String>,
+    #[serde(alias = "userId", alias = "UserId")]
+    pub user_id: Option<String>,
+    #[serde(alias = "seriesId", alias = "SeriesId")]
+    pub series_id: Option<String>,
+    #[serde(alias = "seasonId", alias = "SeasonId")]
+    pub season_id: Option<String>,
+}
+
+/// GET /UserViews — list top-level library views.
+pub async fn user_views(
+    State(ctx): State<AppContext>,
+) -> Result<Json<ItemsResult>, AppError> {
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    let libraries = sf_db::queries::libraries::list_libraries(&conn)?;
+
+    let items: Vec<BaseItemDto> = libraries
+        .iter()
+        .map(|lib| BaseItemDto {
+            id: lib.id.to_string(),
+            name: lib.name.clone(),
+            item_type: "CollectionFolder".to_string(),
+            collection_type: Some(lib.media_type.clone()),
+            overview: None,
+            production_year: None,
+            run_time_ticks: None,
+            community_rating: None,
+            parent_id: None,
+            series_id: None,
+            series_name: None,
+            season_id: None,
+            index_number: None,
+            parent_index_number: None,
+            image_tags: None,
+            user_data: None,
+            media_sources: None,
+            media_streams: None,
+        })
+        .collect();
+
+    let count = items.len();
+    Ok(Json(ItemsResult {
+        items,
+        total_record_count: count,
+    }))
+}
+
+/// GET /Items — list items with filtering.
+pub async fn list_items(
+    State(ctx): State<AppContext>,
+    Query(params): Query<ItemsQuery>,
+) -> Result<Json<ItemsResult>, AppError> {
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+
+    let offset = params.start_index.unwrap_or(0);
+    let limit = params.limit.unwrap_or(50).min(200);
+
+    let items = if let Some(ref parent_id) = params.parent_id {
+        // Check if parent is a library or an item.
+        if let Ok(lib_id) = parent_id.parse::<sf_core::LibraryId>() {
+            if sf_db::queries::libraries::get_library(&conn, lib_id)?.is_some() {
+                // List top-level items (movies + series, no episodes/seasons directly).
+                sf_db::queries::items::list_items_by_library(&conn, lib_id, offset, limit)?
+                    .into_iter()
+                    .filter(|i| i.item_kind == "movie" || i.item_kind == "series")
+                    .collect()
+            } else if let Ok(item_id) = parent_id.parse::<sf_core::ItemId>() {
+                sf_db::queries::items::list_children(&conn, item_id)?
+            } else {
+                Vec::new()
+            }
+        } else if let Ok(item_id) = parent_id.parse::<sf_core::ItemId>() {
+            sf_db::queries::items::list_children(&conn, item_id)?
+        } else {
+            Vec::new()
+        }
+    } else if let Some(ref search) = params.search_term {
+        sf_db::queries::items::search_items(&conn, search, limit)?
+    } else {
+        // Return all items without a parent_id filter — just first page.
+        let libraries = sf_db::queries::libraries::list_libraries(&conn)?;
+        let mut all = Vec::new();
+        for lib in &libraries {
+            let items = sf_db::queries::items::list_items_by_library(&conn, lib.id, offset, limit)?;
+            all.extend(items);
+        }
+        all
+    };
+
+    let dtos: Vec<BaseItemDto> = items
+        .iter()
+        .map(|item| {
+            let images = sf_db::queries::images::list_images_by_item(&conn, item.id)
+                .unwrap_or_default();
+            dto::item_to_dto(item, &images)
+        })
+        .collect();
+
+    let count = dtos.len();
+    Ok(Json(ItemsResult {
+        items: dtos,
+        total_record_count: count,
+    }))
+}
+
+/// GET /Items/{id} — get a single item.
+pub async fn get_item(
+    State(ctx): State<AppContext>,
+    Path(id): Path<String>,
+) -> Result<Json<BaseItemDto>, AppError> {
+    let item_id: sf_core::ItemId = id
+        .parse()
+        .map_err(|_| sf_core::Error::Validation("Invalid item_id".into()))?;
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    let item = sf_db::queries::items::get_item(&conn, item_id)?
+        .ok_or_else(|| sf_core::Error::not_found("item", item_id))?;
+
+    let images = sf_db::queries::images::list_images_by_item(&conn, item_id)
+        .unwrap_or_default();
+    let mut item_dto = dto::item_to_dto(&item, &images);
+
+    // Add media sources for playable items.
+    if item.item_kind == "movie" || item.item_kind == "episode" {
+        let media_files = sf_db::queries::media_files::list_media_files_by_item(&conn, item_id)?;
+        let sources: Vec<dto::MediaSourceDto> = media_files
+            .iter()
+            .map(|mf| {
+                let ticks = mf.duration_secs.map(|d| (d * dto::TICKS_PER_SECOND as f64) as i64);
+                dto::MediaSourceDto {
+                    id: mf.id.to_string(),
+                    name: mf.file_name.clone(),
+                    path: mf.file_path.clone(),
+                    container: mf.container.clone(),
+                    size: Some(mf.file_size),
+                    run_time_ticks: ticks,
+                    supports_direct_stream: true,
+                    supports_direct_play: true,
+                    supports_transcoding: false,
+                    media_streams: None,
+                }
+            })
+            .collect();
+        item_dto.media_sources = Some(sources);
+    }
+
+    Ok(Json(item_dto))
+}
+
+/// GET /Shows/{id}/Seasons
+pub async fn show_seasons(
+    State(ctx): State<AppContext>,
+    Path(id): Path<String>,
+) -> Result<Json<ItemsResult>, AppError> {
+    let series_id: sf_core::ItemId = id
+        .parse()
+        .map_err(|_| sf_core::Error::Validation("Invalid id".into()))?;
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    let children = sf_db::queries::items::list_children(&conn, series_id)?;
+    let seasons: Vec<BaseItemDto> = children
+        .iter()
+        .filter(|c| c.item_kind == "season")
+        .map(|item| {
+            let images = sf_db::queries::images::list_images_by_item(&conn, item.id)
+                .unwrap_or_default();
+            let mut d = dto::item_to_dto(item, &images);
+            d.series_id = Some(series_id.to_string());
+            d
+        })
+        .collect();
+
+    let count = seasons.len();
+    Ok(Json(ItemsResult {
+        items: seasons,
+        total_record_count: count,
+    }))
+}
+
+/// GET /Shows/{id}/Episodes
+pub async fn show_episodes(
+    State(ctx): State<AppContext>,
+    Path(id): Path<String>,
+    Query(params): Query<ItemsQuery>,
+) -> Result<Json<ItemsResult>, AppError> {
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+
+    // If seasonId is specified, list episodes under that season.
+    let parent_id = if let Some(ref season_id) = params.season_id {
+        season_id
+            .parse::<sf_core::ItemId>()
+            .map_err(|_| sf_core::Error::Validation("Invalid season_id".into()))?
+    } else {
+        // List all episodes for all seasons of this series.
+        let series_id: sf_core::ItemId = id
+            .parse()
+            .map_err(|_| sf_core::Error::Validation("Invalid id".into()))?;
+
+        let seasons = sf_db::queries::items::list_children(&conn, series_id)?;
+        let mut episodes = Vec::new();
+        for season in &seasons {
+            let eps = sf_db::queries::items::list_children(&conn, season.id)?;
+            for ep in eps {
+                let images = sf_db::queries::images::list_images_by_item(&conn, ep.id)
+                    .unwrap_or_default();
+                let mut d = dto::item_to_dto(&ep, &images);
+                d.series_id = Some(series_id.to_string());
+                d.season_id = Some(season.id.to_string());
+                episodes.push(d);
+            }
+        }
+
+        let count = episodes.len();
+        return Ok(Json(ItemsResult {
+            items: episodes,
+            total_record_count: count,
+        }));
+    };
+
+    let children = sf_db::queries::items::list_children(&conn, parent_id)?;
+    let episodes: Vec<BaseItemDto> = children
+        .iter()
+        .filter(|c| c.item_kind == "episode")
+        .map(|item| {
+            let images = sf_db::queries::images::list_images_by_item(&conn, item.id)
+                .unwrap_or_default();
+            dto::item_to_dto(item, &images)
+        })
+        .collect();
+
+    let count = episodes.len();
+    Ok(Json(ItemsResult {
+        items: episodes,
+        total_record_count: count,
+    }))
+}
+
+/// GET /Shows/NextUp — next unwatched episode.
+pub async fn next_up(
+    State(_ctx): State<AppContext>,
+) -> Json<ItemsResult> {
+    // Stub — requires per-user playback tracking, can be expanded later.
+    Json(ItemsResult {
+        items: Vec::new(),
+        total_record_count: 0,
+    })
+}
+
+/// GET /Search/Hints
+pub async fn search_hints(
+    State(ctx): State<AppContext>,
+    Query(params): Query<ItemsQuery>,
+) -> Result<Json<SearchHintResult>, AppError> {
+    let query = params.search_term.as_deref().unwrap_or("");
+    if query.is_empty() {
+        return Ok(Json(SearchHintResult {
+            search_hints: Vec::new(),
+            total_record_count: 0,
+        }));
+    }
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    let items = sf_db::queries::items::search_items(&conn, query, params.limit.unwrap_or(20))?;
+
+    let hints: Vec<SearchHint> = items
+        .iter()
+        .map(|item| {
+            let item_type = match item.item_kind.as_str() {
+                "series" => "Series",
+                "season" => "Season",
+                "episode" => "Episode",
+                _ => "Movie",
+            };
+            SearchHint {
+                id: item.id.to_string(),
+                name: item.name.clone(),
+                item_type: item_type.to_string(),
+                production_year: item.year,
+            }
+        })
+        .collect();
+
+    let count = hints.len();
+    Ok(Json(SearchHintResult {
+        search_hints: hints,
+        total_record_count: count,
+    }))
+}
+
+/// GET /Items/{id}/Images/{image_type}
+pub async fn get_image(
+    State(ctx): State<AppContext>,
+    Path(path): Path<(String, String)>,
+) -> Result<impl IntoResponse, AppError> {
+    let (item_id, image_type) = path;
+    let id: sf_core::ItemId = item_id
+        .parse()
+        .map_err(|_| sf_core::Error::Validation("Invalid item_id".into()))?;
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    let images = sf_db::queries::images::list_images_by_item(&conn, id)?;
+
+    let db_type = match image_type.to_lowercase().as_str() {
+        "primary" => "primary",
+        "backdrop" | "art" | "thumb" => "backdrop",
+        _ => "primary",
+    };
+
+    let image = images
+        .iter()
+        .find(|i| i.image_type == db_type)
+        .ok_or_else(|| sf_core::Error::not_found("image", format!("{id}/{image_type}")))?;
+
+    let data = tokio::fs::read(&image.path)
+        .await
+        .map_err(|e| sf_core::Error::Internal(format!("Failed to read image: {e}")))?;
+
+    let content_type = if image.path.ends_with(".png") {
+        "image/png"
+    } else if image.path.ends_with(".webp") {
+        "image/webp"
+    } else {
+        "image/jpeg"
+    };
+
+    Ok((
+        StatusCode::OK,
+        [
+            (axum::http::header::CONTENT_TYPE, content_type),
+            (axum::http::header::CACHE_CONTROL, "public, max-age=604800"),
+        ],
+        data,
+    ))
+}

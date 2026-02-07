@@ -2,12 +2,13 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { getItem, submitConversion, getUserData, addFavorite, removeFavorite } from '$lib/api/index.js';
+	import { getItem, getItemChildren, submitConversion, getUserData, addFavorite, removeFavorite } from '$lib/api/index.js';
 	import type { Item, AppEvent } from '$lib/types.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Progress } from '$lib/components/ui/progress/index.js';
 	import ProgressiveImage from '$lib/components/media/ProgressiveImage.svelte';
+	import MediaGrid from '$lib/components/media/MediaGrid.svelte';
 	import { conversionsStore } from '$lib/stores/conversions.svelte.js';
 	import { eventsService } from '$lib/services/events.svelte.js';
 	import {
@@ -21,19 +22,37 @@
 		Play,
 		Loader2,
 		AlertCircle,
-		HardDrive
+		HardDrive,
+		ChevronRight
 	} from '@lucide/svelte';
 
 	const libraryId = $derived(page.params.libraryId);
 	const itemId = $derived(page.params.itemId);
 
 	let item = $state<Item | null>(null);
+	let children = $state<Item[]>([]);
+	let parentItem = $state<Item | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
 	// Determine if item has a web-playable media file
 	const isPlayable = $derived(
 		item?.media_files?.some((f) => f.role === 'universal' || f.profile === 'B') ?? false
+	);
+
+	// Is this a container (series/season) that holds children?
+	const isContainer = $derived(
+		item?.item_kind === 'series' || item?.item_kind === 'season'
+	);
+
+	// Seasons for series view
+	const seasons = $derived(
+		children.filter((c) => c.item_kind === 'season').sort((a, b) => (a.season_number ?? 0) - (b.season_number ?? 0))
+	);
+
+	// Episodes for season view
+	const episodes = $derived(
+		children.filter((c) => c.item_kind === 'episode').sort((a, b) => (a.episode_number ?? 0) - (b.episode_number ?? 0))
 	);
 
 	// Favorite state
@@ -120,12 +139,31 @@
 
 		try {
 			item = await getItem(itemId);
-			// Load user data (playback/favorite state) in parallel
+
+			// Load children for series/season items
+			if (item.item_kind === 'series' || item.item_kind === 'season') {
+				children = await getItemChildren(itemId);
+			} else {
+				children = [];
+			}
+
+			// Load parent for breadcrumb navigation (season → series, episode → season)
+			if (item.parent_id) {
+				try {
+					parentItem = await getItem(item.parent_id);
+				} catch {
+					parentItem = null;
+				}
+			} else {
+				parentItem = null;
+			}
+
+			// Load user data (playback/favorite state)
 			try {
 				const userData = await getUserData(itemId);
 				isFavorite = userData.is_favorite;
 			} catch {
-				// Non-critical — user data may not exist yet
+				// Non-critical
 			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load item';
@@ -171,7 +209,15 @@
 	}
 
 	function handleBack() {
-		goto(`/browse/${libraryId}`);
+		if (parentItem) {
+			goto(`/browse/${libraryId}/${parentItem.id}`);
+		} else {
+			goto(`/browse/${libraryId}`);
+		}
+	}
+
+	function isEpisodePlayable(ep: Item): boolean {
+		return ep.media_files?.some((f) => f.role === 'universal' || f.profile === 'B') ?? false;
 	}
 </script>
 
@@ -180,7 +226,7 @@
 </svelte:head>
 
 {#if !loading && !error && item && backdropImage}
-	<div class="relative -mx-4 -mt-4 mb-0 h-[400px] overflow-hidden md:-mx-6 md:-mt-6">
+	<div class="relative -mx-4 -mt-4 mb-0 h-[300px] overflow-hidden sm:h-[400px] md:-mx-6 md:-mt-6">
 		<img
 			src="/api/images/{backdropImage.id}?size=large"
 			alt=""
@@ -193,10 +239,23 @@
 {/if}
 
 <div class="relative space-y-6" class:-mt-32={!loading && !error && item && backdropImage}>
-	<Button variant="ghost" onclick={handleBack}>
-		<ArrowLeft class="mr-2 h-4 w-4" />
-		Back to Library
-	</Button>
+	<!-- Breadcrumb navigation -->
+	<div class="flex items-center gap-1 text-sm">
+		<Button variant="ghost" size="sm" onclick={() => goto(`/browse/${libraryId}`)}>
+			<ArrowLeft class="mr-1 h-4 w-4" />
+			Library
+		</Button>
+		{#if parentItem}
+			<ChevronRight class="h-4 w-4 text-muted-foreground" />
+			<Button variant="ghost" size="sm" onclick={() => goto(`/browse/${libraryId}/${parentItem!.id}`)}>
+				{parentItem.name}
+			</Button>
+		{/if}
+		{#if item && (parentItem || item.item_kind !== 'movie')}
+			<ChevronRight class="h-4 w-4 text-muted-foreground" />
+			<span class="text-muted-foreground">{item.name}</span>
+		{/if}
+	</div>
 
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
@@ -207,15 +266,15 @@
 			<AlertCircle class="mx-auto mb-4 h-12 w-12 text-destructive" />
 			<p class="text-lg text-destructive">{error ?? 'Item not found'}</p>
 			<Button variant="outline" class="mt-4" onclick={handleBack}>
-				Return to Library
+				Return
 			</Button>
 		</div>
 	{:else}
-		<div class="grid gap-8 md:grid-cols-3">
+		<div class="grid gap-6 md:gap-8 md:grid-cols-3">
 			<!-- Poster area -->
 			<div class="md:col-span-1">
 				<div
-					class="flex aspect-[2/3] items-center justify-center overflow-hidden rounded-lg bg-muted shadow-lg"
+					class="mx-auto flex aspect-[2/3] max-w-[280px] items-center justify-center overflow-hidden rounded-lg bg-muted shadow-lg md:max-w-none"
 				>
 					{#if posterImage}
 						<ProgressiveImage
@@ -229,56 +288,58 @@
 					{/if}
 				</div>
 
-				<!-- Action buttons -->
-				<div class="mt-6 flex flex-col gap-3">
-					{#if isPlayable}
-						<Button variant="default" size="lg" class="w-full py-6 text-lg" onclick={handlePlay}>
-							<Play class="mr-2 h-6 w-6 fill-current" />
-							Play
-						</Button>
-					{:else if activeConversion}
-						<Button variant="secondary" size="lg" class="w-full py-6 text-lg" disabled>
-							<Loader2 class="mr-2 h-6 w-6 animate-spin" />
-							{activeConversion.status === 'queued' ? 'Queued...' : `Converting ${activeConversion.progress_pct.toFixed(0)}%`}
-						</Button>
-						{#if activeConversion.status === 'processing'}
-							<Progress value={activeConversion.progress_pct} max={100} />
-						{/if}
-					{:else}
-						<Button
-							variant="default"
-							size="lg"
-							class="w-full py-6 text-lg"
-							onclick={handleConvert}
-							disabled={converting}
-						>
-							{#if converting}
+				<!-- Action buttons (only for playable items, not containers) -->
+				{#if !isContainer}
+					<div class="mt-6 flex flex-col gap-3">
+						{#if isPlayable}
+							<Button variant="default" size="lg" class="w-full py-6 text-lg" onclick={handlePlay}>
+								<Play class="mr-2 h-6 w-6 fill-current" />
+								Play
+							</Button>
+						{:else if activeConversion}
+							<Button variant="secondary" size="lg" class="w-full py-6 text-lg" disabled>
 								<Loader2 class="mr-2 h-6 w-6 animate-spin" />
-								Submitting...
-							{:else}
-								<Film class="mr-2 h-6 w-6" />
-								Convert to Profile B
+								{activeConversion.status === 'queued' ? 'Queued...' : `Converting ${activeConversion.progress_pct.toFixed(0)}%`}
+							</Button>
+							{#if activeConversion.status === 'processing'}
+								<Progress value={activeConversion.progress_pct} max={100} />
 							{/if}
-						</Button>
-						{#if convertError}
-							<p class="text-center text-sm text-destructive">{convertError}</p>
 						{:else}
-							<p class="text-center text-sm text-muted-foreground">
-								Convert this item for web playback.
-							</p>
+							<Button
+								variant="default"
+								size="lg"
+								class="w-full py-6 text-lg"
+								onclick={handleConvert}
+								disabled={converting}
+							>
+								{#if converting}
+									<Loader2 class="mr-2 h-6 w-6 animate-spin" />
+									Submitting...
+								{:else}
+									<Film class="mr-2 h-6 w-6" />
+									Convert to Profile B
+								{/if}
+							</Button>
+							{#if convertError}
+								<p class="text-center text-sm text-destructive">{convertError}</p>
+							{:else}
+								<p class="text-center text-sm text-muted-foreground">
+									Convert this item for web playback.
+								</p>
+							{/if}
 						{/if}
-					{/if}
-				</div>
+					</div>
+				{/if}
 			</div>
 
 			<!-- Details section -->
 			<div class="md:col-span-2">
 				<div class="mb-4 flex items-center gap-3">
-					<h1 class="text-3xl font-bold">{item.name}</h1>
+					<h1 class="text-2xl font-bold sm:text-3xl">{item.name}</h1>
 					<button
 						onclick={toggleFavorite}
 						disabled={togglingFavorite}
-						class="rounded-full p-1 transition-colors hover:bg-muted"
+						class="shrink-0 rounded-full p-1 transition-colors hover:bg-muted"
 						aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
 					>
 						<Star
@@ -291,6 +352,22 @@
 
 				<!-- Metadata badges -->
 				<div class="mb-6 flex flex-wrap gap-2">
+					{#if item.item_kind === 'series'}
+						<Badge variant="secondary">
+							<Tv class="mr-1 h-3 w-3" />
+							{seasons.length} Season{seasons.length !== 1 ? 's' : ''}
+						</Badge>
+					{/if}
+
+					{#if item.item_kind === 'season' && item.season_number != null}
+						<Badge variant="secondary">
+							Season {item.season_number}
+						</Badge>
+						<Badge variant="secondary">
+							{episodes.length} Episode{episodes.length !== 1 ? 's' : ''}
+						</Badge>
+					{/if}
+
 					{#if item.year}
 						<Badge variant="secondary">
 							<Calendar class="mr-1 h-3 w-3" />
@@ -321,6 +398,100 @@
 					</div>
 				{/if}
 
+				<!-- Seasons grid for series -->
+				{#if item.item_kind === 'series' && seasons.length > 0}
+					<div class="mb-6">
+						<h2 class="mb-3 text-lg font-semibold">Seasons</h2>
+						<MediaGrid items={seasons} libraryId={libraryId} />
+					</div>
+				{/if}
+
+				<!-- Episodes list for season -->
+				{#if item.item_kind === 'season' && episodes.length > 0}
+					<div class="mb-6">
+						<h2 class="mb-3 text-lg font-semibold">Episodes</h2>
+						<div class="space-y-2">
+							{#each episodes as ep (ep.id)}
+								{@const epPlayable = isEpisodePlayable(ep)}
+								<button
+									type="button"
+									class="flex w-full items-center gap-4 rounded-lg border p-3 text-left transition-colors hover:bg-muted/50"
+									onclick={() => {
+										if (epPlayable) {
+											goto(`/play/${ep.id}`);
+										} else {
+											goto(`/browse/${libraryId}/${ep.id}`);
+										}
+									}}
+								>
+									<!-- Episode number -->
+									<span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium">
+										{ep.episode_number ?? '?'}
+									</span>
+
+									<!-- Episode poster thumbnail -->
+									{#if ep.images?.find((img) => img.image_type === 'primary')}
+										{@const epPoster = ep.images.find((img) => img.image_type === 'primary')!}
+										<div class="hidden h-16 w-24 shrink-0 overflow-hidden rounded sm:block">
+											<ProgressiveImage
+												imageId={epPoster.id}
+												alt={ep.name}
+												size="small"
+												class="h-full w-full"
+											/>
+										</div>
+									{/if}
+
+									<!-- Episode info -->
+									<div class="min-w-0 flex-1">
+										<p class="truncate font-medium">{ep.name}</p>
+										<div class="flex items-center gap-2 text-xs text-muted-foreground">
+											{#if ep.runtime_minutes}
+												<span>{ep.runtime_minutes}m</span>
+											{/if}
+											{#if ep.community_rating}
+												<span class="flex items-center gap-0.5">
+													<Star class="h-3 w-3 fill-yellow-500 text-yellow-500" />
+													{ep.community_rating.toFixed(1)}
+												</span>
+											{/if}
+										</div>
+										{#if ep.overview}
+											<p class="mt-1 hidden text-xs leading-relaxed text-muted-foreground line-clamp-2 sm:block">
+												{ep.overview}
+											</p>
+										{/if}
+									</div>
+
+									<!-- Play indicator -->
+									{#if epPlayable}
+										<div class="shrink-0">
+											<Play class="h-5 w-5 text-primary" />
+										</div>
+									{/if}
+								</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
+
+				<!-- Episode info for TV episodes -->
+				{#if item.item_kind === 'episode' && (item.season_number != null || item.episode_number != null)}
+					<div class="mb-6">
+						<div class="text-sm text-muted-foreground">
+							{#if item.season_number != null}
+								<span>Season {item.season_number}</span>
+							{/if}
+							{#if item.season_number != null && item.episode_number != null}
+								<span> &middot; </span>
+							{/if}
+							{#if item.episode_number != null}
+								<span>Episode {item.episode_number}</span>
+							{/if}
+						</div>
+					</div>
+				{/if}
+
 				<!-- Media files -->
 				{#if item.media_files && item.media_files.length > 0}
 					<div class="mb-6">
@@ -329,10 +500,10 @@
 							{#each item.media_files as file}
 								<div class="flex items-center justify-between rounded-lg border p-3">
 									<div class="flex items-center gap-3">
-										<HardDrive class="h-4 w-4 text-muted-foreground" />
-										<div>
-											<p class="text-sm font-medium">{file.file_name}</p>
-											<div class="flex items-center gap-2 text-xs text-muted-foreground">
+										<HardDrive class="hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" />
+										<div class="min-w-0">
+											<p class="truncate text-sm font-medium">{file.file_name}</p>
+											<div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
 												{#if file.video_codec}
 													<span class="uppercase">{file.video_codec}</span>
 												{/if}
@@ -346,7 +517,7 @@
 											</div>
 										</div>
 									</div>
-									<div class="flex gap-1">
+									<div class="flex shrink-0 gap-1">
 										{#if file.profile}
 											<Badge variant="secondary" class="text-xs">{file.profile}</Badge>
 										{/if}
@@ -361,24 +532,6 @@
 									</div>
 								</div>
 							{/each}
-						</div>
-					</div>
-				{/if}
-
-				<!-- Episode info for TV -->
-				{#if item.item_kind === 'episode' && (item.season_number != null || item.episode_number != null)}
-					<div class="mb-6">
-						<h2 class="mb-2 text-lg font-semibold">Episode Info</h2>
-						<div class="text-muted-foreground">
-							{#if item.season_number != null}
-								<span>Season {item.season_number}</span>
-							{/if}
-							{#if item.season_number != null && item.episode_number != null}
-								<span> - </span>
-							{/if}
-							{#if item.episode_number != null}
-								<span>Episode {item.episode_number}</span>
-							{/if}
 						</div>
 					</div>
 				{/if}

@@ -8,6 +8,7 @@ pub mod events;
 pub mod health;
 pub mod images;
 pub mod items;
+pub mod jellyfin;
 pub mod jobs;
 pub mod libraries;
 pub mod metadata;

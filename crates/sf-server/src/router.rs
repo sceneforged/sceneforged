@@ -282,9 +282,13 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
     // Combine auth and protected under /api.
     let api = auth_routes.merge(protected_routes);
 
+    // Jellyfin-compatible API — mounted at root level to match client expectations.
+    let jellyfin = routes::jellyfin::jellyfin_router();
+
     let mut app = Router::new()
         .route("/health", get(routes::health::health_check))
         .nest("/api", api)
+        .merge(jellyfin)
         .merge(SwaggerUi::new("/api-docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .route(
             "/webhook/{arr_name}",

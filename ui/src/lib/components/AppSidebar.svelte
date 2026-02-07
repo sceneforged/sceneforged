@@ -14,7 +14,8 @@
 		Settings,
 		Sun,
 		Moon,
-		LogOut
+		LogOut,
+		Search
 	} from '@lucide/svelte';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -115,7 +116,7 @@
 
 	<!-- Navigation -->
 	<Sidebar.Content>
-		<!-- Home -->
+		<!-- Home & Search -->
 		<Sidebar.Group>
 			<Sidebar.Menu>
 				<Sidebar.MenuItem>
@@ -124,6 +125,16 @@
 							<a href="/" {...props}>
 								<Home class="h-4 w-4" />
 								<span>Home</span>
+							</a>
+						{/snippet}
+					</Sidebar.MenuButton>
+				</Sidebar.MenuItem>
+				<Sidebar.MenuItem>
+					<Sidebar.MenuButton isActive={isActive('/search')} tooltipContent="Search">
+						{#snippet child({ props })}
+							<a href="/search" {...props}>
+								<Search class="h-4 w-4" />
+								<span>Search</span>
 							</a>
 						{/snippet}
 					</Sidebar.MenuButton>

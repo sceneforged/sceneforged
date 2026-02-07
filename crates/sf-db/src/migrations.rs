@@ -196,6 +196,36 @@ CREATE TABLE subtitle_tracks (
 CREATE INDEX idx_subtitle_tracks_media ON subtitle_tracks(media_file_id);
 "#;
 
+/// V6: Full-text search index on items (name + overview).
+const V6_ITEMS_FTS: &str = r#"
+CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
+    name,
+    overview,
+    content='items',
+    content_rowid='rowid'
+);
+
+-- Populate from existing data.
+INSERT INTO items_fts(rowid, name, overview)
+    SELECT rowid, name, COALESCE(overview, '') FROM items;
+
+-- Keep FTS in sync with items table.
+CREATE TRIGGER items_fts_insert AFTER INSERT ON items BEGIN
+    INSERT INTO items_fts(rowid, name, overview)
+        VALUES (NEW.rowid, NEW.name, COALESCE(NEW.overview, ''));
+END;
+CREATE TRIGGER items_fts_delete AFTER DELETE ON items BEGIN
+    INSERT INTO items_fts(items_fts, rowid, name, overview)
+        VALUES ('delete', OLD.rowid, OLD.name, COALESCE(OLD.overview, ''));
+END;
+CREATE TRIGGER items_fts_update AFTER UPDATE ON items BEGIN
+    INSERT INTO items_fts(items_fts, rowid, name, overview)
+        VALUES ('delete', OLD.rowid, OLD.name, COALESCE(OLD.overview, ''));
+    INSERT INTO items_fts(rowid, name, overview)
+        VALUES (NEW.rowid, NEW.name, COALESCE(NEW.overview, ''));
+END;
+"#;
+
 /// Ordered list of (version, sql) pairs.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, V1_INITIAL),
@@ -203,6 +233,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (3, V3_FAVORITES),
     (4, V4_ANONYMOUS_USER),
     (5, V5_SUBTITLE_TRACKS),
+    (6, V6_ITEMS_FTS),
 ];
 
 /// Run all pending migrations on `conn`.

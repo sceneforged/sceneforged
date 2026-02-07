@@ -287,13 +287,100 @@ pub fn find_or_create_season(
 
 /// Search items by name (LIKE '%query%').
 pub fn search_items(conn: &Connection, query: &str, limit: i64) -> Result<Vec<Item>> {
-    let pattern = format!("%{query}%");
-    let q = format!(
-        "SELECT {COLS} FROM items WHERE name LIKE ?1 ORDER BY name ASC LIMIT ?2"
-    );
-    let mut stmt = conn.prepare(&q).map_err(|e| Error::database(e.to_string()))?;
+    // Try FTS5 first — fall back to LIKE if the FTS table doesn't exist yet.
+    match search_items_fts(conn, query, None, None, limit) {
+        Ok(results) => Ok(results),
+        Err(_) => {
+            let pattern = format!("%{query}%");
+            let q = format!(
+                "SELECT {COLS} FROM items WHERE name LIKE ?1 ORDER BY name ASC LIMIT ?2"
+            );
+            let mut stmt = conn.prepare(&q).map_err(|e| Error::database(e.to_string()))?;
+            let rows = stmt
+                .query_map(rusqlite::params![pattern, limit], Item::from_row)
+                .map_err(|e| Error::database(e.to_string()))?
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|e| Error::database(e.to_string()))?;
+            Ok(rows)
+        }
+    }
+}
+
+/// Full-text search using FTS5 index.
+///
+/// Searches both `name` and `overview` fields, ranked by relevance.
+/// Optionally filters by `library_id` and `item_kind`.
+pub fn search_items_fts(
+    conn: &Connection,
+    query: &str,
+    library_id: Option<LibraryId>,
+    item_kind: Option<&str>,
+    limit: i64,
+) -> Result<Vec<Item>> {
+    // FTS5 query: append * for prefix matching (e.g. "break" matches "Breaking Bad").
+    let fts_query = format!("{query}*");
+
+    let (sql, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) =
+        match (library_id, item_kind) {
+            (Some(lid), Some(kind)) => (
+                format!(
+                    "SELECT {COLS} FROM items
+                     WHERE rowid IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?1)
+                       AND library_id = ?2
+                       AND item_kind = ?3
+                     ORDER BY rank
+                     LIMIT ?4"
+                ),
+                vec![
+                    Box::new(fts_query),
+                    Box::new(lid.to_string()),
+                    Box::new(kind.to_string()),
+                    Box::new(limit),
+                ],
+            ),
+            (Some(lid), None) => (
+                format!(
+                    "SELECT {COLS} FROM items
+                     WHERE rowid IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?1)
+                       AND library_id = ?2
+                     ORDER BY rank
+                     LIMIT ?3"
+                ),
+                vec![
+                    Box::new(fts_query),
+                    Box::new(lid.to_string()),
+                    Box::new(limit),
+                ],
+            ),
+            (None, Some(kind)) => (
+                format!(
+                    "SELECT {COLS} FROM items
+                     WHERE rowid IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?1)
+                       AND item_kind = ?2
+                     ORDER BY rank
+                     LIMIT ?3"
+                ),
+                vec![
+                    Box::new(fts_query),
+                    Box::new(kind.to_string()),
+                    Box::new(limit),
+                ],
+            ),
+            (None, None) => (
+                format!(
+                    "SELECT {COLS} FROM items
+                     WHERE rowid IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?1)
+                     ORDER BY rank
+                     LIMIT ?2"
+                ),
+                vec![Box::new(fts_query), Box::new(limit)],
+            ),
+        };
+
+    let params_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    let mut stmt = conn.prepare(&sql).map_err(|e| Error::database(e.to_string()))?;
     let rows = stmt
-        .query_map(rusqlite::params![pattern, limit], Item::from_row)
+        .query_map(params_refs.as_slice(), Item::from_row)
         .map_err(|e| Error::database(e.to_string()))?
         .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(|e| Error::database(e.to_string()))?;
