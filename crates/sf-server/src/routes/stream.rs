@@ -12,6 +12,7 @@ use tokio::io::AsyncSeekExt;
 
 use crate::context::AppContext;
 use crate::error::AppError;
+use crate::hls_prep;
 
 /// GET /api/stream/:media_file_id/index.m3u8
 pub async fn hls_playlist(
@@ -22,11 +23,7 @@ pub async fn hls_playlist(
         .parse()
         .map_err(|_| sf_core::Error::Validation("Invalid media_file_id".into()))?;
 
-    let prepared = ctx
-        .hls_cache
-        .get(&mf_id)
-        .map(|entry| entry.value().clone())
-        .ok_or_else(|| sf_core::Error::not_found("hls_cache", mf_id))?;
+    let prepared = hls_prep::get_or_populate(&ctx, mf_id).await?;
 
     Ok((
         StatusCode::OK,
@@ -55,11 +52,7 @@ pub async fn hls_segment(
         return Err(sf_core::Error::Validation("Invalid segment filename".into()).into());
     }
 
-    let prepared = ctx
-        .hls_cache
-        .get(&mf_id)
-        .map(|entry| entry.value().clone())
-        .ok_or_else(|| sf_core::Error::not_found("hls_cache", mf_id))?;
+    let prepared = hls_prep::get_or_populate(&ctx, mf_id).await?;
 
     if segment == "init.mp4" {
         return Ok((

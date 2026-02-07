@@ -94,6 +94,7 @@ pub async fn start(config: Config, config_path: Option<PathBuf>) -> sf_core::Res
     let event_bus = Arc::new(EventBus::default());
 
     let hls_cache = Arc::new(DashMap::new());
+    let hls_loading = Arc::new(DashMap::new());
     let active_conversions = Arc::new(DashMap::new());
 
     let ctx = AppContext {
@@ -104,6 +105,7 @@ pub async fn start(config: Config, config_path: Option<PathBuf>) -> sf_core::Res
         prober,
         tools,
         hls_cache,
+        hls_loading,
         active_conversions,
     };
 

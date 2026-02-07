@@ -389,13 +389,19 @@ pub fn handle_sendfile_segment(mut stream: TcpStream, ctx: &AppContext) -> io::R
         }
     };
 
-    // Look up prepared media in HLS cache.
+    // Look up prepared media in HLS cache, populating on demand if missing.
     let prepared = match ctx.hls_cache.get(&mf_id) {
         Some(entry) => entry.value().clone(),
         None => {
-            let response = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-            stream.write_all(response)?;
-            return Ok(());
+            // Cache miss — do a blocking populate (DB lookup + moov parse).
+            match populate_hls_cache_blocking(ctx, mf_id) {
+                Ok(p) => p,
+                Err(_) => {
+                    let response = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                    stream.write_all(response)?;
+                    return Ok(());
+                }
+            }
         }
     };
 
@@ -491,6 +497,35 @@ pub fn handle_sendfile_segment(mut stream: TcpStream, ctx: &AppContext) -> io::R
     let _ = set_tcp_nopush(sock_fd, false);
 
     Ok(())
+}
+
+/// Blocking populate of HLS cache for the sendfile path.
+///
+/// Looks up the media file in DB, parses moov, builds PreparedMedia, and
+/// inserts into the cache. Returns the cached Arc on success.
+fn populate_hls_cache_blocking(
+    ctx: &AppContext,
+    mf_id: sf_core::MediaFileId,
+) -> io::Result<std::sync::Arc<sf_media::PreparedMedia>> {
+    let conn = sf_db::pool::get_conn(&ctx.db)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    let mf = sf_db::queries::media_files::get_media_file(&conn, mf_id)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "media file not found"))?;
+    drop(conn);
+
+    let path = std::path::Path::new(&mf.file_path);
+    let file = std::fs::File::open(path)?;
+    let mut reader = std::io::BufReader::new(file);
+
+    let metadata = sf_media::parse_moov(&mut reader)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+    let prepared = sf_media::build_prepared_media(&metadata, path)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+    let prepared = std::sync::Arc::new(prepared);
+    ctx.hls_cache.insert(mf_id, prepared.clone());
+    Ok(prepared)
 }
 
 /// Parse a segment path like `/api/stream/{uuid}/segment_{N}.m4s`.

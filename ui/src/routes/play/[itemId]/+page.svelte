@@ -28,18 +28,22 @@
 		try {
 			item = await getItem(itemId);
 
-			// Find the web-playable media file (universal/profile B)
-			const playableFile = item.media_files?.find(
-				(f) => f.role === 'universal' || f.profile === 'B'
-			);
+			// Find the web-playable media file (universal/profile B), fall back to source
+			const playableFile =
+				item.media_files?.find((f) => f.role === 'universal' || f.profile === 'B') ??
+				item.media_files?.find((f) => f.role === 'source');
 
 			if (!playableFile) {
 				error = 'No playable source found for this item';
 				return;
 			}
 
-			// Construct HLS stream URL
-			streamUrl = `/api/stream/${playableFile.id}/index.m3u8`;
+			// Use HLS for Profile B files, direct streaming for source files
+			if (playableFile.role === 'source' && playableFile.profile !== 'B') {
+				streamUrl = `/api/stream/${playableFile.id}/direct`;
+			} else {
+				streamUrl = `/api/stream/${playableFile.id}/index.m3u8`;
+			}
 
 			// Restore playback position
 			try {

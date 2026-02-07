@@ -16,6 +16,8 @@ use tokio_util::sync::CancellationToken;
 use sf_av::ToolRegistry;
 use sf_core::config::Config;
 use sf_core::events::EventBus;
+use tokio::sync::Notify;
+
 use sf_core::{ConversionJobId, MediaFileId};
 use sf_db::pool::DbPool;
 use sf_media::PreparedMedia;
@@ -180,6 +182,8 @@ pub struct AppContext {
     pub tools: Arc<ToolRegistry>,
     /// In-memory HLS segment cache for zero-copy serving.
     pub hls_cache: Arc<DashMap<MediaFileId, Arc<PreparedMedia>>>,
+    /// Coalescing map for in-flight HLS cache population (prevents duplicate parses).
+    pub hls_loading: Arc<DashMap<MediaFileId, Arc<Notify>>>,
     /// Cancellation tokens for active conversion jobs (keyed by job ID).
     pub active_conversions: Arc<DashMap<ConversionJobId, CancellationToken>>,
 }

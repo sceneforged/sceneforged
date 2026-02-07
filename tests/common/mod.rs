@@ -51,6 +51,7 @@ impl TestHarness {
             prober,
             tools,
             hls_cache: Arc::new(DashMap::new()),
+            hls_loading: Arc::new(DashMap::new()),
             active_conversions: Arc::new(DashMap::new()),
         };
 
