@@ -10,19 +10,18 @@
 //! filename conventions.
 //!
 //! Pipeline architecture:
-//!   Walk ──mpsc──> Probe Pool (8) ──mpsc──> DB Writer ──mpsc──> Enrich Pool (4, awaited)
+//!   Walk+Register ──mpsc──> Probe Pool (8) ──mpsc──> DB Writer ──mpsc──> Enrich Pool (4, background)
 //!
-//! Performance optimizations:
-//! - Streaming walk→probe→write pipeline (all stages overlap)
-//! - 8 concurrent probe workers with work-stealing via shared receiver
-//! - Batched DB writes in transactions (flush every N files)
-//! - Enrichment workers awaited before scan completion (phase="enriching")
-//! - Parallel PB pass with bounded concurrency
+//! Walk creates pending items immediately so they appear in the browse page.
+//! Probers update items to ready/error after probing completes.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
+
+use tokio_util::sync::CancellationToken;
 
 use sf_core::events::{EventCategory, EventPayload};
 
@@ -47,18 +46,35 @@ const PROGRESS_INTERVAL_MS: u64 = 500;
 /// This ensures items appear in the UI progressively instead of all at the end.
 const DB_FLUSH_TIMEOUT_MS: u64 = 500;
 
+/// Maximum time to wait for a single TMDB enrichment before giving up.
+const ENRICH_TIMEOUT_SECS: u64 = 15;
+
 /// Common media file extensions used when searching for a converted file's
 /// corresponding source.
 const SOURCE_EXTENSIONS: &[&str] = &["mkv", "mp4", "avi", "m4v", "webm", "ts", "wmv", "flv"];
 
-/// Collected probe data for a single file, ready for DB insertion.
-struct ProbeResult {
+/// Data sent from Walk to Probe: includes the pre-created item_id.
+struct WalkResult {
     path: PathBuf,
     file_path_str: String,
     file_name: String,
-    parsed: sf_parser::ParsedRelease,
-    media_info: sf_probe::types::MediaInfo,
-    file_size: i64,
+    _parsed: sf_parser::ParsedRelease,
+    item_id: sf_core::ItemId,
+}
+
+/// Outcome sent from Probe to DB Writer.
+enum ProbeOutcome {
+    Success {
+        item_id: sf_core::ItemId,
+        walk: WalkResult,
+        media_info: sf_probe::types::MediaInfo,
+        file_size: i64,
+    },
+    Failure {
+        item_id: sf_core::ItemId,
+        file_path: String,
+        error: String,
+    },
 }
 
 /// Shared atomic counters for progress reporting across pipeline stages.
@@ -90,10 +106,15 @@ impl ScanCounters {
 
 /// Scan a library's directories and register discovered media files.
 ///
-/// Uses a streaming pipeline: walk → probe → write → enrich. Each stage runs
-/// concurrently, connected by mpsc channels. Enrichment workers are awaited
-/// before the scan completes so progress is visible in the UI.
-pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
+/// Uses a streaming pipeline: walk+register → probe → write → enrich.
+/// Items are created immediately during the walk phase so they appear in
+/// the browse page right away. Enrichment runs in the background after
+/// the scan "completes".
+pub async fn scan_library(
+    ctx: AppContext,
+    library: sf_db::models::Library,
+    cancel_token: CancellationToken,
+) {
     let library_id = library.id;
     let extensions: Vec<String> = ctx
         .config
@@ -132,12 +153,12 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
     let counters = Arc::new(ScanCounters::new());
 
     // --- Channels ---
-    // Walk → Probe: file paths to probe
-    let (walk_tx, walk_rx) = tokio::sync::mpsc::channel::<PathBuf>(256);
+    // Walk → Probe: walk results with pre-created item_ids
+    let (walk_tx, walk_rx) = tokio::sync::mpsc::channel::<WalkResult>(256);
     // Walk → PB collector: deferred -pb files
     let (pb_tx, mut pb_rx) = tokio::sync::mpsc::channel::<PathBuf>(256);
-    // Probe → DB Writer: probe results
-    let (probe_tx, mut probe_rx) = tokio::sync::mpsc::channel::<ProbeResult>(64);
+    // Probe → DB Writer: probe outcomes
+    let (probe_tx, mut probe_rx) = tokio::sync::mpsc::channel::<ProbeOutcome>(64);
     // DB Writer → Enrichment: items to enrich
     let (enrich_tx, enrich_rx) = tokio::sync::mpsc::channel::<(sf_core::ItemId, sf_core::LibraryId, AppContext)>(256);
     let enrich_rx = Arc::new(tokio::sync::Mutex::new(enrich_rx));
@@ -145,11 +166,12 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
     // --- Phase tracking ---
     let (phase_tx, phase_rx) = tokio::sync::watch::channel("walking".to_string());
 
-    // --- Spawn enrichment workers (awaited after DB writes complete) ---
+    // --- Spawn enrichment workers (run in background after scan completes) ---
     let mut enrich_handles = Vec::new();
     for _ in 0..ENRICH_CONCURRENCY {
         let rx = enrich_rx.clone();
         let enrich_counters = counters.clone();
+        let enrich_cancel = cancel_token.clone();
         enrich_handles.push(tokio::spawn(async move {
             loop {
                 let msg = {
@@ -158,7 +180,27 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
                 };
                 match msg {
                     Some((item_id, library_id, ctx)) => {
-                        auto_enrich(&ctx, item_id, library_id).await;
+                        if enrich_cancel.is_cancelled() {
+                            enrich_counters.items_enriched.fetch_add(1, Ordering::Relaxed);
+                            continue;
+                        }
+                        // Timeout enrichment to prevent blocking.
+                        match tokio::time::timeout(
+                            Duration::from_secs(ENRICH_TIMEOUT_SECS),
+                            auto_enrich(&ctx, item_id, library_id),
+                        )
+                        .await
+                        {
+                            Ok(()) => {}
+                            Err(_) => {
+                                tracing::warn!(item_id = %item_id, "Enrichment timed out after {}s", ENRICH_TIMEOUT_SECS);
+                                // Emit enriched to clear the spinner.
+                                ctx.event_bus.broadcast(
+                                    EventCategory::User,
+                                    EventPayload::ItemEnriched { item_id, library_id },
+                                );
+                            }
+                        }
                         enrich_counters.items_enriched.fetch_add(1, Ordering::Relaxed);
                     }
                     None => break,
@@ -167,18 +209,38 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
         }));
     }
 
-    // --- Spawn walk stage (blocking I/O) ---
+    // --- Spawn walk stage (blocking I/O + item creation) ---
     let walk_ctx = ctx.clone();
     let walk_counters = counters.clone();
     let walk_known_paths = known_paths.clone();
     let walk_extensions = extensions;
     let walk_paths = library.paths.clone();
     let walk_library_id = library_id;
+    let walk_cancel = cancel_token.clone();
 
     let walk_handle = tokio::task::spawn_blocking(move || {
         let mut deferred_count: u64 = 0;
 
+        // Series/season caches for item creation during walk.
+        let mut series_cache: HashMap<(sf_core::LibraryId, String), sf_db::models::Item> =
+            HashMap::new();
+        let mut season_cache: HashMap<(sf_core::ItemId, i32), sf_db::models::Item> =
+            HashMap::new();
+
+        // Get a DB connection for creating items during walk.
+        let conn = match sf_db::pool::get_conn(&walk_ctx.db) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to get DB connection for walk phase");
+                return deferred_count;
+            }
+        };
+
         for dir in &walk_paths {
+            if walk_cancel.is_cancelled() {
+                break;
+            }
+
             let dir_path = Path::new(dir);
             if !dir_path.exists() {
                 tracing::warn!(path = %dir, "Library scan path does not exist, skipping");
@@ -215,6 +277,10 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
                     }
                 })
             {
+                if walk_cancel.is_cancelled() {
+                    break;
+                }
+
                 if !entry.file_type().is_file() {
                     continue;
                 }
@@ -267,8 +333,55 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
 
                 walk_counters.total_to_probe.fetch_add(1, Ordering::Relaxed);
 
+                // Parse filename for item creation.
+                let file_name_str = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let file_stem = path
+                    .file_stem()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&file_name_str)
+                    .to_string();
+                let parsed = sf_parser::parse(&file_stem);
+
+                // Create pending item in DB immediately.
+                let item_id = match create_pending_item_for_walk(
+                    &walk_ctx,
+                    &conn,
+                    walk_library_id,
+                    &parsed,
+                    &file_path_str,
+                    &mut series_cache,
+                    &mut season_cache,
+                ) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        tracing::warn!(error = %e, file = %file_path_str, "Failed to create pending item");
+                        walk_counters.errors.fetch_add(1, Ordering::Relaxed);
+                        walk_ctx.event_bus.broadcast(
+                            EventCategory::User,
+                            EventPayload::LibraryScanError {
+                                library_id: walk_library_id,
+                                file_path: file_path_str,
+                                message: format!("Item creation failed: {e}"),
+                            },
+                        );
+                        continue;
+                    }
+                };
+
+                let walk_result = WalkResult {
+                    path: path.to_path_buf(),
+                    file_path_str,
+                    file_name: file_name_str,
+                    _parsed: parsed,
+                    item_id,
+                };
+
                 // Send to probe pool — blocking_send provides backpressure.
-                if walk_tx.blocking_send(path.to_path_buf()).is_err() {
+                if walk_tx.blocking_send(walk_result).is_err() {
                     break; // Receiver dropped, scan cancelled.
                 }
             }
@@ -286,22 +399,34 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
         let tx = probe_tx.clone();
         let prober = ctx.prober.clone();
         let probe_counters = counters.clone();
-        let probe_ctx = ctx.clone();
-        let probe_library_id = library_id;
+        let probe_cancel = cancel_token.clone();
 
         probe_handles.push(tokio::spawn(async move {
             loop {
-                let file_path = {
+                let walk_result = {
                     let mut guard = rx.lock().await;
                     guard.recv().await
                 };
-                let file_path = match file_path {
-                    Some(p) => p,
+                let walk_result = match walk_result {
+                    Some(wr) => wr,
                     None => break, // Channel closed, walk complete.
                 };
 
+                if probe_cancel.is_cancelled() {
+                    // Mark as failure on cancellation.
+                    let _ = tx
+                        .send(ProbeOutcome::Failure {
+                            item_id: walk_result.item_id,
+                            file_path: walk_result.file_path_str,
+                            error: "Scan cancelled".into(),
+                        })
+                        .await;
+                    probe_counters.probes_completed.fetch_add(1, Ordering::Relaxed);
+                    continue;
+                }
+
                 let prober_clone = prober.clone();
-                let path_clone = file_path.clone();
+                let path_clone = walk_result.path.clone();
                 let result = tokio::task::spawn_blocking(move || {
                     let info = prober_clone.probe(&path_clone)?;
                     let size = std::fs::metadata(&path_clone)
@@ -313,59 +438,33 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
 
                 probe_counters.probes_completed.fetch_add(1, Ordering::Relaxed);
 
-                match result {
-                    Ok(Ok((media_info, file_size))) => {
-                        let file_name = file_path
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("unknown")
-                            .to_string();
-                        let file_stem = file_path
-                            .file_stem()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or(&file_name)
-                            .to_string();
-                        let parsed = sf_parser::parse(&file_stem);
-                        let file_path_str = file_path.to_string_lossy().to_string();
-
-                        let pr = ProbeResult {
-                            path: file_path,
-                            file_path_str,
-                            file_name,
-                            parsed,
-                            media_info,
-                            file_size,
-                        };
-                        if tx.send(pr).await.is_err() {
-                            break; // DB writer dropped.
+                let outcome = match result {
+                    Ok(Ok((media_info, file_size))) => ProbeOutcome::Success {
+                        item_id: walk_result.item_id,
+                        walk: walk_result,
+                        media_info,
+                        file_size,
+                    },
+                    Ok(Err(e)) => {
+                        tracing::warn!(file = %walk_result.file_path_str, error = %e, "Failed to probe file");
+                        ProbeOutcome::Failure {
+                            item_id: walk_result.item_id,
+                            file_path: walk_result.file_path_str,
+                            error: format!("Probe failed: {e}"),
                         }
                     }
-                    Ok(Err(e)) => {
-                        let fp = file_path.to_string_lossy().to_string();
-                        tracing::warn!(file = %fp, error = %e, "Failed to probe file");
-                        probe_counters.errors.fetch_add(1, Ordering::Relaxed);
-                        probe_ctx.event_bus.broadcast(
-                            EventCategory::User,
-                            EventPayload::LibraryScanError {
-                                library_id: probe_library_id,
-                                file_path: fp,
-                                message: format!("Probe failed: {e}"),
-                            },
-                        );
-                    }
                     Err(e) => {
-                        let fp = file_path.to_string_lossy().to_string();
-                        tracing::warn!(file = %fp, error = %e, "Probe task panicked");
-                        probe_counters.errors.fetch_add(1, Ordering::Relaxed);
-                        probe_ctx.event_bus.broadcast(
-                            EventCategory::User,
-                            EventPayload::LibraryScanError {
-                                library_id: probe_library_id,
-                                file_path: fp,
-                                message: format!("Probe task panicked: {e}"),
-                            },
-                        );
+                        tracing::warn!(file = %walk_result.file_path_str, error = %e, "Probe task panicked");
+                        ProbeOutcome::Failure {
+                            item_id: walk_result.item_id,
+                            file_path: walk_result.file_path_str,
+                            error: format!("Probe task panicked: {e}"),
+                        }
                     }
+                };
+
+                if tx.send(outcome).await.is_err() {
+                    break; // DB writer dropped.
                 }
             }
         }));
@@ -373,45 +472,35 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
     // Drop our copy of probe_tx so the DB writer sees EOF when all probers finish.
     drop(probe_tx);
 
-    // --- Spawn DB writer (single consumer, owns caches) ---
+    // --- Spawn DB writer (single consumer — creates media_files, updates scan status) ---
     let writer_ctx = ctx.clone();
     let writer_counters = counters.clone();
     let writer_enrich_tx = enrich_tx.clone();
     let writer_phase_tx = phase_tx.clone();
 
     let db_writer_handle = tokio::spawn(async move {
-        let mut series_cache: HashMap<(sf_core::LibraryId, String), sf_db::models::Item> =
-            HashMap::new();
-        let mut season_cache: HashMap<(sf_core::ItemId, i32), sf_db::models::Item> =
-            HashMap::new();
-        let mut batch: Vec<ProbeResult> = Vec::with_capacity(DB_BATCH_SIZE);
+        let mut batch: Vec<ProbeOutcome> = Vec::with_capacity(DB_BATCH_SIZE);
         let mut transitioned_to_writing = false;
         let flush_duration = std::time::Duration::from_millis(DB_FLUSH_TIMEOUT_MS);
-        // Deadline anchored to when the FIRST item in the current batch
-        // arrived. This ensures batches flush within DB_FLUSH_TIMEOUT_MS of
-        // the first item, even when items stream in continuously.
         let mut batch_deadline: Option<tokio::time::Instant> = None;
 
         loop {
             let recv_result = if batch.is_empty() {
-                // No pending items — wait indefinitely for the first one.
                 probe_rx.recv().await
             } else {
-                // We have pending items — wait until the deadline fires.
                 let deadline = batch_deadline.unwrap();
                 match tokio::time::timeout_at(deadline, probe_rx.recv()).await {
                     Ok(result) => result,
-                    Err(_) => None, // Deadline reached — flush the partial batch.
+                    Err(_) => None,
                 }
             };
 
             match recv_result {
-                Some(result) => {
+                Some(outcome) => {
                     if batch.is_empty() {
-                        // First item in a new batch — set the deadline.
                         batch_deadline = Some(tokio::time::Instant::now() + flush_duration);
                     }
-                    batch.push(result);
+                    batch.push(outcome);
                     if batch.len() >= DB_BATCH_SIZE {
                         if !transitioned_to_writing {
                             let _ = writer_phase_tx.send("writing".to_string());
@@ -423,18 +512,15 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
                             auto_convert,
                             &mut batch,
                             &writer_enrich_tx,
-                            &mut series_cache,
-                            &mut season_cache,
                             &writer_counters,
                         )
                         .await;
                         writer_counters.files_queued.fetch_add(queued, Ordering::Relaxed);
                         writer_counters.errors.fetch_add(errs, Ordering::Relaxed);
-                        batch_deadline = None; // Reset for next batch.
+                        batch_deadline = None;
                     }
                 }
                 None => {
-                    // Either channel closed or deadline reached with pending items.
                     if !batch.is_empty() {
                         if !transitioned_to_writing {
                             let _ = writer_phase_tx.send("writing".to_string());
@@ -446,14 +532,12 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
                             auto_convert,
                             &mut batch,
                             &writer_enrich_tx,
-                            &mut series_cache,
-                            &mut season_cache,
                             &writer_counters,
                         )
                         .await;
                         writer_counters.files_queued.fetch_add(queued, Ordering::Relaxed);
                         writer_counters.errors.fetch_add(errs, Ordering::Relaxed);
-                        batch_deadline = None; // Reset for next batch.
+                        batch_deadline = None;
                     }
                     if probe_rx.is_closed() {
                         break;
@@ -518,7 +602,7 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
         pb_files.push(path);
     }
 
-    if !pb_files.is_empty() {
+    if !pb_files.is_empty() && !cancel_token.is_cancelled() {
         let pb_sem = Arc::new(tokio::sync::Semaphore::new(PB_CONCURRENCY));
         let mut pb_handles = Vec::new();
 
@@ -575,17 +659,8 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
         }
     }
 
-    // --- Enrichment phase: wait for all enrichment workers to drain ---
-    let _ = phase_tx.send("enriching".to_string());
-    drop(enrich_tx); // closes channel — workers will drain remaining items then exit
-
-    for handle in enrich_handles {
-        let _ = handle.await;
-    }
-
-    // --- Stop progress emitter ---
-    let _ = phase_tx.send("done".to_string());
-    let _ = progress_handle.await;
+    // --- Scan "complete" — emit completion and release lock ---
+    // Enrichment continues in background after this point.
 
     // Read final counters.
     let files_found = counters.files_found.load(Ordering::Relaxed);
@@ -605,30 +680,150 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
         },
     );
 
-    // Release the scan lock so the library can be scanned again.
-    ctx.active_scans.remove(&library_id);
-
     tracing::info!(
         library_id = %library_id,
         files_found,
         files_queued,
         files_skipped,
         errors,
-        "Library scan complete"
+        "Library scan complete (enrichment continues in background)"
     );
+
+    // --- Enrichment phase: wait for all enrichment workers to drain ---
+    // This runs after the scan lock is released (ScanGuard drops in the spawner).
+    let _ = phase_tx.send("enriching".to_string());
+    drop(enrich_tx); // closes channel — workers will drain remaining items then exit
+
+    for handle in enrich_handles {
+        let _ = handle.await;
+    }
+
+    // --- Stop progress emitter ---
+    let _ = phase_tx.send("done".to_string());
+    let _ = progress_handle.await;
 }
 
-/// Flush a batch of probe results to the database in a single transaction.
+/// Create a pending item during the walk phase.
 ///
+/// For episodes, creates series/season hierarchy first (with ready status).
+/// Returns the item_id of the newly created pending item.
+fn create_pending_item_for_walk(
+    ctx: &AppContext,
+    conn: &rusqlite::Connection,
+    library_id: sf_core::LibraryId,
+    parsed: &sf_parser::ParsedRelease,
+    source_file_path: &str,
+    series_cache: &mut HashMap<(sf_core::LibraryId, String), sf_db::models::Item>,
+    season_cache: &mut HashMap<(sf_core::ItemId, i32), sf_db::models::Item>,
+) -> sf_core::Result<sf_core::ItemId> {
+    let (item_kind, name, parent_id, season_number, episode_number) =
+        if parsed.season.is_some() && parsed.episode.is_some() {
+            let season_num = parsed.season.unwrap() as i32;
+            let episode_num = parsed.episode.unwrap() as i32;
+
+            // Series cache.
+            let cache_key = (library_id, parsed.title.clone());
+            let series = if let Some(s) = series_cache.get(&cache_key) {
+                s.clone()
+            } else {
+                let s = sf_db::queries::items::find_or_create_series(
+                    conn,
+                    library_id,
+                    &parsed.title,
+                    parsed.year.map(|y| y as i32),
+                )?;
+                // Emit ItemAdded for newly created series.
+                ctx.event_bus.broadcast(
+                    EventCategory::User,
+                    EventPayload::ItemAdded {
+                        item_id: s.id,
+                        item_name: s.name.clone(),
+                        item_kind: s.item_kind.clone(),
+                        library_id,
+                    },
+                );
+                series_cache.insert(cache_key, s.clone());
+                s
+            };
+
+            // Season cache.
+            let season_key = (series.id, season_num);
+            let season = if let Some(s) = season_cache.get(&season_key) {
+                s.clone()
+            } else {
+                let s = sf_db::queries::items::find_or_create_season(
+                    conn,
+                    library_id,
+                    series.id,
+                    season_num,
+                )?;
+                season_cache.insert(season_key, s.clone());
+                s
+            };
+
+            // Build episode name.
+            let ep_name = if let Some(end) = parsed.episode_end {
+                format!(
+                    "{} S{:02}E{:02}E{:02}",
+                    parsed.title, season_num, episode_num, end
+                )
+            } else {
+                format!("{} S{:02}E{:02}", parsed.title, season_num, episode_num)
+            };
+
+            (
+                "episode",
+                ep_name,
+                Some(season.id),
+                Some(season_num),
+                Some(episode_num),
+            )
+        } else {
+            (
+                "movie",
+                parsed.title.clone(),
+                None,
+                None,
+                None,
+            )
+        };
+
+    let item = sf_db::queries::items::create_pending_item(
+        conn,
+        library_id,
+        item_kind,
+        &name,
+        parsed.year.map(|y| y as i32),
+        parent_id,
+        season_number,
+        episode_number,
+        source_file_path,
+    )?;
+
+    // Emit ItemAdded so the frontend can show the item immediately.
+    ctx.event_bus.broadcast(
+        EventCategory::User,
+        EventPayload::ItemAdded {
+            item_id: item.id,
+            item_name: item.name.clone(),
+            item_kind: item.item_kind.clone(),
+            library_id,
+        },
+    );
+
+    Ok(item.id)
+}
+
+/// Flush a batch of probe outcomes to the database in a single transaction.
+///
+/// Creates media_files for successful probes and updates scan_status for all.
 /// Returns (files_queued, errors).
 async fn flush_batch(
     ctx: &AppContext,
     library_id: sf_core::LibraryId,
     auto_convert: bool,
-    batch: &mut Vec<ProbeResult>,
+    batch: &mut Vec<ProbeOutcome>,
     enrich_tx: &tokio::sync::mpsc::Sender<(sf_core::ItemId, sf_core::LibraryId, AppContext)>,
-    series_cache: &mut HashMap<(sf_core::LibraryId, String), sf_db::models::Item>,
-    season_cache: &mut HashMap<(sf_core::ItemId, i32), sf_db::models::Item>,
     counters: &ScanCounters,
 ) -> (u64, u64) {
     let mut files_queued: u64 = 0;
@@ -636,22 +831,34 @@ async fn flush_batch(
 
     // Items to enrich after the transaction commits.
     let mut enrich_items: Vec<sf_core::ItemId> = Vec::new();
+    // Status changes to emit after commit.
+    let mut status_events: Vec<(sf_core::ItemId, String)> = Vec::new();
 
-    // Run the synchronous transaction in a block so the non-Send Connection
-    // is dropped before any .await points.
     {
         let conn = match sf_db::pool::get_conn(&ctx.db) {
             Ok(c) => c,
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to get DB connection for batch flush");
                 let batch_len = batch.len() as u64;
-                // Emit errors for each file in the batch.
-                for result in batch.drain(..) {
+                for outcome in batch.drain(..) {
+                    let (item_id, fp) = match outcome {
+                        ProbeOutcome::Success { item_id, walk, .. } => (item_id, walk.file_path_str),
+                        ProbeOutcome::Failure { item_id, file_path, .. } => (item_id, file_path),
+                    };
+                    // Mark as error in DB.
+                    if let Ok(conn2) = sf_db::pool::get_conn(&ctx.db) {
+                        let _ = sf_db::queries::items::update_item_scan_status(
+                            &conn2,
+                            item_id,
+                            Some("error"),
+                            Some(&format!("DB connection failed: {e}")),
+                        );
+                    }
                     ctx.event_bus.broadcast(
                         EventCategory::User,
                         EventPayload::LibraryScanError {
                             library_id,
-                            file_path: result.file_path_str,
+                            file_path: fp,
                             message: format!("DB connection failed: {e}"),
                         },
                     );
@@ -665,12 +872,16 @@ async fn flush_batch(
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to start transaction for batch flush");
                 let batch_len = batch.len() as u64;
-                for result in batch.drain(..) {
+                for outcome in batch.drain(..) {
+                    let fp = match &outcome {
+                        ProbeOutcome::Success { walk, .. } => walk.file_path_str.clone(),
+                        ProbeOutcome::Failure { file_path, .. } => file_path.clone(),
+                    };
                     ctx.event_bus.broadcast(
                         EventCategory::User,
                         EventPayload::LibraryScanError {
                             library_id,
-                            file_path: result.file_path_str,
+                            file_path: fp,
                             message: format!("Transaction start failed: {e}"),
                         },
                     );
@@ -679,37 +890,80 @@ async fn flush_batch(
             }
         };
 
-        for result in batch.drain(..) {
-            let file_path_for_error = result.file_path_str.clone();
-            match ingest_probed_file(
-                ctx,
-                &tx,
-                library_id,
-                auto_convert,
-                result,
-                series_cache,
-                season_cache,
-            ) {
-                Ok(IngestOutcome {
-                    queued,
-                    enrich_item_id,
-                    ..
-                }) => {
-                    if queued {
-                        files_queued += 1;
-                    }
-                    if let Some(eid) = enrich_item_id {
-                        enrich_items.push(eid);
+        for outcome in batch.drain(..) {
+            match outcome {
+                ProbeOutcome::Success {
+                    item_id,
+                    walk,
+                    media_info,
+                    file_size,
+                } => {
+                    let file_path_for_error = walk.file_path_str.clone();
+                    match ingest_probed_file(
+                        ctx,
+                        &tx,
+                        library_id,
+                        auto_convert,
+                        item_id,
+                        &walk,
+                        &media_info,
+                        file_size,
+                    ) {
+                        Ok(IngestOutcome {
+                            queued,
+                            enrich_item_id,
+                        }) => {
+                            // Clear scan_status → ready.
+                            let _ = sf_db::queries::items::update_item_scan_status(
+                                &tx, item_id, None, None,
+                            );
+                            status_events.push((item_id, "ready".to_string()));
+                            if queued {
+                                files_queued += 1;
+                            }
+                            if let Some(eid) = enrich_item_id {
+                                enrich_items.push(eid);
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, file = %file_path_for_error, "Failed to ingest file in batch");
+                            let _ = sf_db::queries::items::update_item_scan_status(
+                                &tx,
+                                item_id,
+                                Some("error"),
+                                Some(&format!("Ingest failed: {e}")),
+                            );
+                            status_events.push((item_id, "error".to_string()));
+                            ctx.event_bus.broadcast(
+                                EventCategory::User,
+                                EventPayload::LibraryScanError {
+                                    library_id,
+                                    file_path: file_path_for_error,
+                                    message: format!("Ingest failed: {e}"),
+                                },
+                            );
+                            errors += 1;
+                        }
                     }
                 }
-                Err(e) => {
-                    tracing::warn!(error = %e, file = %file_path_for_error, "Failed to ingest file in batch");
+                ProbeOutcome::Failure {
+                    item_id,
+                    file_path,
+                    error,
+                } => {
+                    let _ = sf_db::queries::items::update_item_scan_status(
+                        &tx,
+                        item_id,
+                        Some("error"),
+                        Some(&error),
+                    );
+                    status_events.push((item_id, "error".to_string()));
                     ctx.event_bus.broadcast(
                         EventCategory::User,
                         EventPayload::LibraryScanError {
                             library_id,
-                            file_path: file_path_for_error,
-                            message: format!("Ingest failed: {e}"),
+                            file_path,
+                            message: error,
                         },
                     );
                     errors += 1;
@@ -723,6 +977,18 @@ async fn flush_batch(
         }
     }
     // conn and tx are now dropped — safe to .await below.
+
+    // Post-commit: emit status change events.
+    for (item_id, scan_status) in status_events {
+        ctx.event_bus.broadcast(
+            EventCategory::User,
+            EventPayload::ItemStatusChanged {
+                item_id,
+                library_id,
+                scan_status,
+            },
+        );
+    }
 
     // Post-commit: send enrichment requests.
     for eid in enrich_items {
@@ -739,25 +1005,20 @@ struct IngestOutcome {
     enrich_item_id: Option<sf_core::ItemId>,
 }
 
-/// Ingest a single probed file into the database (within an existing transaction).
+/// Ingest a successfully probed file: create media_file + subtitle tracks.
+///
+/// The item already exists (created during walk). This only creates
+/// the media_file record and related data.
 fn ingest_probed_file(
     ctx: &AppContext,
     conn: &rusqlite::Connection,
-    library_id: sf_core::LibraryId,
+    _library_id: sf_core::LibraryId,
     auto_convert: bool,
-    result: ProbeResult,
-    series_cache: &mut HashMap<(sf_core::LibraryId, String), sf_db::models::Item>,
-    season_cache: &mut HashMap<(sf_core::ItemId, i32), sf_db::models::Item>,
+    item_id: sf_core::ItemId,
+    walk: &WalkResult,
+    media_info: &sf_probe::types::MediaInfo,
+    file_size: i64,
 ) -> sf_core::Result<IngestOutcome> {
-    let ProbeResult {
-        path,
-        file_path_str,
-        file_name,
-        parsed,
-        media_info,
-        file_size,
-    } = result;
-
     let profile = media_info.classify_profile();
     let role = if profile == sf_core::Profile::B {
         "universal"
@@ -768,7 +1029,7 @@ fn ingest_probed_file(
     let video = media_info.primary_video();
     let audio = media_info.primary_audio();
 
-    let container = path
+    let container = walk.path
         .extension()
         .and_then(|e| e.to_str())
         .map(|e| e.to_lowercase());
@@ -790,95 +1051,10 @@ fn ingest_probed_file(
         .map(|dv| dv.profile as i32);
     let duration_secs = media_info.duration.map(|d| d.as_secs_f64());
 
-    // Create item(s) — for TV episodes we need series → season → episode hierarchy.
-    let item = if parsed.season.is_some() && parsed.episode.is_some() {
-        let season_num = parsed.season.unwrap() as i32;
-        let episode_num = parsed.episode.unwrap() as i32;
-
-        // Use series cache to avoid redundant DB lookups.
-        let cache_key = (library_id, parsed.title.clone());
-        let series = if let Some(s) = series_cache.get(&cache_key) {
-            s.clone()
-        } else {
-            let s = sf_db::queries::items::find_or_create_series(
-                conn,
-                library_id,
-                &parsed.title,
-                parsed.year.map(|y| y as i32),
-            )?;
-            series_cache.insert(cache_key, s.clone());
-            s
-        };
-
-        // Use season cache.
-        let season_key = (series.id, season_num);
-        let season = if let Some(s) = season_cache.get(&season_key) {
-            s.clone()
-        } else {
-            let s = sf_db::queries::items::find_or_create_season(
-                conn,
-                library_id,
-                series.id,
-                season_num,
-            )?;
-            season_cache.insert(season_key, s.clone());
-            s
-        };
-
-        // Build episode name: "S01E01" or "S01E01E02" for multi-ep.
-        let ep_name = if let Some(end) = parsed.episode_end {
-            format!(
-                "{} S{:02}E{:02}E{:02}",
-                parsed.title, season_num, episode_num, end
-            )
-        } else {
-            format!("{} S{:02}E{:02}", parsed.title, season_num, episode_num)
-        };
-
-        sf_db::queries::items::create_item(
-            conn,
-            library_id,
-            "episode",
-            &ep_name,
-            None,
-            parsed.year.map(|y| y as i32),
-            None,
-            None,
-            None,
-            None,
-            Some(season.id),
-            Some(season_num),
-            Some(episode_num),
-        )?
-    } else {
-        sf_db::queries::items::create_item(
-            conn,
-            library_id,
-            "movie",
-            &parsed.title,
-            None,
-            parsed.year.map(|y| y as i32),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )?
-    };
-
-    ctx.event_bus.broadcast(
-        EventCategory::User,
-        EventPayload::ItemAdded {
-            item_id: item.id,
-            item_name: item.name.clone(),
-            item_kind: item.item_kind.clone(),
-            library_id,
-        },
-    );
-
     // Determine which item to enrich (series for episodes, self for movies).
+    let item = sf_db::queries::items::get_item(conn, item_id)?
+        .ok_or_else(|| sf_core::Error::not_found("item", item_id))?;
+
     let enrich_item_id = if item.item_kind == "episode" {
         // Walk up to find series: episode → season → series.
         item.parent_id.and_then(|season_id| {
@@ -894,9 +1070,9 @@ fn ingest_probed_file(
     // Create the media_file record with detected profile.
     let mf = sf_db::queries::media_files::create_media_file(
         conn,
-        item.id,
-        &file_path_str,
-        &file_name,
+        item_id,
+        &walk.file_path_str,
+        &walk.file_name,
         file_size,
         container.as_deref(),
         video_codec.as_deref(),
@@ -930,7 +1106,7 @@ fn ingest_probed_file(
 
     // Only queue conversion for files that aren't already Profile B.
     if auto_convert && profile != sf_core::Profile::B {
-        let job = sf_db::queries::conversion_jobs::create_conversion_job(conn, item.id, mf.id)?;
+        let job = sf_db::queries::conversion_jobs::create_conversion_job(conn, item_id, mf.id)?;
         ctx.event_bus.broadcast(
             EventCategory::Admin,
             EventPayload::ConversionQueued { job_id: job.id },
@@ -938,7 +1114,7 @@ fn ingest_probed_file(
         queued = true;
     }
 
-    tracing::debug!(file = %file_path_str, "Scanner ingested file");
+    tracing::debug!(file = %walk.file_path_str, "Scanner ingested file");
 
     Ok(IngestOutcome {
         queued,

@@ -138,6 +138,13 @@ pub enum EventPayload {
         item_id: ItemId,
         library_id: LibraryId,
     },
+
+    // -- Scan status transitions -----------------------------------------------
+    ItemStatusChanged {
+        item_id: ItemId,
+        library_id: LibraryId,
+        scan_status: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -330,6 +337,7 @@ mod tests {
             EventPayload::LibraryScanError { library_id: LibraryId::new(), file_path: "/tmp/test.mkv".into(), message: "probe failed".into() },
             EventPayload::ItemEnrichmentQueued { item_id: ItemId::new(), library_id: LibraryId::new() },
             EventPayload::ItemEnriched { item_id: ItemId::new(), library_id: LibraryId::new() },
+            EventPayload::ItemStatusChanged { item_id: ItemId::new(), library_id: LibraryId::new(), scan_status: "ready".into() },
         ];
         for p in &payloads {
             let json = serde_json::to_string(p).unwrap();

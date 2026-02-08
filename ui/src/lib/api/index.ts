@@ -53,6 +53,10 @@ export async function scanLibrary(id: string): Promise<void> {
 	await api.post<void>(`/libraries/${id}/scan`);
 }
 
+export async function cancelScan(id: string): Promise<void> {
+	await api.post<void>(`/libraries/${id}/scan/cancel`);
+}
+
 // --- Items ---
 
 function normalizeItem(item: Item): Item {
@@ -89,6 +93,10 @@ export async function getItems(params: {
 export async function getItem(id: string): Promise<Item> {
 	const item = await api.get<Item>(`/items/${id}`);
 	return normalizeItem(item);
+}
+
+export async function retryProbe(itemId: string): Promise<{ status: string; error?: string }> {
+	return api.post<{ status: string; error?: string }>(`/items/${itemId}/retry-probe`);
 }
 
 // --- Jobs ---

@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use dashmap::{DashMap, DashSet};
+use dashmap::DashMap;
 use parking_lot::RwLock;
 
 use tokio_util::sync::CancellationToken;
@@ -199,7 +199,8 @@ pub struct AppContext {
     /// Cancellation tokens for active conversion jobs (keyed by job ID).
     pub active_conversions: Arc<DashMap<ConversionJobId, CancellationToken>>,
     /// Libraries currently being scanned (prevents concurrent scans of the same library).
-    pub active_scans: Arc<DashSet<LibraryId>>,
+    /// Value is a CancellationToken that can be used to cancel the scan.
+    pub active_scans: Arc<DashMap<LibraryId, CancellationToken>>,
 }
 
 #[cfg(test)]

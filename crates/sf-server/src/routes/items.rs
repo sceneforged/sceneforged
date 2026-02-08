@@ -1,6 +1,8 @@
 //! Item query route handlers.
 
 use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
@@ -86,6 +88,13 @@ impl ImageResponse {
     }
 }
 
+/// Paginated items response.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct PaginatedItems {
+    pub items: Vec<ItemResponse>,
+    pub total: i64,
+}
+
 /// Item response.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ItemResponse {
@@ -104,6 +113,12 @@ pub struct ItemResponse {
     pub episode_number: Option<i32>,
     pub created_at: String,
     pub updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scan_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scan_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_file_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media_files: Option<Vec<MediaFileResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -128,6 +143,9 @@ impl ItemResponse {
             episode_number: item.episode_number,
             created_at: item.created_at.clone(),
             updated_at: item.updated_at.clone(),
+            scan_status: item.scan_status.clone(),
+            scan_error: item.scan_error.clone(),
+            source_file_path: item.source_file_path.clone(),
             media_files: None,
             images: None,
         }
@@ -302,4 +320,150 @@ pub async fn list_children(
     let children = sf_db::queries::items::list_children(&conn, parent_id)?;
     let responses: Vec<ItemResponse> = children.iter().map(ItemResponse::from_model).collect();
     Ok(Json(responses))
+}
+
+/// POST /api/items/:id/retry-probe
+///
+/// Re-probes an item that has scan_status='error'. On success, creates the
+/// media_file and clears the error status. On failure, updates the error message.
+pub async fn retry_probe(
+    State(ctx): State<AppContext>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let item_id: sf_core::ItemId = id
+        .parse()
+        .map_err(|_| sf_core::Error::Validation("Invalid item ID".into()))?;
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    let item = sf_db::queries::items::get_item(&conn, item_id)?
+        .ok_or_else(|| sf_core::Error::not_found("item", item_id))?;
+
+    if item.scan_status.as_deref() != Some("error") {
+        return Err(sf_core::Error::Validation(
+            "Item is not in error state".into(),
+        )
+        .into());
+    }
+
+    let source_path = item.source_file_path.as_deref().ok_or_else(|| {
+        sf_core::Error::Validation("Item has no source_file_path for retry".into())
+    })?;
+
+    let path = std::path::PathBuf::from(source_path);
+    if !path.exists() {
+        return Err(
+            sf_core::Error::Validation("Source file no longer exists on disk".into()).into(),
+        );
+    }
+
+    // Probe the file.
+    let prober = ctx.prober.clone();
+    let probe_path = path.clone();
+    let media_info = tokio::task::spawn_blocking(move || prober.probe(&probe_path))
+        .await
+        .map_err(|e| sf_core::Error::Internal(format!("Probe task join error: {e}")))?;
+
+    match media_info {
+        Ok(info) => {
+            let file_size = std::fs::metadata(&path)
+                .map(|m| m.len() as i64)
+                .unwrap_or(0);
+            let file_name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            let file_path_str = path.to_string_lossy().to_string();
+
+            let profile = info.classify_profile();
+            let role = if profile == sf_core::Profile::B {
+                "universal"
+            } else {
+                "source"
+            };
+            let video = info.primary_video();
+            let audio = info.primary_audio();
+            let container = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_lowercase());
+            let video_codec = video.map(|v| format!("{}", v.codec));
+            let audio_codec = audio.map(|a| format!("{}", a.codec));
+            let resolution_width = video.map(|v| v.width as i32);
+            let resolution_height = video.map(|v| v.height as i32);
+            let hdr_format = video.and_then(|v| {
+                if v.hdr_format == sf_core::HdrFormat::Sdr {
+                    None
+                } else {
+                    Some(format!("{}", v.hdr_format))
+                }
+            });
+            let has_dv = video.map_or(false, |v| v.dolby_vision.is_some());
+            let dv_profile = video
+                .and_then(|v| v.dolby_vision.as_ref())
+                .map(|dv| dv.profile as i32);
+            let duration_secs = info.duration.map(|d| d.as_secs_f64());
+
+            // Create media_file.
+            let mf = sf_db::queries::media_files::create_media_file(
+                &conn,
+                item_id,
+                &file_path_str,
+                &file_name,
+                file_size,
+                container.as_deref(),
+                video_codec.as_deref(),
+                audio_codec.as_deref(),
+                resolution_width,
+                resolution_height,
+                hdr_format.as_deref(),
+                has_dv,
+                dv_profile,
+                role,
+                &profile.to_string(),
+                duration_secs,
+            )?;
+
+            // Store subtitle tracks.
+            for (idx, sub) in info.subtitle_tracks.iter().enumerate() {
+                let _ = sf_db::queries::subtitle_tracks::create_subtitle_track(
+                    &conn,
+                    mf.id,
+                    idx as i32,
+                    &sub.codec,
+                    sub.language.as_deref(),
+                    sub.forced,
+                    sub.default,
+                );
+            }
+
+            // Clear error status.
+            sf_db::queries::items::update_item_scan_status(&conn, item_id, None, None)?;
+
+            ctx.event_bus.broadcast(
+                sf_core::events::EventCategory::User,
+                sf_core::events::EventPayload::ItemStatusChanged {
+                    item_id,
+                    library_id: item.library_id,
+                    scan_status: "ready".into(),
+                },
+            );
+
+            Ok((StatusCode::OK, Json(serde_json::json!({"status": "ok"}))))
+        }
+        Err(e) => {
+            let error_msg = format!("{e}");
+            sf_db::queries::items::update_item_scan_status(
+                &conn,
+                item_id,
+                Some("error"),
+                Some(&error_msg),
+            )?;
+
+            Ok((
+                StatusCode::OK,
+                Json(serde_json::json!({"status": "error", "error": error_msg})),
+            ))
+        }
+    }
 }

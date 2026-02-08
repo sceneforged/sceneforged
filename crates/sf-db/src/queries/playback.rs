@@ -171,7 +171,8 @@ pub fn next_up(conn: &Connection, user_id: UserId, limit: i64) -> Result<Vec<Ite
                next_ep.runtime_minutes, next_ep.community_rating,
                next_ep.provider_ids, next_ep.parent_id,
                next_ep.season_number, next_ep.episode_number,
-               next_ep.created_at, next_ep.updated_at
+               next_ep.created_at, next_ep.updated_at,
+               next_ep.scan_status, next_ep.scan_error, next_ep.source_file_path
         FROM items next_ep
         JOIN items next_season ON next_season.id = next_ep.parent_id AND next_season.item_kind = 'season'
         JOIN candidates c ON next_season.parent_id = c.series_id

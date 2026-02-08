@@ -131,13 +131,20 @@ pub struct Item {
     pub episode_number: Option<i32>,
     pub created_at: String,
     pub updated_at: String,
+    /// NULL = ready, "pending" = walk created, "error" = probe failed.
+    pub scan_status: Option<String>,
+    /// Error message when scan_status = "error".
+    pub scan_error: Option<String>,
+    /// Original file path (needed for retry when no media_file exists yet).
+    pub source_file_path: Option<String>,
 }
 
 impl Item {
     /// Build from a row selected as:
     /// id, library_id, item_kind, name, sort_name, year, overview,
     /// runtime_minutes, community_rating, provider_ids, parent_id,
-    /// season_number, episode_number, created_at, updated_at
+    /// season_number, episode_number, created_at, updated_at,
+    /// scan_status, scan_error, source_file_path
     pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
         Ok(Self {
             id: parse_id(row, 0)?,
@@ -155,6 +162,9 @@ impl Item {
             episode_number: row.get(12)?,
             created_at: row.get(13)?,
             updated_at: row.get(14)?,
+            scan_status: row.get(15)?,
+            scan_error: row.get(16)?,
+            source_file_path: row.get(17)?,
         })
     }
 }

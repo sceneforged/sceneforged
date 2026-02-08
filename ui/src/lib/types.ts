@@ -92,6 +92,12 @@ export interface Item {
 	media_files?: MediaFile[];
 	created_at: string;
 	updated_at: string;
+	/** NULL = ready, "pending" = walk created, "error" = probe failed */
+	scan_status?: string;
+	/** Error message when scan_status = "error" */
+	scan_error?: string;
+	/** Original file path (for retry when no media_file exists yet) */
+	source_file_path?: string;
 }
 
 // Media file attached to an item
@@ -211,6 +217,7 @@ export type EventPayload =
 	| { type: 'library_scan_error'; library_id: string; file_path: string; message: string }
 	| { type: 'item_enrichment_queued'; item_id: string; library_id: string }
 	| { type: 'item_enriched'; item_id: string; library_id: string }
+	| { type: 'item_status_changed'; item_id: string; library_id: string; scan_status: string }
 	| { type: 'heartbeat' };
 
 // User management types

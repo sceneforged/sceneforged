@@ -1,5 +1,7 @@
 //! Connection pool management for SQLite via r2d2.
 
+use std::time::Duration;
+
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use sf_core::{Error, Result};
@@ -26,6 +28,7 @@ pub fn init_pool(db_path: &str) -> Result<DbPool> {
 
     let pool = Pool::builder()
         .max_size(16)
+        .connection_timeout(Duration::from_secs(5))
         .build(manager)
         .map_err(|e| Error::database(format!("Failed to create connection pool: {e}")))?;
 
@@ -54,6 +57,7 @@ pub fn init_memory_pool() -> Result<DbPool> {
 
     let pool = Pool::builder()
         .max_size(16)
+        .connection_timeout(Duration::from_secs(5))
         .build(manager)
         .map_err(|e| Error::database(format!("Failed to create in-memory pool: {e}")))?;
 

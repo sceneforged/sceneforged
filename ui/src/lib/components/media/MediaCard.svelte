@@ -1,7 +1,17 @@
 <script lang="ts">
 	import type { Item } from '$lib/types';
 	import { cn } from '$lib/utils';
-	import { Film, Tv, Music, FolderOpen, Star, Clock, Play } from '@lucide/svelte';
+	import {
+		Film,
+		Tv,
+		Music,
+		FolderOpen,
+		Star,
+		Clock,
+		Play,
+		LoaderCircle,
+		AlertTriangle
+	} from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import ProgressiveImage from './ProgressiveImage.svelte';
 	import { goto } from '$app/navigation';
@@ -16,6 +26,10 @@
 
 	// Resolve library ID from prop or item
 	const resolvedLibraryId = $derived(libraryId ?? item.library_id);
+
+	// Scan status
+	const isPending = $derived(item.scan_status === 'pending');
+	const isError = $derived(item.scan_status === 'error');
 
 	// Determine if item has a web-playable media file (role=universal or profile=B)
 	const isWebPlayable = $derived(
@@ -134,8 +148,18 @@
 			<Icon class="w-16 h-16 text-muted-foreground/30" />
 		{/if}
 
-		<!-- Play overlay on hover (only show if web-playable) -->
-		{#if isWebPlayable}
+		<!-- Pending scan overlay -->
+		{#if isPending}
+			<div class="absolute inset-0 bg-muted/60 animate-pulse flex items-center justify-center">
+				<LoaderCircle class="w-10 h-10 text-muted-foreground animate-spin" />
+			</div>
+		{:else if isError}
+			<!-- Error scan overlay -->
+			<div class="absolute inset-0 bg-destructive/20 flex items-center justify-center">
+				<AlertTriangle class="w-10 h-10 text-destructive" />
+			</div>
+		{:else if isWebPlayable}
+			<!-- Play overlay on hover (only show if web-playable and ready) -->
 			<div
 				class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
 			>
@@ -189,11 +213,26 @@
 	<div class="flex flex-1 flex-col gap-1 p-3">
 		<button
 			type="button"
-			class="cursor-pointer text-left text-sm font-medium line-clamp-2 text-foreground hover:text-primary transition-colors"
+			class={cn(
+				'cursor-pointer text-left text-sm font-medium line-clamp-2 transition-colors',
+				isPending
+					? 'text-muted-foreground'
+					: isError
+						? 'text-destructive hover:text-destructive/80'
+						: 'text-foreground hover:text-primary'
+			)}
 			onclick={handleTitleClick}
 		>
 			{item.name}
 		</button>
+
+		{#if isError && item.scan_error}
+			<p class="text-xs text-destructive/80 line-clamp-1" title={item.scan_error}>
+				{item.scan_error}
+			</p>
+		{:else if isPending}
+			<p class="text-xs text-muted-foreground">Scanning...</p>
+		{/if}
 
 		<div class="mt-auto flex items-center gap-2 text-xs text-muted-foreground">
 			{#if item.year}

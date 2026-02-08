@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { getLibraries, createLibrary, deleteLibrary, scanLibrary } from '$lib/api/index.js';
+	import {
+		getLibraries,
+		createLibrary,
+		deleteLibrary,
+		scanLibrary,
+		cancelScan
+	} from '$lib/api/index.js';
 	import { eventsService } from '$lib/services/events.svelte.js';
 	import type { Library } from '$lib/types.js';
 	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card/index.js';
@@ -47,14 +53,6 @@
 	let scanFilesTotal = $state(0);
 	let scanFilesProcessed = $state(0);
 	let deletingLibrary = $state<string | null>(null);
-
-	// Discovered items during scan (from item_added events)
-	interface DiscoveredItem {
-		id: string;
-		name: string;
-		kind: string;
-	}
-	let discoveredItems = $state<DiscoveredItem[]>([]);
 
 	// Scan errors
 	let scanErrors = $state<{ file_path: string; message: string }[]>([]);
@@ -109,21 +107,6 @@
 
 	const phases = ['walking', 'probing', 'writing', 'enriching'] as const;
 	const phaseIndex = $derived(phases.indexOf(scanPhase as (typeof phases)[number]));
-
-	function getItemKindIcon(kind: string) {
-		switch (kind) {
-			case 'movie':
-				return Film;
-			case 'series':
-				return Tv;
-			case 'season':
-				return Tv;
-			case 'episode':
-				return Tv;
-			default:
-				return Film;
-		}
-	}
 
 	async function loadLibraries() {
 		loading = true;
@@ -185,7 +168,6 @@
 		scanFilesQueued = 0;
 		scanFilesTotal = 0;
 		scanFilesProcessed = 0;
-		discoveredItems = [];
 		scanErrors = [];
 		showErrors = false;
 		enrichingItemIds = new Set();
@@ -196,6 +178,15 @@
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to start scan';
 			scanningLibrary = null;
+		}
+	}
+
+	async function handleCancelScan() {
+		if (!scanningLibrary) return;
+		try {
+			await cancelScan(scanningLibrary);
+		} catch {
+			// Scan may have already finished
 		}
 	}
 
@@ -225,7 +216,6 @@
 				scanFilesQueued = 0;
 				scanFilesTotal = 0;
 				scanFilesProcessed = 0;
-				discoveredItems = [];
 				scanErrors = [];
 				showErrors = false;
 				enrichingItemIds = new Set();
@@ -251,18 +241,6 @@
 					scanPhase = '';
 				}
 				loadLibraries();
-			} else if (payload.type === 'item_added') {
-				// Add the item tile to the discovered list if it's for our scanning library.
-				if (scanningLibrary && payload.library_id === scanningLibrary) {
-					discoveredItems = [
-						...discoveredItems,
-						{
-							id: payload.item_id,
-							name: payload.item_name,
-							kind: payload.item_kind
-						}
-					];
-				}
 			} else if (payload.type === 'library_scan_error') {
 				if (scanningLibrary && payload.library_id === scanningLibrary) {
 					scanErrors = [
@@ -404,15 +382,22 @@
 					</div>
 				{/if}
 
+				{#if scanningLibrary}
+					<div class="flex items-center gap-2">
+						<Button variant="outline" size="sm" onclick={handleCancelScan}>
+							Cancel Scan
+						</Button>
+						<a href="/browse/{scanningLibrary}" class="text-sm text-primary hover:underline">
+							View Library
+						</a>
+					</div>
+				{/if}
+
 				{#if scanComplete}
-					<div class="grid grid-cols-4 gap-4 text-center text-sm">
+					<div class="grid grid-cols-3 gap-4 text-center text-sm">
 						<div>
 							<div class="text-2xl font-bold tabular-nums">{scanComplete.files_found}</div>
 							<div class="text-muted-foreground">Files Found</div>
-						</div>
-						<div>
-							<div class="text-2xl font-bold tabular-nums">{discoveredItems.length}</div>
-							<div class="text-muted-foreground">Items Added</div>
 						</div>
 						<div>
 							<div class="text-2xl font-bold tabular-nums">{scanComplete.files_skipped}</div>
@@ -423,32 +408,6 @@
 								{scanComplete.errors}
 							</div>
 							<div class="text-muted-foreground">Errors</div>
-						</div>
-					</div>
-				{/if}
-
-				<!-- Discovered item tiles -->
-				{#if discoveredItems.length > 0}
-					<div class="space-y-2">
-						<h4 class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-							Discovered Items ({discoveredItems.length})
-						</h4>
-						<div class="grid max-h-64 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-							{#each discoveredItems as item (item.id)}
-								{@const KindIcon = getItemKindIcon(item.kind)}
-								<div
-									class="flex items-center gap-2 rounded-md border bg-card p-2"
-									style="animation: fadeSlideIn 0.3s ease-out both;"
-								>
-									<KindIcon class="h-4 w-4 shrink-0 text-muted-foreground" />
-									<span class="truncate text-xs font-medium">{item.name}</span>
-									{#if enrichedItemIds.has(item.id)}
-										<Sparkles class="h-3 w-3 shrink-0 text-amber-500" />
-									{:else if enrichingItemIds.has(item.id)}
-										<Loader2 class="h-3 w-3 shrink-0 animate-spin text-blue-400" />
-									{/if}
-								</div>
-							{/each}
 						</div>
 					</div>
 				{/if}
@@ -486,7 +445,6 @@
 						size="sm"
 						onclick={() => {
 							scanComplete = null;
-							discoveredItems = [];
 							scanErrors = [];
 							showErrors = false;
 							enrichingItemIds = new Set();
@@ -636,15 +594,3 @@
 	{/if}
 </div>
 
-<style>
-	@keyframes fadeSlideIn {
-		from {
-			opacity: 0;
-			transform: translateY(4px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-</style>

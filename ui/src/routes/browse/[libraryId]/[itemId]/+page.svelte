@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { getItem, getItemChildren, submitConversion, getUserData, addFavorite, removeFavorite, searchTmdb, enrichItem } from '$lib/api/index.js';
+	import { getItem, getItemChildren, submitConversion, getUserData, addFavorite, removeFavorite, searchTmdb, enrichItem, retryProbe } from '$lib/api/index.js';
 	import type { Item, AppEvent } from '$lib/types.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -25,9 +25,13 @@
 		Play,
 		Loader2,
 		AlertCircle,
+		AlertTriangle,
 		HardDrive,
 		ChevronRight,
-		Search as SearchIcon
+		Search as SearchIcon,
+		RotateCcw,
+		Trash2,
+		FileWarning
 	} from '@lucide/svelte';
 
 	const libraryId = $derived(page.params.libraryId);
@@ -62,6 +66,11 @@
 	// Favorite state
 	let isFavorite = $state(false);
 	let togglingFavorite = $state(false);
+
+	// Scan error state
+	const isScanError = $derived(item?.scan_status === 'error');
+	let retrying = $state(false);
+	let retryError = $state<string | null>(null);
 
 	// Conversion state
 	let converting = $state(false);
@@ -212,6 +221,24 @@
 		goto(`/play/${item.id}`);
 	}
 
+	async function handleRetryProbe() {
+		if (!item || retrying) return;
+		retrying = true;
+		retryError = null;
+		try {
+			const result = await retryProbe(item.id);
+			if (result.status === 'ok') {
+				await loadItemData();
+			} else {
+				retryError = result.error ?? 'Probe failed again';
+			}
+		} catch (e) {
+			retryError = e instanceof Error ? e.message : 'Retry failed';
+		} finally {
+			retrying = false;
+		}
+	}
+
 	function handleBack() {
 		if (parentItem) {
 			goto(`/browse/${libraryId}/${parentItem.id}`);
@@ -334,6 +361,39 @@
 			</Button>
 		</div>
 	{:else}
+		<!-- Scan error banner -->
+		{#if isScanError}
+			<div class="rounded-lg border border-destructive/30 bg-destructive/5 p-5">
+				<div class="flex items-start gap-3">
+					<AlertTriangle class="h-5 w-5 shrink-0 text-destructive mt-0.5" />
+					<div class="flex-1 min-w-0">
+						<h3 class="font-medium text-destructive">Probe Failed</h3>
+						{#if item.scan_error}
+							<p class="mt-1 text-sm text-destructive/80">{item.scan_error}</p>
+						{/if}
+						{#if item.source_file_path}
+							<p class="mt-2 text-xs font-mono text-muted-foreground truncate" title={item.source_file_path}>
+								{item.source_file_path}
+							</p>
+						{/if}
+						{#if retryError}
+							<p class="mt-2 text-sm text-destructive">{retryError}</p>
+						{/if}
+						<div class="mt-3 flex items-center gap-2">
+							<Button variant="outline" size="sm" onclick={handleRetryProbe} disabled={retrying}>
+								{#if retrying}
+									<Loader2 class="mr-2 h-4 w-4 animate-spin" />
+								{:else}
+									<RotateCcw class="mr-2 h-4 w-4" />
+								{/if}
+								Retry Probe
+							</Button>
+						</div>
+					</div>
+				</div>
+			</div>
+		{/if}
+
 		<div class="grid gap-6 md:gap-8 md:grid-cols-3">
 			<!-- Poster area -->
 			<div class="md:col-span-1">

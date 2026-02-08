@@ -188,7 +188,7 @@ fn default_items_limit() -> i64 {
         LibraryItemsParams,
     ),
     responses(
-        (status = 200, description = "Items in library", body = Vec<ItemResponse>),
+        (status = 200, description = "Items in library", body = crate::routes::items::PaginatedItems),
         (status = 404, description = "Library not found")
     )
 )]
@@ -196,7 +196,7 @@ pub async fn list_library_items(
     State(ctx): State<AppContext>,
     Path(id): Path<String>,
     Query(params): Query<LibraryItemsParams>,
-) -> Result<Json<Vec<ItemResponse>>, AppError> {
+) -> Result<Json<crate::routes::items::PaginatedItems>, AppError> {
     let lib_id: sf_core::LibraryId = id
         .parse()
         .map_err(|_| sf_core::Error::Validation("Invalid library ID".into()))?;
@@ -207,10 +207,14 @@ pub async fn list_library_items(
     sf_db::queries::libraries::get_library(&conn, lib_id)?
         .ok_or_else(|| sf_core::Error::not_found("library", lib_id))?;
 
+    let total = sf_db::queries::items::count_items_by_library(&conn, lib_id)?;
     let items =
         sf_db::queries::items::list_items_by_library(&conn, lib_id, params.offset, params.limit)?;
     let responses: Vec<ItemResponse> = items.iter().map(ItemResponse::from_model).collect();
-    Ok(Json(responses))
+    Ok(Json(crate::routes::items::PaginatedItems {
+        items: responses,
+        total,
+    }))
 }
 
 /// GET /api/libraries/:id/recent
@@ -242,6 +246,18 @@ pub async fn list_library_recent(
     Ok(Json(responses))
 }
 
+/// RAII guard that removes the active_scans entry on drop (even on panic).
+struct ScanGuard {
+    ctx: AppContext,
+    library_id: sf_core::LibraryId,
+}
+
+impl Drop for ScanGuard {
+    fn drop(&mut self) {
+        self.ctx.active_scans.remove(&self.library_id);
+    }
+}
+
 /// POST /api/libraries/:id/scan
 #[utoipa::path(
     post,
@@ -266,12 +282,14 @@ pub async fn scan_library(
         .ok_or_else(|| sf_core::Error::not_found("library", lib_id))?;
 
     // Prevent concurrent scans of the same library.
-    if !ctx.active_scans.insert(lib_id) {
+    let cancel_token = tokio_util::sync::CancellationToken::new();
+    if ctx.active_scans.contains_key(&lib_id) {
         return Ok((
             StatusCode::CONFLICT,
             Json(serde_json::json!({"error": "scan already in progress"})),
         ));
     }
+    ctx.active_scans.insert(lib_id, cancel_token.clone());
 
     ctx.event_bus.broadcast(
         sf_core::events::EventCategory::User,
@@ -280,11 +298,33 @@ pub async fn scan_library(
         },
     );
 
-    // Spawn the scan in a background task.
+    // Spawn the scan in a background task with ScanGuard for cleanup.
     let scan_ctx = ctx.clone();
     tokio::spawn(async move {
-        crate::scanner::scan_library(scan_ctx, lib).await;
+        let _guard = ScanGuard {
+            ctx: scan_ctx.clone(),
+            library_id: lib_id,
+        };
+        crate::scanner::scan_library(scan_ctx, lib, cancel_token).await;
+        // _guard dropped here — removes active_scans entry
     });
 
     Ok((StatusCode::ACCEPTED, Json(serde_json::json!({"status": "scan_queued"}))))
+}
+
+/// POST /api/libraries/:id/scan/cancel
+pub async fn cancel_scan(
+    State(ctx): State<AppContext>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let lib_id: sf_core::LibraryId = id
+        .parse()
+        .map_err(|_| sf_core::Error::Validation("Invalid library ID".into()))?;
+
+    if let Some(entry) = ctx.active_scans.get(&lib_id) {
+        entry.value().cancel();
+        Ok((StatusCode::OK, Json(serde_json::json!({"status": "cancelling"}))))
+    } else {
+        Ok((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "no active scan"}))))
+    }
 }

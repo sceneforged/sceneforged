@@ -64,6 +64,9 @@ pub async fn get_or_populate(
                 let ctx2 = ctx.clone();
                 tokio::spawn(async move {
                     let result = do_populate(&ctx2, media_file_id).await;
+                    if let Err(ref e) = result {
+                        tracing::warn!(media_file_id = %media_file_id, error = %e, "HLS populate failed");
+                    }
                     // Always clean up and wake waiters, even on failure.
                     ctx2.hls_loading.remove(&media_file_id);
                     notify.notify_waiters();
@@ -95,27 +98,31 @@ async fn do_populate(
     let hls_cache = ctx.hls_cache.clone();
 
     let prepared = tokio::task::spawn_blocking(move || {
-        // DB lookup.
+        tracing::debug!(media_file_id = %media_file_id, "do_populate: acquiring DB connection");
         let conn = sf_db::pool::get_conn(&db)?;
+        tracing::debug!(media_file_id = %media_file_id, "do_populate: DB connection acquired");
+
         let mf = sf_db::queries::media_files::get_media_file(&conn, media_file_id)?
             .ok_or_else(|| sf_core::Error::not_found("media_file", media_file_id))?;
         drop(conn);
+        tracing::debug!(media_file_id = %media_file_id, path = %mf.file_path, "do_populate: media file found");
 
         let path = std::path::PathBuf::from(&mf.file_path);
         if !path.exists() {
             return Err(sf_core::Error::not_found("file", &mf.file_path));
         }
 
-        // Parse moov + build prepared media.
         let file = std::fs::File::open(&path).map_err(|e| {
             sf_core::Error::Internal(format!("Failed to open {}: {e}", path.display()))
         })?;
         let mut reader = std::io::BufReader::new(file);
 
+        tracing::debug!(media_file_id = %media_file_id, "do_populate: parsing moov atom");
         let metadata = sf_media::parse_moov(&mut reader).map_err(|e| {
             sf_core::Error::Internal(format!("Failed to parse moov in {}: {e}", path.display()))
         })?;
 
+        tracing::debug!(media_file_id = %media_file_id, "do_populate: building prepared media");
         let prepared = sf_media::build_prepared_media(&metadata, &path).map_err(|e| {
             sf_core::Error::Internal(format!(
                 "Failed to build prepared media for {}: {e}",
@@ -127,7 +134,7 @@ async fn do_populate(
 
         // Insert into cache INSIDE spawn_blocking — non-cancellable.
         hls_cache.insert(media_file_id, (prepared.clone(), Instant::now()));
-        tracing::debug!(media_file_id = %media_file_id, "HLS cache populated");
+        tracing::debug!(media_file_id = %media_file_id, "do_populate: HLS cache populated");
 
         // Evict excess entries.
         evict_if_over_limit(&hls_cache);

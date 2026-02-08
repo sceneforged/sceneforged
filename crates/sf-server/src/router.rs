@@ -68,6 +68,7 @@ use crate::routes;
         routes::libraries::LibraryResponse,
         routes::libraries::CreateLibraryRequest,
         routes::items::ItemResponse,
+        routes::items::PaginatedItems,
         routes::items::MediaFileResponse,
         routes::items::ImageResponse,
         routes::jobs::JobResponse,
@@ -119,6 +120,10 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
             post(routes::libraries::scan_library),
         )
         .route(
+            "/libraries/{id}/scan/cancel",
+            post(routes::libraries::cancel_scan),
+        )
+        .route(
             "/libraries/{id}/items",
             get(routes::libraries::list_library_items),
         )
@@ -136,6 +141,10 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
         .route(
             "/items/{id}/files",
             get(routes::items::list_item_files),
+        )
+        .route(
+            "/items/{id}/retry-probe",
+            post(routes::items::retry_probe),
         )
         // Search
         .route("/search", get(routes::items::search_items))

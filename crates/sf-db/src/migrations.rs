@@ -321,6 +321,13 @@ ALTER TABLE conversion_jobs ADD COLUMN speed TEXT;
 ALTER TABLE conversion_jobs ADD COLUMN output_size INTEGER;
 "#;
 
+/// V11: Add scan status columns to items for progressive scanning.
+const V11_SCAN_STATUS: &str = r#"
+ALTER TABLE items ADD COLUMN scan_status TEXT;
+ALTER TABLE items ADD COLUMN scan_error TEXT;
+ALTER TABLE items ADD COLUMN source_file_path TEXT;
+"#;
+
 /// Ordered list of (version, sql) pairs.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, V1_INITIAL),
@@ -333,6 +340,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (8, V8_FK_CASCADES),
     (9, V9_INVITATIONS_PRIORITY),
     (10, V10_CONVERSION_STATS),
+    (11, V11_SCAN_STATUS),
 ];
 
 /// Run all pending migrations on `conn`.

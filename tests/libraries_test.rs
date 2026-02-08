@@ -17,8 +17,10 @@ async fn list_library_items() {
     .await
     .unwrap();
     assert_eq!(resp.status(), 200);
-    let items: Vec<serde_json::Value> = resp.json().await.unwrap();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let items = body["items"].as_array().unwrap();
     assert_eq!(items.len(), 2);
+    assert_eq!(body["total"].as_i64().unwrap(), 2);
 }
 
 #[tokio::test]
@@ -35,16 +37,20 @@ async fn list_library_items_pagination() {
     .await
     .unwrap();
     assert_eq!(resp.status(), 200);
-    let items: Vec<serde_json::Value> = resp.json().await.unwrap();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let items = body["items"].as_array().unwrap();
     assert_eq!(items.len(), 3);
+    assert_eq!(body["total"].as_i64().unwrap(), 5);
 
     let resp = reqwest::get(format!(
         "http://{addr}/api/libraries/{lib_id_str}/items?offset=3&limit=3"
     ))
     .await
     .unwrap();
-    let items: Vec<serde_json::Value> = resp.json().await.unwrap();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let items = body["items"].as_array().unwrap();
     assert_eq!(items.len(), 2);
+    assert_eq!(body["total"].as_i64().unwrap(), 5);
 }
 
 #[tokio::test]

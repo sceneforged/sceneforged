@@ -278,16 +278,26 @@ pub async fn list_items(
     build_response(&conn, user_id, &items)
 }
 
+/// Filter out items that are still being scanned or failed to probe.
+/// Jellyfin clients should only see fully-ready items.
+fn filter_ready_items(items: &[sf_db::models::Item]) -> Vec<&sf_db::models::Item> {
+    items
+        .iter()
+        .filter(|i| i.scan_status.is_none())
+        .collect()
+}
+
 /// Build the ItemsResult response with user data for a list of items.
 fn build_response(
     conn: &rusqlite::Connection,
     user_id: sf_core::UserId,
     items: &[sf_db::models::Item],
 ) -> Result<Json<ItemsResult>, AppError> {
-    let item_ids: Vec<sf_core::ItemId> = items.iter().map(|i| i.id).collect();
+    let ready = filter_ready_items(items);
+    let item_ids: Vec<sf_core::ItemId> = ready.iter().map(|i| i.id).collect();
     let user_data_map = sf_db::queries::playback::batch_get_user_data(conn, user_id, &item_ids)?;
 
-    let dtos: Vec<BaseItemDto> = items
+    let dtos: Vec<BaseItemDto> = ready
         .iter()
         .map(|item| {
             let images = sf_db::queries::images::list_images_by_item(conn, item.id)

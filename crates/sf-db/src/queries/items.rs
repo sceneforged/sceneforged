@@ -9,7 +9,8 @@ use crate::models::Item;
 /// Column list used in SELECT statements.
 const COLS: &str = "id, library_id, item_kind, name, sort_name, year, overview,
     runtime_minutes, community_rating, provider_ids, parent_id,
-    season_number, episode_number, created_at, updated_at";
+    season_number, episode_number, created_at, updated_at,
+    scan_status, scan_error, source_file_path";
 
 /// Create a new item.
 pub fn create_item(
@@ -72,6 +73,9 @@ pub fn create_item(
         episode_number,
         created_at: now.clone(),
         updated_at: now,
+        scan_status: None,
+        scan_error: None,
+        source_file_path: None,
     })
 }
 
@@ -283,6 +287,102 @@ pub fn find_or_create_season(
         Some(season_number),
         None,
     )
+}
+
+/// Create a pending item during the walk phase of a scan.
+///
+/// The item is created with `scan_status='pending'` and `source_file_path` set.
+/// It will be transitioned to ready (NULL) or error after probing.
+pub fn create_pending_item(
+    conn: &Connection,
+    library_id: LibraryId,
+    item_kind: &str,
+    name: &str,
+    year: Option<i32>,
+    parent_id: Option<ItemId>,
+    season_number: Option<i32>,
+    episode_number: Option<i32>,
+    source_file_path: &str,
+) -> Result<Item> {
+    let id = ItemId::new();
+    let now = Utc::now().to_rfc3339();
+
+    conn.execute(
+        "INSERT INTO items (id, library_id, item_kind, name, year,
+            parent_id, season_number, episode_number,
+            provider_ids, created_at, updated_at,
+            scan_status, source_file_path)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+        rusqlite::params![
+            id.to_string(),
+            library_id.to_string(),
+            item_kind,
+            name,
+            year,
+            parent_id.map(|p| p.to_string()),
+            season_number,
+            episode_number,
+            "{}",
+            &now,
+            &now,
+            "pending",
+            source_file_path,
+        ],
+    )
+    .map_err(|e| Error::database(e.to_string()))?;
+
+    Ok(Item {
+        id,
+        library_id,
+        item_kind: item_kind.to_string(),
+        name: name.to_string(),
+        sort_name: None,
+        year,
+        overview: None,
+        runtime_minutes: None,
+        community_rating: None,
+        provider_ids: "{}".to_string(),
+        parent_id,
+        season_number,
+        episode_number,
+        created_at: now.clone(),
+        updated_at: now,
+        scan_status: Some("pending".to_string()),
+        scan_error: None,
+        source_file_path: Some(source_file_path.to_string()),
+    })
+}
+
+/// Update the scan status of an item.
+///
+/// - `scan_status: None` clears the status (item is ready).
+/// - `scan_status: Some("error")` marks the item as failed.
+pub fn update_item_scan_status(
+    conn: &Connection,
+    id: ItemId,
+    scan_status: Option<&str>,
+    scan_error: Option<&str>,
+) -> Result<bool> {
+    let now = Utc::now().to_rfc3339();
+    let n = conn
+        .execute(
+            "UPDATE items SET scan_status=?1, scan_error=?2, updated_at=?3 WHERE id=?4",
+            rusqlite::params![scan_status, scan_error, now, id.to_string()],
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+    Ok(n > 0)
+}
+
+/// Count items in a library (for pagination totals).
+pub fn count_items_by_library(conn: &Connection, library_id: LibraryId) -> Result<i64> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM items WHERE library_id = ?1",
+            [library_id.to_string()],
+            |row| row.get(0),
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+    Ok(count)
 }
 
 /// Search items by name (LIKE '%query%').

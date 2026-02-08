@@ -97,7 +97,7 @@ pub async fn start(config: Config, config_path: Option<PathBuf>) -> sf_core::Res
     let hls_cache = Arc::new(DashMap::new());
     let hls_loading = Arc::new(DashMap::new());
     let active_conversions = Arc::new(DashMap::new());
-    let active_scans = Arc::new(dashmap::DashSet::new());
+    let active_scans = Arc::new(DashMap::new());
 
     let ctx = AppContext {
         db,
