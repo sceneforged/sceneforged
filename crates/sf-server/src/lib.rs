@@ -112,16 +112,6 @@ pub async fn start(config: Config, config_path: Option<PathBuf>) -> sf_core::Res
         active_scans,
     };
 
-    // Warm up HLS cache for existing Profile B media files.
-    {
-        let warmup_ctx = ctx.clone();
-        tokio::spawn(async move {
-            if let Err(e) = hls_prep::warm_hls_cache(&warmup_ctx).await {
-                tracing::warn!("HLS cache warmup error: {e}");
-            }
-        });
-    }
-
     // Cancellation token for graceful shutdown.
     let cancel = CancellationToken::new();
 
@@ -202,8 +192,8 @@ async fn run_accept_loop(
     }
 }
 
-/// Handle a single TCP connection: peek to see if it's a segment request,
-/// then either serve it via sendfile or pass it through to hyper/Axum.
+/// Handle a single TCP connection: peek to see if it's a sendfile-eligible
+/// request, then either serve it via sendfile or pass it through to hyper/Axum.
 async fn handle_connection(stream: tokio::net::TcpStream, ctx: AppContext, app: Router) {
     let mut peek_buf = [0u8; 256];
     match stream.peek(&mut peek_buf).await {
@@ -218,6 +208,38 @@ async fn handle_connection(stream: tokio::net::TcpStream, ctx: AppContext, app: 
             tokio::task::spawn_blocking(move || {
                 if let Err(e) = sendfile::handle_sendfile_segment(std_stream, &ctx) {
                     tracing::debug!("Sendfile segment error: {e}");
+                }
+            })
+            .await
+            .ok();
+        }
+        Ok(n) if sendfile::is_direct_request(&peek_buf[..n]) => {
+            let std_stream = match stream.into_std() {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::debug!("Failed to convert to std TcpStream: {e}");
+                    return;
+                }
+            };
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = sendfile::handle_sendfile_direct(std_stream, &ctx) {
+                    tracing::debug!("Sendfile direct error: {e}");
+                }
+            })
+            .await
+            .ok();
+        }
+        Ok(n) if sendfile::is_jellyfin_stream_request(&peek_buf[..n]) => {
+            let std_stream = match stream.into_std() {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::debug!("Failed to convert to std TcpStream: {e}");
+                    return;
+                }
+            };
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = sendfile::handle_sendfile_jellyfin_stream(std_stream, &ctx) {
+                    tracing::debug!("Sendfile jellyfin stream error: {e}");
                 }
             })
             .await

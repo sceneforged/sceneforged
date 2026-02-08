@@ -79,6 +79,114 @@ pub fn is_segment_request(peek_buf: &[u8]) -> bool {
     false
 }
 
+/// Check if a peeked buffer looks like a direct play request.
+///
+/// Matches: `GET /api/stream/{uuid}/direct HTTP/1.x`
+pub fn is_direct_request(peek_buf: &[u8]) -> bool {
+    let path = match extract_get_path(peek_buf) {
+        Some(p) => p,
+        None => return false,
+    };
+
+    let rest = match path.strip_prefix("/api/stream/") {
+        Some(r) => r,
+        None => return false,
+    };
+
+    let slash = match rest.find('/') {
+        Some(p) => p,
+        None => return false,
+    };
+
+    let uuid_part = &rest[..slash];
+    let suffix = &rest[slash + 1..];
+
+    uuid_part.len() == 36 && suffix == "direct"
+}
+
+/// Check if a peeked buffer looks like a Jellyfin video stream request.
+///
+/// Matches: `GET /Videos/{uuid}/stream` (with optional query string)
+pub fn is_jellyfin_stream_request(peek_buf: &[u8]) -> bool {
+    let path = match extract_get_path(peek_buf) {
+        Some(p) => p,
+        None => return false,
+    };
+
+    // Strip query string if present.
+    let path_no_query = path.split('?').next().unwrap_or(path);
+
+    let rest = match path_no_query.strip_prefix("/Videos/") {
+        Some(r) => r,
+        None => return false,
+    };
+
+    let slash = match rest.find('/') {
+        Some(p) => p,
+        None => return false,
+    };
+
+    let uuid_part = &rest[..slash];
+    let suffix = &rest[slash + 1..];
+
+    uuid_part.len() == 36 && suffix == "stream"
+}
+
+/// Extract the GET path from a peeked HTTP request buffer.
+fn extract_get_path(peek_buf: &[u8]) -> Option<&str> {
+    let line_end = peek_buf
+        .windows(2)
+        .position(|w| w == b"\r\n")
+        .unwrap_or(peek_buf.len());
+    let line = &peek_buf[..line_end];
+
+    if !line.starts_with(b"GET ") {
+        return None;
+    }
+
+    let after_method = &line[4..];
+    let path_end = after_method.iter().position(|&b| b == b' ')?;
+    let path_bytes = &after_method[..path_end];
+    std::str::from_utf8(path_bytes).ok()
+}
+
+/// Parse a `Range: bytes=START-END` header value (blocking version).
+fn parse_range_value(value: &str) -> Option<(u64, Option<u64>)> {
+    let bytes_prefix = value.strip_prefix("bytes=")?;
+    let mut parts = bytes_prefix.splitn(2, '-');
+    let start_str = parts.next()?.trim();
+    let end_str = parts.next()?.trim();
+
+    let start: u64 = start_str.parse().ok()?;
+    let end: Option<u64> = if end_str.is_empty() {
+        None
+    } else {
+        Some(end_str.parse().ok()?)
+    };
+
+    Some((start, end))
+}
+
+/// Guess content type from a file path extension.
+fn guess_content_type_from_path(path: &std::path::Path) -> &'static str {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+
+    match ext {
+        "mp4" | "m4v" => "video/mp4",
+        "mkv" => "video/x-matroska",
+        "avi" => "video/x-msvideo",
+        "webm" => "video/webm",
+        "ts" => "video/mp2t",
+        "mov" => "video/quicktime",
+        "wmv" => "video/x-ms-wmv",
+        "flv" => "video/x-flv",
+        _ => "application/octet-stream",
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Minimal HTTP request parser
 // ---------------------------------------------------------------------------
@@ -88,6 +196,7 @@ struct ParsedRequest {
     authorization: Option<String>,
     cookie: Option<String>,
     x_emby_token: Option<String>,
+    range: Option<(u64, Option<u64>)>,
 }
 
 /// Read HTTP request headers from a blocking TCP stream.
@@ -138,6 +247,7 @@ fn read_request_headers(stream: &mut TcpStream) -> io::Result<ParsedRequest> {
     let mut authorization = None;
     let mut cookie = None;
     let mut x_emby_token = None;
+    let mut range = None;
 
     for line in lines {
         let line = line.trim();
@@ -151,6 +261,7 @@ fn read_request_headers(stream: &mut TcpStream) -> io::Result<ParsedRequest> {
                 "authorization" => authorization = Some(value.to_owned()),
                 "cookie" => cookie = Some(value.to_owned()),
                 "x-emby-token" => x_emby_token = Some(value.to_owned()),
+                "range" => range = parse_range_value(value),
                 _ => {}
             }
         }
@@ -161,6 +272,7 @@ fn read_request_headers(stream: &mut TcpStream) -> io::Result<ParsedRequest> {
         authorization,
         cookie,
         x_emby_token,
+        range,
     })
 }
 
@@ -504,6 +616,247 @@ pub fn handle_sendfile_segment(mut stream: TcpStream, ctx: &AppContext) -> io::R
     Ok(())
 }
 
+/// Handle a direct play request using sendfile(2).
+///
+/// Path: `/api/stream/{uuid}/direct`
+///
+/// Serves the source file directly with Range support and zero-copy transfer.
+pub fn handle_sendfile_direct(mut stream: TcpStream, ctx: &AppContext) -> io::Result<()> {
+    let req = read_request_headers(&mut stream)?;
+
+    // Authenticate.
+    if validate_auth_headers(
+        &ctx.config.auth,
+        &ctx.db,
+        req.authorization.as_deref(),
+        req.cookie.as_deref(),
+        req.x_emby_token.as_deref(),
+    )
+    .is_none()
+    {
+        let response = b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        stream.write_all(response)?;
+        return Ok(());
+    }
+
+    // Parse media_file_id from path: /api/stream/{uuid}/direct
+    let mf_id = match parse_direct_path(&req.path) {
+        Some(id) => id,
+        None => {
+            let response = b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            stream.write_all(response)?;
+            return Ok(());
+        }
+    };
+
+    // Look up file path from DB.
+    let conn = sf_db::pool::get_conn(&ctx.db)
+        .map_err(|e| io::Error::other(e.to_string()))?;
+    let mf = match sf_db::queries::media_files::get_media_file(&conn, mf_id) {
+        Ok(Some(mf)) => mf,
+        _ => {
+            let response = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            stream.write_all(response)?;
+            return Ok(());
+        }
+    };
+    drop(conn);
+
+    let path = std::path::Path::new(&mf.file_path);
+    serve_file_sendfile(&mut stream, path, req.range)
+}
+
+/// Handle a Jellyfin video stream request using sendfile(2).
+///
+/// Path: `/Videos/{uuid}/stream[?mediaSourceId=...]`
+///
+/// The UUID in the path is an item_id. If `mediaSourceId` query param is
+/// present, use that directly; otherwise take the first media file for the item.
+pub fn handle_sendfile_jellyfin_stream(mut stream: TcpStream, ctx: &AppContext) -> io::Result<()> {
+    let req = read_request_headers(&mut stream)?;
+
+    // Authenticate.
+    if validate_auth_headers(
+        &ctx.config.auth,
+        &ctx.db,
+        req.authorization.as_deref(),
+        req.cookie.as_deref(),
+        req.x_emby_token.as_deref(),
+    )
+    .is_none()
+    {
+        let response = b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        stream.write_all(response)?;
+        return Ok(());
+    }
+
+    // Parse item_id and optional mediaSourceId from path + query.
+    let (item_id, media_source_id) = match parse_jellyfin_stream_path(&req.path) {
+        Some(v) => v,
+        None => {
+            let response = b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            stream.write_all(response)?;
+            return Ok(());
+        }
+    };
+
+    let conn = sf_db::pool::get_conn(&ctx.db)
+        .map_err(|e| io::Error::other(e.to_string()))?;
+
+    // Resolve the media file.
+    let mf = if let Some(ms_id) = media_source_id {
+        match sf_db::queries::media_files::get_media_file(&conn, ms_id) {
+            Ok(Some(mf)) => mf,
+            _ => {
+                let response = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                stream.write_all(response)?;
+                return Ok(());
+            }
+        }
+    } else {
+        match sf_db::queries::media_files::list_media_files_by_item(&conn, item_id) {
+            Ok(files) => match files.into_iter().next() {
+                Some(mf) => mf,
+                None => {
+                    let response = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                    stream.write_all(response)?;
+                    return Ok(());
+                }
+            },
+            Err(_) => {
+                let response = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                stream.write_all(response)?;
+                return Ok(());
+            }
+        }
+    };
+    drop(conn);
+
+    let path = std::path::Path::new(&mf.file_path);
+    serve_file_sendfile(&mut stream, path, req.range)
+}
+
+/// Serve a file via sendfile(2) with optional Range support.
+///
+/// Shared logic for both direct play and Jellyfin stream handlers.
+fn serve_file_sendfile(
+    stream: &mut TcpStream,
+    path: &std::path::Path,
+    range: Option<(u64, Option<u64>)>,
+) -> io::Result<()> {
+    let file = std::fs::File::open(path).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("Failed to open {}: {e}", path.display()),
+        )
+    })?;
+
+    let file_size = file.metadata()?.len();
+    let content_type = guess_content_type_from_path(path);
+    let file_fd = file.as_raw_fd();
+    let sock_fd = stream.as_raw_fd();
+
+    let _ = set_tcp_nopush(sock_fd, true);
+
+    match range {
+        Some((start, end_opt)) => {
+            let end = end_opt.unwrap_or(file_size - 1).min(file_size - 1);
+            if start > end || start >= file_size {
+                let response = format!(
+                    "HTTP/1.1 416 Range Not Satisfiable\r\n\
+                     Content-Range: bytes */{file_size}\r\n\
+                     Content-Length: 0\r\n\
+                     Connection: close\r\n\
+                     \r\n"
+                );
+                stream.write_all(response.as_bytes())?;
+                let _ = set_tcp_nopush(sock_fd, false);
+                return Ok(());
+            }
+
+            let length = end - start + 1;
+            let response_headers = format!(
+                "HTTP/1.1 206 Partial Content\r\n\
+                 Content-Type: {content_type}\r\n\
+                 Content-Range: bytes {start}-{end}/{file_size}\r\n\
+                 Content-Length: {length}\r\n\
+                 Accept-Ranges: bytes\r\n\
+                 Connection: close\r\n\
+                 \r\n"
+            );
+            stream.write_all(response_headers.as_bytes())?;
+            sendfile_range(sock_fd, file_fd, start, length, None)?;
+        }
+        None => {
+            let response_headers = format!(
+                "HTTP/1.1 200 OK\r\n\
+                 Content-Type: {content_type}\r\n\
+                 Content-Length: {file_size}\r\n\
+                 Accept-Ranges: bytes\r\n\
+                 Connection: close\r\n\
+                 \r\n"
+            );
+            stream.write_all(response_headers.as_bytes())?;
+            sendfile_range(sock_fd, file_fd, 0, file_size, None)?;
+        }
+    }
+
+    let _ = set_tcp_nopush(sock_fd, false);
+    Ok(())
+}
+
+/// Parse a direct play path like `/api/stream/{uuid}/direct`.
+fn parse_direct_path(path: &str) -> Option<sf_core::MediaFileId> {
+    let rest = path.strip_prefix("/api/stream/")?;
+    let slash = rest.find('/')?;
+    let uuid_str = &rest[..slash];
+    let suffix = &rest[slash + 1..];
+
+    if suffix != "direct" {
+        return None;
+    }
+
+    uuid_str.parse().ok()
+}
+
+/// Parse a Jellyfin stream path like `/Videos/{uuid}/stream[?mediaSourceId=...]`.
+///
+/// Returns `(ItemId, Option<MediaFileId>)`.
+fn parse_jellyfin_stream_path(
+    path: &str,
+) -> Option<(sf_core::ItemId, Option<sf_core::MediaFileId>)> {
+    // Split path from query string.
+    let (path_part, query) = match path.split_once('?') {
+        Some((p, q)) => (p, Some(q)),
+        None => (path, None),
+    };
+
+    let rest = path_part.strip_prefix("/Videos/")?;
+    let slash = rest.find('/')?;
+    let uuid_str = &rest[..slash];
+    let suffix = &rest[slash + 1..];
+
+    if suffix != "stream" {
+        return None;
+    }
+
+    let item_id: sf_core::ItemId = uuid_str.parse().ok()?;
+
+    // Parse mediaSourceId from query string if present.
+    let media_source_id = query.and_then(|q| {
+        for param in q.split('&') {
+            if let Some(value) = param.strip_prefix("mediaSourceId=")
+                .or_else(|| param.strip_prefix("MediaSourceId="))
+            {
+                return value.parse::<sf_core::MediaFileId>().ok();
+            }
+        }
+        None
+    });
+
+    Some((item_id, media_source_id))
+}
+
 /// Blocking populate of HLS cache for the sendfile path.
 ///
 /// Looks up the media file in DB, parses moov, builds PreparedMedia, and
@@ -513,9 +866,9 @@ fn populate_hls_cache_blocking(
     mf_id: sf_core::MediaFileId,
 ) -> io::Result<std::sync::Arc<sf_media::PreparedMedia>> {
     let conn = sf_db::pool::get_conn(&ctx.db)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| io::Error::other(e.to_string()))?;
     let mf = sf_db::queries::media_files::get_media_file(&conn, mf_id)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+        .map_err(|e| io::Error::other(e.to_string()))?
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "media file not found"))?;
     drop(conn);
 
@@ -634,5 +987,110 @@ mod tests {
             parse_segment_path("/api/stream/550e8400-e29b-41d4-a716-446655440000/segment_abc.m4s")
                 .is_none()
         );
+    }
+
+    // -- Direct play peek tests --
+
+    #[test]
+    fn peek_matches_direct_request() {
+        let buf = b"GET /api/stream/550e8400-e29b-41d4-a716-446655440000/direct HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        assert!(is_direct_request(buf));
+    }
+
+    #[test]
+    fn peek_rejects_segment_as_direct() {
+        let buf = b"GET /api/stream/550e8400-e29b-41d4-a716-446655440000/segment_0.m4s HTTP/1.1\r\n";
+        assert!(!is_direct_request(buf));
+    }
+
+    #[test]
+    fn peek_rejects_post_as_direct() {
+        let buf = b"POST /api/stream/550e8400-e29b-41d4-a716-446655440000/direct HTTP/1.1\r\n";
+        assert!(!is_direct_request(buf));
+    }
+
+    // -- Jellyfin stream peek tests --
+
+    #[test]
+    fn peek_matches_jellyfin_stream() {
+        let buf = b"GET /Videos/550e8400-e29b-41d4-a716-446655440000/stream HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        assert!(is_jellyfin_stream_request(buf));
+    }
+
+    #[test]
+    fn peek_matches_jellyfin_stream_with_query() {
+        let buf = b"GET /Videos/550e8400-e29b-41d4-a716-446655440000/stream?mediaSourceId=abc HTTP/1.1\r\n";
+        assert!(is_jellyfin_stream_request(buf));
+    }
+
+    #[test]
+    fn peek_rejects_jellyfin_master_playlist() {
+        let buf = b"GET /Videos/550e8400-e29b-41d4-a716-446655440000/master.m3u8 HTTP/1.1\r\n";
+        assert!(!is_jellyfin_stream_request(buf));
+    }
+
+    #[test]
+    fn peek_rejects_jellyfin_bad_uuid() {
+        let buf = b"GET /Videos/not-a-uuid/stream HTTP/1.1\r\n";
+        assert!(!is_jellyfin_stream_request(buf));
+    }
+
+    // -- Path parser tests --
+
+    #[test]
+    fn parse_direct_path_valid() {
+        let id = parse_direct_path("/api/stream/550e8400-e29b-41d4-a716-446655440000/direct").unwrap();
+        assert_eq!(id.to_string(), "550e8400-e29b-41d4-a716-446655440000");
+    }
+
+    #[test]
+    fn parse_direct_path_rejects_segment() {
+        assert!(parse_direct_path("/api/stream/550e8400-e29b-41d4-a716-446655440000/segment_0.m4s").is_none());
+    }
+
+    #[test]
+    fn parse_jellyfin_stream_path_valid() {
+        let (item_id, ms_id) = parse_jellyfin_stream_path(
+            "/Videos/550e8400-e29b-41d4-a716-446655440000/stream",
+        )
+        .unwrap();
+        assert_eq!(item_id.to_string(), "550e8400-e29b-41d4-a716-446655440000");
+        assert!(ms_id.is_none());
+    }
+
+    #[test]
+    fn parse_jellyfin_stream_path_with_media_source() {
+        let (item_id, ms_id) = parse_jellyfin_stream_path(
+            "/Videos/550e8400-e29b-41d4-a716-446655440000/stream?mediaSourceId=660e8400-e29b-41d4-a716-446655440001",
+        )
+        .unwrap();
+        assert_eq!(item_id.to_string(), "550e8400-e29b-41d4-a716-446655440000");
+        assert_eq!(ms_id.unwrap().to_string(), "660e8400-e29b-41d4-a716-446655440001");
+    }
+
+    #[test]
+    fn parse_jellyfin_stream_path_rejects_master() {
+        assert!(parse_jellyfin_stream_path("/Videos/550e8400-e29b-41d4-a716-446655440000/master.m3u8").is_none());
+    }
+
+    // -- Range value parser tests --
+
+    #[test]
+    fn parse_range_value_full() {
+        let (start, end) = parse_range_value("bytes=0-999").unwrap();
+        assert_eq!(start, 0);
+        assert_eq!(end, Some(999));
+    }
+
+    #[test]
+    fn parse_range_value_open_end() {
+        let (start, end) = parse_range_value("bytes=500-").unwrap();
+        assert_eq!(start, 500);
+        assert_eq!(end, None);
+    }
+
+    #[test]
+    fn parse_range_value_invalid() {
+        assert!(parse_range_value("invalid").is_none());
     }
 }

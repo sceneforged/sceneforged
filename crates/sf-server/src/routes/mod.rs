@@ -15,6 +15,7 @@ pub mod metadata;
 pub mod metrics;
 pub mod playback;
 pub mod stream;
+pub mod streaming_helpers;
 pub mod subtitles;
 pub mod users;
 pub mod webhook;

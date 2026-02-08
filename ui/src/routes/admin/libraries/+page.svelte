@@ -23,7 +23,9 @@
 		HardDrive,
 		Database,
 		Sparkles,
-		CheckCircle
+		CheckCircle,
+		AlertTriangle,
+		ChevronDown
 	} from '@lucide/svelte';
 
 	let libraries = $state<Library[]>([]);
@@ -53,6 +55,13 @@
 		kind: string;
 	}
 	let discoveredItems = $state<DiscoveredItem[]>([]);
+
+	// Scan errors
+	let scanErrors = $state<{ file_path: string; message: string }[]>([]);
+	let showErrors = $state(false);
+
+	// Enriched item tracking
+	let enrichedItemIds = $state<Set<string>>(new Set());
 
 	// Scan completion summary
 	let scanComplete = $state<{
@@ -176,6 +185,9 @@
 		scanFilesTotal = 0;
 		scanFilesProcessed = 0;
 		discoveredItems = [];
+		scanErrors = [];
+		showErrors = false;
+		enrichedItemIds = new Set();
 		scanComplete = null;
 		try {
 			await scanLibrary(lib.id);
@@ -212,6 +224,9 @@
 				scanFilesTotal = 0;
 				scanFilesProcessed = 0;
 				discoveredItems = [];
+				scanErrors = [];
+				showErrors = false;
+				enrichedItemIds = new Set();
 				scanComplete = null;
 			} else if (payload.type === 'library_scan_progress') {
 				if (scanningLibrary === payload.library_id) {
@@ -244,6 +259,17 @@
 							kind: payload.item_kind
 						}
 					];
+				}
+			} else if (payload.type === 'library_scan_error') {
+				if (scanningLibrary && payload.library_id === scanningLibrary) {
+					scanErrors = [
+						...scanErrors,
+						{ file_path: payload.file_path, message: payload.message }
+					];
+				}
+			} else if (payload.type === 'item_enriched') {
+				if (payload.library_id === scanningLibrary || scanComplete) {
+					enrichedItemIds = new Set([...enrichedItemIds, payload.item_id]);
 				}
 			} else if (payload.type === 'item_updated') {
 				loadLibraries();
@@ -397,22 +423,47 @@
 						<h4 class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
 							Discovered Items ({discoveredItems.length})
 						</h4>
-						<div class="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-							{#each discoveredItems.slice(-20) as item (item.id)}
+						<div class="grid max-h-64 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+							{#each discoveredItems as item (item.id)}
 								{@const KindIcon = getItemKindIcon(item.kind)}
 								<div
-									class="flex items-center gap-2 rounded-md border bg-card p-2 opacity-0 animate-in fade-in"
-									style="animation: fadeSlideIn 0.3s ease-out forwards;"
+									class="flex items-center gap-2 rounded-md border bg-card p-2"
+									style="animation: fadeSlideIn 0.3s ease-out both;"
 								>
 									<KindIcon class="h-4 w-4 shrink-0 text-muted-foreground" />
 									<span class="truncate text-xs font-medium">{item.name}</span>
+									{#if enrichedItemIds.has(item.id)}
+										<Sparkles class="h-3 w-3 shrink-0 text-amber-500" />
+									{/if}
 								</div>
 							{/each}
 						</div>
-						{#if discoveredItems.length > 20}
-							<p class="text-xs text-muted-foreground">
-								...and {discoveredItems.length - 20} more
-							</p>
+					</div>
+				{/if}
+
+				{#if scanErrors.length > 0}
+					<div class="space-y-2">
+						<button
+							class="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-destructive"
+							onclick={() => (showErrors = !showErrors)}
+						>
+							<AlertTriangle class="h-3.5 w-3.5" />
+							Errors ({scanErrors.length})
+							<ChevronDown
+								class="h-3.5 w-3.5 transition-transform {showErrors ? 'rotate-180' : ''}"
+							/>
+						</button>
+						{#if showErrors}
+							<div class="max-h-48 space-y-1 overflow-y-auto">
+								{#each scanErrors as err}
+									<div
+										class="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs"
+									>
+										<span class="font-mono text-destructive/80">{err.file_path}</span>
+										<span class="text-muted-foreground"> — {err.message}</span>
+									</div>
+								{/each}
+							</div>
 						{/if}
 					</div>
 				{/if}
@@ -424,6 +475,9 @@
 						onclick={() => {
 							scanComplete = null;
 							discoveredItems = [];
+							scanErrors = [];
+							showErrors = false;
+							enrichedItemIds = new Set();
 						}}
 					>
 						Dismiss

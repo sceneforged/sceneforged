@@ -9,31 +9,40 @@
 //! Profile classification is always based on probed media properties, not
 //! filename conventions.
 //!
+//! Pipeline architecture:
+//!   Walk ──mpsc──> Probe Pool (8) ──mpsc──> DB Writer ──mpsc──> Enrich Pool (4, detached)
+//!
 //! Performance optimizations:
-//! - Batch existence check via HashSet (one query upfront vs per-file)
-//! - In-memory series/season cache to avoid redundant DB lookups
-//! - Parallel file probing with bounded concurrency
+//! - Streaming walk→probe→write pipeline (all stages overlap)
+//! - 8 concurrent probe workers with work-stealing via shared receiver
 //! - Batched DB writes in transactions (flush every N files)
-//! - TMDB enrichment decoupled to background workers
+//! - Fire-and-forget HLS cache population (spawned, not awaited)
+//! - Background enrichment (scan completes immediately, TMDB calls continue)
+//! - Parallel PB pass with bounded concurrency
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use sf_core::events::{EventCategory, EventPayload};
 
 use crate::context::AppContext;
 
-/// Interval (in files discovered) between progress event broadcasts.
-const PROGRESS_INTERVAL: u64 = 50;
-
 /// Number of files to accumulate before flushing a batch DB write.
 const DB_BATCH_SIZE: usize = 50;
 
-/// Maximum number of concurrent probe tasks.
-const PROBE_CONCURRENCY: usize = 4;
+/// Maximum number of concurrent probe workers.
+const PROBE_CONCURRENCY: usize = 8;
 
 /// Number of concurrent TMDB enrichment workers.
 const ENRICH_CONCURRENCY: usize = 4;
+
+/// Maximum concurrent PB file ingestion tasks.
+const PB_CONCURRENCY: usize = 4;
+
+/// Interval in milliseconds between progress event emissions.
+const PROGRESS_INTERVAL_MS: u64 = 500;
 
 /// Common media file extensions used when searching for a converted file's
 /// corresponding source.
@@ -49,15 +58,34 @@ struct ProbeResult {
     file_size: i64,
 }
 
+/// Shared atomic counters for progress reporting across pipeline stages.
+struct ScanCounters {
+    files_found: AtomicU64,
+    files_skipped: AtomicU64,
+    files_queued: AtomicU64,
+    errors: AtomicU64,
+    probes_completed: AtomicU64,
+    total_to_probe: AtomicU64,
+}
+
+impl ScanCounters {
+    fn new() -> Self {
+        Self {
+            files_found: AtomicU64::new(0),
+            files_skipped: AtomicU64::new(0),
+            files_queued: AtomicU64::new(0),
+            errors: AtomicU64::new(0),
+            probes_completed: AtomicU64::new(0),
+            total_to_probe: AtomicU64::new(0),
+        }
+    }
+}
+
 /// Scan a library's directories and register discovered media files.
 ///
-/// For each file: parses the filename for metadata, probes for media info,
-/// creates an item + media_file record (skipping duplicates), and optionally
-/// queues a conversion job if `auto_convert_on_scan` is enabled.
-///
-/// Files with a `-pb` suffix are handled in a second pass after all other
-/// files have been ingested, so they can be linked to the correct parent item
-/// rather than creating duplicates.
+/// Uses a streaming pipeline: walk → probe → write → enrich. Each stage runs
+/// concurrently, connected by mpsc channels. Enrichment is detached — the scan
+/// completes immediately after DB writes; TMDB calls continue in background.
 pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
     let library_id = library.id;
     let extensions: Vec<String> = ctx
@@ -77,11 +105,6 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
 
     let auto_convert = ctx.config_store.conversion.read().auto_convert_on_scan;
 
-    let mut files_found: u64 = 0;
-    let mut files_queued: u64 = 0;
-    let mut files_skipped: u64 = 0;
-    let mut errors: u64 = 0;
-
     // --- Batch existence check: load all known paths into a HashSet ---
     let known_paths: HashSet<String> = match sf_db::pool::get_conn(&ctx.db) {
         Ok(conn) => {
@@ -99,286 +122,408 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
         }
     };
 
-    // --- Series/season cache to avoid redundant DB lookups ---
-    let mut series_cache: HashMap<(sf_core::LibraryId, String), sf_db::models::Item> =
-        HashMap::new();
-    // Key: (series_id, season_number)
-    let mut season_cache: HashMap<(sf_core::ItemId, i32), sf_db::models::Item> = HashMap::new();
+    let counters = Arc::new(ScanCounters::new());
 
-    // --- TMDB enrichment channel ---
-    let (enrich_tx, enrich_rx) = tokio::sync::mpsc::channel::<(sf_core::ItemId, AppContext)>(256);
-    let enrich_rx = std::sync::Arc::new(tokio::sync::Mutex::new(enrich_rx));
-    let mut enrich_handles = Vec::new();
+    // --- Channels ---
+    // Walk → Probe: file paths to probe
+    let (walk_tx, walk_rx) = tokio::sync::mpsc::channel::<PathBuf>(256);
+    // Walk → PB collector: deferred -pb files
+    let (pb_tx, mut pb_rx) = tokio::sync::mpsc::channel::<PathBuf>(256);
+    // Probe → DB Writer: probe results
+    let (probe_tx, mut probe_rx) = tokio::sync::mpsc::channel::<ProbeResult>(64);
+    // DB Writer → Enrichment: items to enrich
+    let (enrich_tx, enrich_rx) = tokio::sync::mpsc::channel::<(sf_core::ItemId, sf_core::LibraryId, AppContext)>(256);
+    let enrich_rx = Arc::new(tokio::sync::Mutex::new(enrich_rx));
+
+    // --- Phase tracking ---
+    let (phase_tx, phase_rx) = tokio::sync::watch::channel("walking".to_string());
+
+    // --- Spawn enrichment workers (detached — will outlive scan) ---
     for _ in 0..ENRICH_CONCURRENCY {
         let rx = enrich_rx.clone();
-        enrich_handles.push(tokio::spawn(async move {
+        tokio::spawn(async move {
             loop {
                 let msg = {
                     let mut guard = rx.lock().await;
                     guard.recv().await
                 };
                 match msg {
-                    Some((item_id, ctx)) => auto_enrich(&ctx, item_id).await,
+                    Some((item_id, library_id, ctx)) => auto_enrich(&ctx, item_id, library_id).await,
                     None => break,
                 }
             }
-        }));
+        });
     }
 
-    // Collect -pb files for second pass (to link to parent items).
-    let mut deferred_pb_files: Vec<PathBuf> = Vec::new();
+    // --- Spawn walk stage (blocking I/O) ---
+    let walk_ctx = ctx.clone();
+    let walk_counters = counters.clone();
+    let walk_known_paths = known_paths.clone();
+    let walk_extensions = extensions;
+    let walk_paths = library.paths.clone();
+    let walk_library_id = library_id;
 
-    // --- Pass 1: Walk + parallel probe + batched DB writes ---
-    // Collect files to probe.
-    let mut files_to_probe: Vec<PathBuf> = Vec::new();
+    let walk_handle = tokio::task::spawn_blocking(move || {
+        let mut deferred_count: u64 = 0;
 
-    for dir in &library.paths {
-        let dir_path = Path::new(dir);
-        if !dir_path.exists() {
-            tracing::warn!(path = %dir, "Library scan path does not exist, skipping");
-            errors += 1;
-            continue;
-        }
+        for dir in &walk_paths {
+            let dir_path = Path::new(dir);
+            if !dir_path.exists() {
+                tracing::warn!(path = %dir, "Library scan path does not exist, skipping");
+                walk_counters.errors.fetch_add(1, Ordering::Relaxed);
+                walk_ctx.event_bus.broadcast(
+                    EventCategory::Admin,
+                    EventPayload::LibraryScanError {
+                        library_id: walk_library_id,
+                        file_path: dir.clone(),
+                        message: "Path does not exist".into(),
+                    },
+                );
+                continue;
+            }
 
-        for entry in walkdir::WalkDir::new(dir_path)
-            .follow_links(true)
-            .into_iter()
-            .filter_entry(|e| {
-                // Skip HLS output directories (e.g. movie-pb.hls/) — they
-                // contain .m4s segments and .m3u8 playlists, not scannable media.
-                if e.file_type().is_dir() {
-                    if let Some(name) = e.file_name().to_str() {
-                        if name.ends_with(".hls") {
-                            return false;
+            for entry in walkdir::WalkDir::new(dir_path)
+                .follow_links(true)
+                .into_iter()
+                .filter_entry(|e| {
+                    if e.file_type().is_dir() {
+                        if let Some(name) = e.file_name().to_str() {
+                            if name.ends_with(".hls") {
+                                return false;
+                            }
                         }
                     }
-                }
-                true
-            })
-            .filter_map(|e| match e {
-                Ok(entry) => Some(entry),
-                Err(err) => {
-                    tracing::warn!(error = %err, "Error walking directory");
-                    None
-                }
-            })
-        {
-            if !entry.file_type().is_file() {
-                continue;
-            }
-
-            let path = entry.path();
-            let file_name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-
-            // Skip partial download files.
-            if file_name.ends_with(".aria2")
-                || file_name.ends_with(".part")
-                || file_name.ends_with(".crdownload")
-                || file_name.ends_with(".tmp")
+                    true
+                })
+                .filter_map(|e| match e {
+                    Ok(entry) => Some(entry),
+                    Err(err) => {
+                        tracing::warn!(error = %err, "Error walking directory");
+                        None
+                    }
+                })
             {
-                continue;
-            }
-
-            // Defer -pb suffixed files to second pass so they link to
-            // parent items instead of creating duplicates.
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                if stem.ends_with("-pb") {
-                    deferred_pb_files.push(path.to_path_buf());
+                if !entry.file_type().is_file() {
                     continue;
                 }
-            }
 
-            // Extension filter.
-            if !extensions.is_empty() {
-                let ext = path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .map(|e| e.to_lowercase())
-                    .unwrap_or_default();
-                if !extensions.contains(&ext) {
+                let path = entry.path();
+                let file_name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("");
+
+                // Skip partial download files.
+                if file_name.ends_with(".aria2")
+                    || file_name.ends_with(".part")
+                    || file_name.ends_with(".crdownload")
+                    || file_name.ends_with(".tmp")
+                {
                     continue;
                 }
-            }
 
-            files_found += 1;
-
-            let file_path_str = path.to_string_lossy().to_string();
-
-            // Batch existence check via HashSet.
-            if known_paths.contains(&file_path_str) {
-                files_skipped += 1;
-                if files_found % PROGRESS_INTERVAL == 0 {
-                    emit_scan_progress(&ctx, library_id, files_found, files_queued, "walking", 0, files_found);
+                // Defer -pb suffixed files to second pass.
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    if stem.ends_with("-pb") {
+                        let _ = pb_tx.blocking_send(path.to_path_buf());
+                        deferred_count += 1;
+                        continue;
+                    }
                 }
-                continue;
-            }
 
-            files_to_probe.push(path.to_path_buf());
+                // Extension filter.
+                if !walk_extensions.is_empty() {
+                    let ext = path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .map(|e| e.to_lowercase())
+                        .unwrap_or_default();
+                    if !walk_extensions.contains(&ext) {
+                        continue;
+                    }
+                }
 
-            // Emit progress at intervals.
-            if files_found % PROGRESS_INTERVAL == 0 {
-                emit_scan_progress(&ctx, library_id, files_found, files_queued, "walking", 0, files_found);
+                walk_counters.files_found.fetch_add(1, Ordering::Relaxed);
+
+                let file_path_str = path.to_string_lossy().to_string();
+
+                // Batch existence check via HashSet.
+                if walk_known_paths.contains(&file_path_str) {
+                    walk_counters.files_skipped.fetch_add(1, Ordering::Relaxed);
+                    continue;
+                }
+
+                walk_counters.total_to_probe.fetch_add(1, Ordering::Relaxed);
+
+                // Send to probe pool — blocking_send provides backpressure.
+                if walk_tx.blocking_send(path.to_path_buf()).is_err() {
+                    break; // Receiver dropped, scan cancelled.
+                }
             }
         }
-    }
 
-    // Emit walking → probing transition.
-    let total_to_probe = files_to_probe.len() as u64;
-    emit_scan_progress(&ctx, library_id, files_found, files_queued, "probing", total_to_probe, 0);
+        deferred_count
+    });
 
-    // --- Parallel probe phase ---
-    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(PROBE_CONCURRENCY));
+    // --- Spawn probe pool (work-stealing via shared receiver) ---
+    let walk_rx = Arc::new(tokio::sync::Mutex::new(walk_rx));
     let mut probe_handles = Vec::new();
 
-    for file_path in files_to_probe {
-        let sem = semaphore.clone();
+    for _ in 0..PROBE_CONCURRENCY {
+        let rx = walk_rx.clone();
+        let tx = probe_tx.clone();
         let prober = ctx.prober.clone();
+        let probe_counters = counters.clone();
+        let probe_ctx = ctx.clone();
+        let probe_library_id = library_id;
 
         probe_handles.push(tokio::spawn(async move {
-            let _permit = sem.acquire().await.expect("semaphore closed");
+            loop {
+                let file_path = {
+                    let mut guard = rx.lock().await;
+                    guard.recv().await
+                };
+                let file_path = match file_path {
+                    Some(p) => p,
+                    None => break, // Channel closed, walk complete.
+                };
 
-            let path = file_path.clone();
-            let result = tokio::task::spawn_blocking(move || {
-                let info = prober.probe(&path)?;
-                let size = std::fs::metadata(&path)
-                    .map(|m| m.len() as i64)
-                    .unwrap_or(0);
-                Ok::<_, sf_core::Error>((info, size))
-            })
-            .await;
+                let prober_clone = prober.clone();
+                let path_clone = file_path.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    let info = prober_clone.probe(&path_clone)?;
+                    let size = std::fs::metadata(&path_clone)
+                        .map(|m| m.len() as i64)
+                        .unwrap_or(0);
+                    Ok::<_, sf_core::Error>((info, size))
+                })
+                .await;
 
-            match result {
-                Ok(Ok((media_info, file_size))) => {
-                    let file_name = file_path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("unknown")
-                        .to_string();
-                    let file_stem = file_path
-                        .file_stem()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or(&file_name)
-                        .to_string();
-                    let parsed = sf_parser::parse(&file_stem);
-                    let file_path_str = file_path.to_string_lossy().to_string();
+                probe_counters.probes_completed.fetch_add(1, Ordering::Relaxed);
 
-                    Ok(ProbeResult {
-                        path: file_path,
-                        file_path_str,
-                        file_name,
-                        parsed,
-                        media_info,
-                        file_size,
-                    })
+                match result {
+                    Ok(Ok((media_info, file_size))) => {
+                        let file_name = file_path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        let file_stem = file_path
+                            .file_stem()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or(&file_name)
+                            .to_string();
+                        let parsed = sf_parser::parse(&file_stem);
+                        let file_path_str = file_path.to_string_lossy().to_string();
+
+                        let pr = ProbeResult {
+                            path: file_path,
+                            file_path_str,
+                            file_name,
+                            parsed,
+                            media_info,
+                            file_size,
+                        };
+                        if tx.send(pr).await.is_err() {
+                            break; // DB writer dropped.
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        let fp = file_path.to_string_lossy().to_string();
+                        tracing::warn!(file = %fp, error = %e, "Failed to probe file");
+                        probe_counters.errors.fetch_add(1, Ordering::Relaxed);
+                        probe_ctx.event_bus.broadcast(
+                            EventCategory::Admin,
+                            EventPayload::LibraryScanError {
+                                library_id: probe_library_id,
+                                file_path: fp,
+                                message: format!("Probe failed: {e}"),
+                            },
+                        );
+                    }
+                    Err(e) => {
+                        let fp = file_path.to_string_lossy().to_string();
+                        tracing::warn!(file = %fp, error = %e, "Probe task panicked");
+                        probe_counters.errors.fetch_add(1, Ordering::Relaxed);
+                        probe_ctx.event_bus.broadcast(
+                            EventCategory::Admin,
+                            EventPayload::LibraryScanError {
+                                library_id: probe_library_id,
+                                file_path: fp,
+                                message: format!("Probe task panicked: {e}"),
+                            },
+                        );
+                    }
                 }
-                Ok(Err(e)) => Err((file_path, e)),
-                Err(e) => Err((
-                    file_path,
-                    sf_core::Error::Io {
-                        source: std::io::Error::new(std::io::ErrorKind::Other, e),
-                    },
-                )),
             }
         }));
     }
+    // Drop our copy of probe_tx so the DB writer sees EOF when all probers finish.
+    drop(probe_tx);
 
-    // Collect probe results and write to DB in batches.
-    let mut batch: Vec<ProbeResult> = Vec::with_capacity(DB_BATCH_SIZE);
-    let mut probes_completed: u64 = 0;
+    // --- Spawn DB writer (single consumer, owns caches) ---
+    let writer_ctx = ctx.clone();
+    let writer_counters = counters.clone();
+    let writer_enrich_tx = enrich_tx.clone();
+    let writer_phase_tx = phase_tx.clone();
 
-    for handle in probe_handles {
-        probes_completed += 1;
-        match handle.await {
-            Ok(Ok(result)) => {
-                batch.push(result);
-                if batch.len() >= DB_BATCH_SIZE {
-                    emit_scan_progress(&ctx, library_id, files_found, files_queued, "writing", total_to_probe, probes_completed);
-                    let (queued, errs) = flush_batch(
-                        &ctx,
-                        library_id,
-                        auto_convert,
-                        &mut batch,
-                        &enrich_tx,
-                        &mut series_cache,
-                        &mut season_cache,
-                    )
-                    .await;
-                    files_queued += queued;
-                    errors += errs;
+    let db_writer_handle = tokio::spawn(async move {
+        let mut series_cache: HashMap<(sf_core::LibraryId, String), sf_db::models::Item> =
+            HashMap::new();
+        let mut season_cache: HashMap<(sf_core::ItemId, i32), sf_db::models::Item> =
+            HashMap::new();
+        let mut batch: Vec<ProbeResult> = Vec::with_capacity(DB_BATCH_SIZE);
+        let mut transitioned_to_writing = false;
+
+        while let Some(result) = probe_rx.recv().await {
+            batch.push(result);
+            if batch.len() >= DB_BATCH_SIZE {
+                if !transitioned_to_writing {
+                    let _ = writer_phase_tx.send("writing".to_string());
+                    transitioned_to_writing = true;
                 }
-            }
-            Ok(Err((path, e))) => {
-                tracing::warn!(file = %path.display(), error = %e, "Failed to probe file");
-                errors += 1;
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, "Probe task panicked");
-                errors += 1;
-            }
-        }
-        // Emit probe progress every few files.
-        if probes_completed % 5 == 0 || probes_completed == total_to_probe {
-            emit_scan_progress(&ctx, library_id, files_found, files_queued, "probing", total_to_probe, probes_completed);
-        }
-    }
-
-    // Flush remaining batch.
-    if !batch.is_empty() {
-        let (queued, errs) = flush_batch(
-            &ctx,
-            library_id,
-            auto_convert,
-            &mut batch,
-            &enrich_tx,
-            &mut series_cache,
-            &mut season_cache,
-        )
-        .await;
-        files_queued += queued;
-        errors += errs;
-    }
-
-    // --- Pass 2: -pb converted files (link to parent items) ---
-    for pb_path in &deferred_pb_files {
-        let file_path_str = pb_path.to_string_lossy().to_string();
-        files_found += 1;
-
-        // Batch existence check.
-        if known_paths.contains(&file_path_str) {
-            files_skipped += 1;
-            continue;
-        }
-
-        match ingest_converted_file(&ctx, pb_path).await {
-            Ok(true) => {
-                tracing::debug!(file = %file_path_str, "Scanner linked converted file to item");
-            }
-            Ok(false) => {
-                tracing::warn!(
-                    file = %file_path_str,
-                    "No source item found for converted file, skipping"
-                );
-                files_skipped += 1;
-            }
-            Err(e) => {
-                tracing::warn!(
-                    file = %file_path_str, error = %e,
-                    "Failed to ingest converted file"
-                );
-                errors += 1;
+                let (queued, errs) = flush_batch(
+                    &writer_ctx,
+                    library_id,
+                    auto_convert,
+                    &mut batch,
+                    &writer_enrich_tx,
+                    &mut series_cache,
+                    &mut season_cache,
+                )
+                .await;
+                writer_counters.files_queued.fetch_add(queued, Ordering::Relaxed);
+                writer_counters.errors.fetch_add(errs, Ordering::Relaxed);
             }
         }
-    }
 
-    // --- Wait for TMDB enrichment workers to finish ---
-    emit_scan_progress(&ctx, library_id, files_found, files_queued, "enriching", total_to_probe, total_to_probe);
-    drop(enrich_tx);
-    for handle in enrich_handles {
+        // Flush remaining batch.
+        if !batch.is_empty() {
+            let (queued, errs) = flush_batch(
+                &writer_ctx,
+                library_id,
+                auto_convert,
+                &mut batch,
+                &writer_enrich_tx,
+                &mut series_cache,
+                &mut season_cache,
+            )
+            .await;
+            writer_counters.files_queued.fetch_add(queued, Ordering::Relaxed);
+            writer_counters.errors.fetch_add(errs, Ordering::Relaxed);
+        }
+    });
+
+    // --- Spawn progress emitter ---
+    let progress_ctx = ctx.clone();
+    let progress_counters = counters.clone();
+    let progress_phase_rx = phase_rx.clone();
+    let progress_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(PROGRESS_INTERVAL_MS));
+        loop {
+            interval.tick().await;
+            let phase = progress_phase_rx.borrow().clone();
+            if phase == "done" {
+                break;
+            }
+            let files_found = progress_counters.files_found.load(Ordering::Relaxed);
+            let files_queued = progress_counters.files_queued.load(Ordering::Relaxed);
+            let total = progress_counters.total_to_probe.load(Ordering::Relaxed);
+            let completed = progress_counters.probes_completed.load(Ordering::Relaxed);
+
+            emit_scan_progress(
+                &progress_ctx,
+                library_id,
+                files_found,
+                files_queued,
+                &phase,
+                total,
+                completed,
+            );
+        }
+    });
+
+    // --- Cascade shutdown via channel drops ---
+
+    // Wait for walk to complete. walk_tx drops → probers drain.
+    let _deferred_count = walk_handle.await.unwrap_or(0);
+    let _ = phase_tx.send("probing".to_string());
+
+    // Wait for all probers to finish. probe_tx already dropped above → DB writer drains.
+    for handle in probe_handles {
         let _ = handle.await;
     }
+    let _ = phase_tx.send("writing".to_string());
+
+    // Wait for DB writer to finish.
+    let _ = db_writer_handle.await;
+
+    // --- Pass 2: -pb converted files (parallel, bounded by semaphore) ---
+    // pb_tx was moved into the walk closure and is already dropped after walk_handle completes.
+    let mut pb_files = Vec::new();
+    while let Some(path) = pb_rx.recv().await {
+        pb_files.push(path);
+    }
+
+    if !pb_files.is_empty() {
+        let pb_sem = Arc::new(tokio::sync::Semaphore::new(PB_CONCURRENCY));
+        let mut pb_handles = Vec::new();
+
+        for pb_path in pb_files {
+            let file_path_str = pb_path.to_string_lossy().to_string();
+            counters.files_found.fetch_add(1, Ordering::Relaxed);
+
+            // Batch existence check.
+            if known_paths.contains(&file_path_str) {
+                counters.files_skipped.fetch_add(1, Ordering::Relaxed);
+                continue;
+            }
+
+            let sem = pb_sem.clone();
+            let pb_ctx = ctx.clone();
+            let pb_counters = counters.clone();
+
+            pb_handles.push(tokio::spawn(async move {
+                let _permit = sem.acquire().await.expect("semaphore closed");
+                match ingest_converted_file(&pb_ctx, &pb_path).await {
+                    Ok(true) => {
+                        tracing::debug!(file = %pb_path.display(), "Scanner linked converted file to item");
+                    }
+                    Ok(false) => {
+                        tracing::warn!(
+                            file = %pb_path.display(),
+                            "No source item found for converted file, skipping"
+                        );
+                        pb_counters.files_skipped.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            file = %pb_path.display(), error = %e,
+                            "Failed to ingest converted file"
+                        );
+                        pb_counters.errors.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }));
+        }
+
+        for handle in pb_handles {
+            let _ = handle.await;
+        }
+    }
+
+    // --- Stop progress emitter ---
+    let _ = phase_tx.send("done".to_string());
+    let _ = progress_handle.await;
+
+    // --- Enrichment: DON'T WAIT. Drop enrich_tx, workers run in background. ---
+    drop(enrich_tx);
+
+    // Read final counters.
+    let files_found = counters.files_found.load(Ordering::Relaxed);
+    let files_queued = counters.files_queued.load(Ordering::Relaxed);
+    let files_skipped = counters.files_skipped.load(Ordering::Relaxed);
+    let errors = counters.errors.load(Ordering::Relaxed);
 
     // Emit completion.
     ctx.event_bus.broadcast(
@@ -413,7 +558,7 @@ async fn flush_batch(
     library_id: sf_core::LibraryId,
     auto_convert: bool,
     batch: &mut Vec<ProbeResult>,
-    enrich_tx: &tokio::sync::mpsc::Sender<(sf_core::ItemId, AppContext)>,
+    enrich_tx: &tokio::sync::mpsc::Sender<(sf_core::ItemId, sf_core::LibraryId, AppContext)>,
     series_cache: &mut HashMap<(sf_core::LibraryId, String), sf_db::models::Item>,
     season_cache: &mut HashMap<(sf_core::ItemId, i32), sf_db::models::Item>,
 ) -> (u64, u64) {
@@ -432,9 +577,19 @@ async fn flush_batch(
             Ok(c) => c,
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to get DB connection for batch flush");
-                errors += batch.len() as u64;
-                batch.clear();
-                return (files_queued, errors);
+                let batch_len = batch.len() as u64;
+                // Emit errors for each file in the batch.
+                for result in batch.drain(..) {
+                    ctx.event_bus.broadcast(
+                        EventCategory::Admin,
+                        EventPayload::LibraryScanError {
+                            library_id,
+                            file_path: result.file_path_str,
+                            message: format!("DB connection failed: {e}"),
+                        },
+                    );
+                }
+                return (files_queued, batch_len);
             }
         };
 
@@ -442,9 +597,18 @@ async fn flush_batch(
             Ok(tx) => tx,
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to start transaction for batch flush");
-                errors += batch.len() as u64;
-                batch.clear();
-                return (files_queued, errors);
+                let batch_len = batch.len() as u64;
+                for result in batch.drain(..) {
+                    ctx.event_bus.broadcast(
+                        EventCategory::Admin,
+                        EventPayload::LibraryScanError {
+                            library_id,
+                            file_path: result.file_path_str,
+                            message: format!("Transaction start failed: {e}"),
+                        },
+                    );
+                }
+                return (files_queued, batch_len);
             }
         };
 
@@ -491,17 +655,20 @@ async fn flush_batch(
 
     // Post-commit: send enrichment requests.
     for eid in enrich_items {
-        let _ = enrich_tx.send((eid, ctx.clone())).await;
+        let _ = enrich_tx.send((eid, library_id, ctx.clone())).await;
     }
 
-    // Post-commit: populate HLS cache for Profile B files.
+    // Post-commit: fire-and-forget HLS cache population.
     for (mf_id, path) in hls_tasks {
-        if let Err(e) = crate::hls_prep::populate_hls_cache(ctx, mf_id, &path).await {
-            tracing::warn!(
-                file = %path.display(), error = %e,
-                "Failed to populate HLS cache during scan"
-            );
-        }
+        let hls_ctx = ctx.clone();
+        tokio::spawn(async move {
+            if let Err(e) = crate::hls_prep::populate_hls_cache(&hls_ctx, mf_id, &path).await {
+                tracing::warn!(
+                    file = %path.display(), error = %e,
+                    "Failed to populate HLS cache during scan"
+                );
+            }
+        });
     }
 
     (files_queued, errors)
@@ -839,14 +1006,19 @@ async fn ingest_converted_file(ctx: &AppContext, path: &Path) -> sf_core::Result
         duration_secs,
     )?;
 
-    // Populate HLS cache for Profile B files.
+    // Fire-and-forget HLS cache for Profile B files.
     if profile == sf_core::Profile::B {
-        if let Err(e) = crate::hls_prep::populate_hls_cache(ctx, mf.id, path).await {
-            tracing::warn!(
-                file = %file_path_str, error = %e,
-                "Failed to populate HLS cache for converted file"
-            );
-        }
+        let hls_ctx = ctx.clone();
+        let hls_path = path.to_path_buf();
+        let hls_mf_id = mf.id;
+        tokio::spawn(async move {
+            if let Err(e) = crate::hls_prep::populate_hls_cache(&hls_ctx, hls_mf_id, &hls_path).await {
+                tracing::warn!(
+                    file = %hls_path.display(), error = %e,
+                    "Failed to populate HLS cache for converted file"
+                );
+            }
+        });
     }
 
     Ok(true)
@@ -854,7 +1026,8 @@ async fn ingest_converted_file(ctx: &AppContext, path: &Path) -> sf_core::Result
 
 /// Best-effort TMDB enrichment for a single item during scan.
 /// Silently returns on any failure (missing API key, no results, network error).
-async fn auto_enrich(ctx: &AppContext, item_id: sf_core::ItemId) {
+/// Emits `ItemEnriched` event on success.
+async fn auto_enrich(ctx: &AppContext, item_id: sf_core::ItemId, library_id: sf_core::LibraryId) {
     let (api_key, language) = {
         let meta = ctx.config_store.metadata.read();
         if !meta.auto_enrich {
@@ -919,8 +1092,16 @@ async fn auto_enrich(ctx: &AppContext, item_id: sf_core::ItemId) {
         },
     )
     .await
-    .is_err()
+    .is_ok()
     {
+        ctx.event_bus.broadcast(
+            EventCategory::User,
+            EventPayload::ItemEnriched {
+                item_id,
+                library_id,
+            },
+        );
+    } else {
         tracing::debug!(item_id = %item_id, "Auto-enrich failed");
     }
 }

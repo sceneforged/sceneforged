@@ -118,6 +118,17 @@ pub enum EventPayload {
         job_id: ConversionJobId,
         error: String,
     },
+
+    // -- Scan diagnostics ----------------------------------------------------
+    LibraryScanError {
+        library_id: LibraryId,
+        file_path: String,
+        message: String,
+    },
+    ItemEnriched {
+        item_id: ItemId,
+        library_id: LibraryId,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -307,6 +318,8 @@ mod tests {
             EventPayload::ConversionProgress { job_id: ConversionJobId::new(), progress: 0.75, encode_fps: Some(24.5), eta_secs: Some(120.0) },
             EventPayload::ConversionCompleted { job_id: ConversionJobId::new() },
             EventPayload::ConversionFailed { job_id: ConversionJobId::new(), error: "fail".into() },
+            EventPayload::LibraryScanError { library_id: LibraryId::new(), file_path: "/tmp/test.mkv".into(), message: "probe failed".into() },
+            EventPayload::ItemEnriched { item_id: ItemId::new(), library_id: LibraryId::new() },
         ];
         for p in &payloads {
             let json = serde_json::to_string(p).unwrap();

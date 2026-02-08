@@ -143,6 +143,9 @@ pub struct VideoStreamQuery {
 ///
 /// Jellyfin clients request this for direct play. The `id` is the item ID;
 /// `mediaSourceId` query param selects which media file.
+/// Uses chunked streaming via `ReaderStream` to avoid loading entire files
+/// into memory. Sendfile(2) intercepts most requests before they reach this
+/// handler; this is the safety-net fallback.
 pub async fn video_stream(
     State(ctx): State<AppContext>,
     Path(id): Path<String>,
@@ -171,76 +174,18 @@ pub async fn video_stream(
     };
 
     let file_path = std::path::PathBuf::from(&mf.file_path);
-    let metadata = tokio::fs::metadata(&file_path)
-        .await
-        .map_err(|_| sf_core::Error::not_found("file", &mf.file_path))?;
-
-    let file_size = metadata.len();
-    let content_type = guess_content_type(&mf.file_name, mf.container.as_deref());
-
-    // Parse Range header.
-    let range = headers
+    let range_header = headers
         .get(header::RANGE)
         .and_then(|v| v.to_str().ok())
-        .and_then(parse_range_header);
+        .map(|s| s.to_owned());
 
-    match range {
-        Some((start, end_opt)) => {
-            let end = end_opt.unwrap_or(file_size - 1).min(file_size - 1);
-            if start > end || start >= file_size {
-                return Ok((
-                    StatusCode::RANGE_NOT_SATISFIABLE,
-                    [(header::CONTENT_RANGE.as_str(), format!("bytes */{file_size}"))],
-                    Vec::new(),
-                )
-                    .into_response());
-            }
-
-            let length = end - start + 1;
-            let mut file = tokio::fs::File::open(&file_path).await.map_err(|_| {
-                sf_core::Error::not_found("file", &mf.file_path)
-            })?;
-            tokio::io::AsyncSeekExt::seek(&mut file, std::io::SeekFrom::Start(start))
-                .await
-                .map_err(|e| sf_core::Error::Internal(format!("Seek failed: {e}")))?;
-
-            let mut buf = vec![0u8; length as usize];
-            tokio::io::AsyncReadExt::read_exact(&mut file, &mut buf)
-                .await
-                .map_err(|e| sf_core::Error::Internal(format!("Read failed: {e}")))?;
-
-            Ok((
-                StatusCode::PARTIAL_CONTENT,
-                [
-                    (header::CONTENT_TYPE.as_str(), content_type.to_string()),
-                    (
-                        header::CONTENT_RANGE.as_str(),
-                        format!("bytes {start}-{end}/{file_size}"),
-                    ),
-                    (header::CONTENT_LENGTH.as_str(), length.to_string()),
-                    (header::ACCEPT_RANGES.as_str(), "bytes".to_string()),
-                ],
-                buf,
-            )
-                .into_response())
-        }
-        None => {
-            let data = tokio::fs::read(&file_path).await.map_err(|_| {
-                sf_core::Error::not_found("file", &mf.file_path)
-            })?;
-
-            Ok((
-                StatusCode::OK,
-                [
-                    (header::CONTENT_TYPE.as_str(), content_type.to_string()),
-                    (header::CONTENT_LENGTH.as_str(), file_size.to_string()),
-                    (header::ACCEPT_RANGES.as_str(), "bytes".to_string()),
-                ],
-                data,
-            )
-                .into_response())
-        }
-    }
+    Ok(crate::routes::streaming_helpers::serve_file_streaming(
+        &file_path,
+        &mf.file_name,
+        mf.container.as_deref(),
+        range_header.as_deref(),
+    )
+    .await?)
 }
 
 /// GET /Videos/{id}/master.m3u8 — HLS master playlist.
@@ -288,36 +233,3 @@ pub async fn master_playlist(
     ))
 }
 
-// -- Helpers (duplicated from routes/stream.rs to avoid coupling) --
-
-fn parse_range_header(value: &str) -> Option<(u64, Option<u64>)> {
-    let bytes_prefix = value.strip_prefix("bytes=")?;
-    let mut parts = bytes_prefix.splitn(2, '-');
-    let start_str = parts.next()?.trim();
-    let end_str = parts.next()?.trim();
-
-    let start: u64 = start_str.parse().ok()?;
-    let end: Option<u64> = if end_str.is_empty() {
-        None
-    } else {
-        Some(end_str.parse().ok()?)
-    };
-
-    Some((start, end))
-}
-
-fn guess_content_type(file_name: &str, container: Option<&str>) -> &'static str {
-    let ext = container
-        .or_else(|| file_name.rsplit('.').next())
-        .unwrap_or("");
-
-    match ext {
-        "mp4" | "m4v" => "video/mp4",
-        "mkv" => "video/x-matroska",
-        "avi" => "video/x-msvideo",
-        "webm" => "video/webm",
-        "ts" => "video/mp2t",
-        "mov" => "video/quicktime",
-        _ => "application/octet-stream",
-    }
-}

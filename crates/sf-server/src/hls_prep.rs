@@ -10,6 +10,11 @@ use tokio::sync::Notify;
 
 use crate::context::AppContext;
 
+/// Maximum number of entries in the HLS cache. When exceeded, excess entries
+/// are evicted (arbitrary order). First request after eviction will re-parse
+/// the moov atom (~200ms latency).
+const MAX_HLS_CACHE_ENTRIES: usize = 200;
+
 /// Get a `PreparedMedia` from the cache, populating it on demand if missing.
 ///
 /// Uses request coalescing via `ctx.hls_loading` so that concurrent requests
@@ -116,49 +121,39 @@ pub async fn populate_hls_cache(
     ctx.hls_cache.insert(media_file_id, Arc::new(prepared));
     tracing::debug!(media_file_id = %media_file_id, "HLS cache populated");
 
+    // Evict excess entries to keep memory bounded.
+    evict_if_over_limit(&ctx.hls_cache);
+
     Ok(())
 }
 
-/// Warm the HLS cache at startup by loading all Profile B media files.
-pub async fn warm_hls_cache(ctx: &AppContext) -> Result<()> {
-    let conn = sf_db::pool::get_conn(&ctx.db)?;
-    let media_files = sf_db::queries::media_files::list_media_files_by_profile(&conn, "B")?;
-    drop(conn);
-
-    let count = media_files.len();
-    if count == 0 {
-        return Ok(());
+/// Evict entries from the HLS cache if it exceeds `MAX_HLS_CACHE_ENTRIES`.
+///
+/// Evicts in arbitrary order (DashMap iteration order). This is intentionally
+/// simple — more sophisticated LRU tracking isn't worth the complexity for a
+/// cache that repopulates on demand in ~200ms.
+fn evict_if_over_limit(
+    cache: &dashmap::DashMap<MediaFileId, Arc<PreparedMedia>>,
+) {
+    let len = cache.len();
+    if len <= MAX_HLS_CACHE_ENTRIES {
+        return;
     }
 
-    tracing::info!("Warming HLS cache for {count} Profile B media files");
+    let to_remove = len - MAX_HLS_CACHE_ENTRIES;
+    let keys: Vec<MediaFileId> = cache
+        .iter()
+        .take(to_remove)
+        .map(|entry| *entry.key())
+        .collect();
 
-    let mut loaded = 0u64;
-    let mut errors = 0u64;
-
-    for mf in media_files {
-        let path = Path::new(&mf.file_path);
-        if !path.exists() {
-            tracing::debug!(
-                media_file_id = %mf.id,
-                path = %mf.file_path,
-                "Skipping HLS warmup: file not found"
-            );
-            continue;
-        }
-
-        match populate_hls_cache(ctx, mf.id, path).await {
-            Ok(()) => loaded += 1,
-            Err(e) => {
-                tracing::warn!(
-                    media_file_id = %mf.id,
-                    error = %e,
-                    "Failed to warm HLS cache entry"
-                );
-                errors += 1;
-            }
-        }
+    for key in &keys {
+        cache.remove(key);
     }
 
-    tracing::info!("HLS cache warmup complete: {loaded} loaded, {errors} errors");
-    Ok(())
+    tracing::debug!(
+        evicted = keys.len(),
+        remaining = cache.len(),
+        "HLS cache eviction"
+    );
 }
