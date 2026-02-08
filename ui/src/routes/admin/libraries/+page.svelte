@@ -60,7 +60,8 @@
 	let scanErrors = $state<{ file_path: string; message: string }[]>([]);
 	let showErrors = $state(false);
 
-	// Enriched item tracking
+	// Enrichment tracking
+	let enrichingItemIds = $state<Set<string>>(new Set());
 	let enrichedItemIds = $state<Set<string>>(new Set());
 
 	// Scan completion summary
@@ -187,6 +188,7 @@
 		discoveredItems = [];
 		scanErrors = [];
 		showErrors = false;
+		enrichingItemIds = new Set();
 		enrichedItemIds = new Set();
 		scanComplete = null;
 		try {
@@ -226,6 +228,7 @@
 				discoveredItems = [];
 				scanErrors = [];
 				showErrors = false;
+				enrichingItemIds = new Set();
 				enrichedItemIds = new Set();
 				scanComplete = null;
 			} else if (payload.type === 'library_scan_progress') {
@@ -267,8 +270,15 @@
 						{ file_path: payload.file_path, message: payload.message }
 					];
 				}
+			} else if (payload.type === 'item_enrichment_queued') {
+				if (scanningLibrary && payload.library_id === scanningLibrary || scanComplete) {
+					enrichingItemIds = new Set([...enrichingItemIds, payload.item_id]);
+				}
 			} else if (payload.type === 'item_enriched') {
 				if (payload.library_id === scanningLibrary || scanComplete) {
+					const newEnriching = new Set(enrichingItemIds);
+					newEnriching.delete(payload.item_id);
+					enrichingItemIds = newEnriching;
 					enrichedItemIds = new Set([...enrichedItemIds, payload.item_id]);
 				}
 			} else if (payload.type === 'item_updated') {
@@ -434,6 +444,8 @@
 									<span class="truncate text-xs font-medium">{item.name}</span>
 									{#if enrichedItemIds.has(item.id)}
 										<Sparkles class="h-3 w-3 shrink-0 text-amber-500" />
+									{:else if enrichingItemIds.has(item.id)}
+										<Loader2 class="h-3 w-3 shrink-0 animate-spin text-blue-400" />
 									{/if}
 								</div>
 							{/each}
@@ -477,6 +489,7 @@
 							discoveredItems = [];
 							scanErrors = [];
 							showErrors = false;
+							enrichingItemIds = new Set();
 							enrichedItemIds = new Set();
 						}}
 					>

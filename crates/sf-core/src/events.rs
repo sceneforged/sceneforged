@@ -125,6 +125,10 @@ pub enum EventPayload {
         file_path: String,
         message: String,
     },
+    ItemEnrichmentQueued {
+        item_id: ItemId,
+        library_id: LibraryId,
+    },
     ItemEnriched {
         item_id: ItemId,
         library_id: LibraryId,
@@ -319,6 +323,7 @@ mod tests {
             EventPayload::ConversionCompleted { job_id: ConversionJobId::new() },
             EventPayload::ConversionFailed { job_id: ConversionJobId::new(), error: "fail".into() },
             EventPayload::LibraryScanError { library_id: LibraryId::new(), file_path: "/tmp/test.mkv".into(), message: "probe failed".into() },
+            EventPayload::ItemEnrichmentQueued { item_id: ItemId::new(), library_id: LibraryId::new() },
             EventPayload::ItemEnriched { item_id: ItemId::new(), library_id: LibraryId::new() },
         ];
         for p in &payloads {

@@ -172,7 +172,7 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
                 tracing::warn!(path = %dir, "Library scan path does not exist, skipping");
                 walk_counters.errors.fetch_add(1, Ordering::Relaxed);
                 walk_ctx.event_bus.broadcast(
-                    EventCategory::Admin,
+                    EventCategory::User,
                     EventPayload::LibraryScanError {
                         library_id: walk_library_id,
                         file_path: dir.clone(),
@@ -333,7 +333,7 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
                         tracing::warn!(file = %fp, error = %e, "Failed to probe file");
                         probe_counters.errors.fetch_add(1, Ordering::Relaxed);
                         probe_ctx.event_bus.broadcast(
-                            EventCategory::Admin,
+                            EventCategory::User,
                             EventPayload::LibraryScanError {
                                 library_id: probe_library_id,
                                 file_path: fp,
@@ -346,7 +346,7 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
                         tracing::warn!(file = %fp, error = %e, "Probe task panicked");
                         probe_counters.errors.fetch_add(1, Ordering::Relaxed);
                         probe_ctx.event_bus.broadcast(
-                            EventCategory::Admin,
+                            EventCategory::User,
                             EventPayload::LibraryScanError {
                                 library_id: probe_library_id,
                                 file_path: fp,
@@ -483,6 +483,7 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
             let pb_ctx = ctx.clone();
             let pb_counters = counters.clone();
 
+            let pb_library_id = library_id;
             pb_handles.push(tokio::spawn(async move {
                 let _permit = sem.acquire().await.expect("semaphore closed");
                 match ingest_converted_file(&pb_ctx, &pb_path).await {
@@ -497,9 +498,18 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
                         pb_counters.files_skipped.fetch_add(1, Ordering::Relaxed);
                     }
                     Err(e) => {
+                        let fp = pb_path.to_string_lossy().to_string();
                         tracing::warn!(
-                            file = %pb_path.display(), error = %e,
+                            file = %fp, error = %e,
                             "Failed to ingest converted file"
+                        );
+                        pb_ctx.event_bus.broadcast(
+                            EventCategory::User,
+                            EventPayload::LibraryScanError {
+                                library_id: pb_library_id,
+                                file_path: fp,
+                                message: format!("PB ingest failed: {e}"),
+                            },
                         );
                         pb_counters.errors.fetch_add(1, Ordering::Relaxed);
                     }
@@ -581,7 +591,7 @@ async fn flush_batch(
                 // Emit errors for each file in the batch.
                 for result in batch.drain(..) {
                     ctx.event_bus.broadcast(
-                        EventCategory::Admin,
+                        EventCategory::User,
                         EventPayload::LibraryScanError {
                             library_id,
                             file_path: result.file_path_str,
@@ -600,7 +610,7 @@ async fn flush_batch(
                 let batch_len = batch.len() as u64;
                 for result in batch.drain(..) {
                     ctx.event_bus.broadcast(
-                        EventCategory::Admin,
+                        EventCategory::User,
                         EventPayload::LibraryScanError {
                             library_id,
                             file_path: result.file_path_str,
@@ -613,6 +623,7 @@ async fn flush_batch(
         };
 
         for result in batch.drain(..) {
+            let file_path_for_error = result.file_path_str.clone();
             match ingest_probed_file(
                 ctx,
                 &tx,
@@ -640,7 +651,15 @@ async fn flush_batch(
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(error = %e, "Failed to ingest file in batch");
+                    tracing::warn!(error = %e, file = %file_path_for_error, "Failed to ingest file in batch");
+                    ctx.event_bus.broadcast(
+                        EventCategory::User,
+                        EventPayload::LibraryScanError {
+                            library_id,
+                            file_path: file_path_for_error,
+                            message: format!("Ingest failed: {e}"),
+                        },
+                    );
                     errors += 1;
                 }
             }
@@ -656,6 +675,13 @@ async fn flush_batch(
     // Post-commit: send enrichment requests.
     for eid in enrich_items {
         let _ = enrich_tx.send((eid, library_id, ctx.clone())).await;
+        ctx.event_bus.broadcast(
+            EventCategory::User,
+            EventPayload::ItemEnrichmentQueued {
+                item_id: eid,
+                library_id,
+            },
+        );
     }
 
     // Post-commit: fire-and-forget HLS cache population.

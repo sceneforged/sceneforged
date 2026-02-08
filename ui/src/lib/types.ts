@@ -205,6 +205,7 @@ export type EventPayload =
 	| { type: 'conversion_completed'; job_id: string }
 	| { type: 'conversion_failed'; job_id: string; error: string }
 	| { type: 'library_scan_error'; library_id: string; file_path: string; message: string }
+	| { type: 'item_enrichment_queued'; item_id: string; library_id: string }
 	| { type: 'item_enriched'; item_id: string; library_id: string }
 	| { type: 'heartbeat' };
 
