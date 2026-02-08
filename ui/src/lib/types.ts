@@ -36,6 +36,9 @@ export interface ConversionJob {
 	source_resolution?: string;
 	source_container?: string;
 	priority: number;
+	bitrate?: string;
+	speed?: string;
+	output_size?: number;
 	created_at: string;
 	started_at?: string;
 	completed_at?: string;
@@ -193,7 +196,7 @@ export type EventPayload =
 	| { type: 'job_completed'; job_id: string }
 	| { type: 'job_failed'; job_id: string; error: string }
 	| { type: 'library_scan_started'; library_id: string }
-	| { type: 'library_scan_progress'; library_id: string; files_found: number; files_queued: number; phase: string; files_total: number; files_processed: number }
+	| { type: 'library_scan_progress'; library_id: string; files_found: number; files_queued: number; phase: string; files_total: number; files_processed: number; items_to_enrich: number; items_enriched: number }
 	| { type: 'library_scan_complete'; library_id: string; files_found: number; files_queued: number; files_skipped: number; errors: number }
 	| { type: 'library_created'; library_id: string; name: string }
 	| { type: 'library_deleted'; library_id: string }
@@ -202,7 +205,7 @@ export type EventPayload =
 	| { type: 'item_removed'; item_id: string }
 	| { type: 'conversion_queued'; job_id: string }
 	| { type: 'conversion_started'; job_id: string }
-	| { type: 'conversion_progress'; job_id: string; progress: number; encode_fps?: number; eta_secs?: number }
+	| { type: 'conversion_progress'; job_id: string; progress: number; encode_fps?: number; eta_secs?: number; bitrate?: string; speed?: string; total_size?: number }
 	| { type: 'conversion_completed'; job_id: string }
 	| { type: 'conversion_failed'; job_id: string; error: string }
 	| { type: 'library_scan_error'; library_id: string; file_path: string; message: string }

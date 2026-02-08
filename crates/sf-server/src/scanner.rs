@@ -10,14 +10,13 @@
 //! filename conventions.
 //!
 //! Pipeline architecture:
-//!   Walk ──mpsc──> Probe Pool (8) ──mpsc──> DB Writer ──mpsc──> Enrich Pool (4, detached)
+//!   Walk ──mpsc──> Probe Pool (8) ──mpsc──> DB Writer ──mpsc──> Enrich Pool (4, awaited)
 //!
 //! Performance optimizations:
 //! - Streaming walk→probe→write pipeline (all stages overlap)
 //! - 8 concurrent probe workers with work-stealing via shared receiver
 //! - Batched DB writes in transactions (flush every N files)
-//! - Fire-and-forget HLS cache population (spawned, not awaited)
-//! - Background enrichment (scan completes immediately, TMDB calls continue)
+//! - Enrichment workers awaited before scan completion (phase="enriching")
 //! - Parallel PB pass with bounded concurrency
 
 use std::collections::{HashMap, HashSet};
@@ -70,6 +69,8 @@ struct ScanCounters {
     errors: AtomicU64,
     probes_completed: AtomicU64,
     total_to_probe: AtomicU64,
+    items_to_enrich: AtomicU64,
+    items_enriched: AtomicU64,
 }
 
 impl ScanCounters {
@@ -81,6 +82,8 @@ impl ScanCounters {
             errors: AtomicU64::new(0),
             probes_completed: AtomicU64::new(0),
             total_to_probe: AtomicU64::new(0),
+            items_to_enrich: AtomicU64::new(0),
+            items_enriched: AtomicU64::new(0),
         }
     }
 }
@@ -88,8 +91,8 @@ impl ScanCounters {
 /// Scan a library's directories and register discovered media files.
 ///
 /// Uses a streaming pipeline: walk → probe → write → enrich. Each stage runs
-/// concurrently, connected by mpsc channels. Enrichment is detached — the scan
-/// completes immediately after DB writes; TMDB calls continue in background.
+/// concurrently, connected by mpsc channels. Enrichment workers are awaited
+/// before the scan completes so progress is visible in the UI.
 pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
     let library_id = library.id;
     let extensions: Vec<String> = ctx
@@ -142,21 +145,26 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
     // --- Phase tracking ---
     let (phase_tx, phase_rx) = tokio::sync::watch::channel("walking".to_string());
 
-    // --- Spawn enrichment workers (detached — will outlive scan) ---
+    // --- Spawn enrichment workers (awaited after DB writes complete) ---
+    let mut enrich_handles = Vec::new();
     for _ in 0..ENRICH_CONCURRENCY {
         let rx = enrich_rx.clone();
-        tokio::spawn(async move {
+        let enrich_counters = counters.clone();
+        enrich_handles.push(tokio::spawn(async move {
             loop {
                 let msg = {
                     let mut guard = rx.lock().await;
                     guard.recv().await
                 };
                 match msg {
-                    Some((item_id, library_id, ctx)) => auto_enrich(&ctx, item_id, library_id).await,
+                    Some((item_id, library_id, ctx)) => {
+                        auto_enrich(&ctx, item_id, library_id).await;
+                        enrich_counters.items_enriched.fetch_add(1, Ordering::Relaxed);
+                    }
                     None => break,
                 }
             }
-        });
+        }));
     }
 
     // --- Spawn walk stage (blocking I/O) ---
@@ -417,6 +425,7 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
                             &writer_enrich_tx,
                             &mut series_cache,
                             &mut season_cache,
+                            &writer_counters,
                         )
                         .await;
                         writer_counters.files_queued.fetch_add(queued, Ordering::Relaxed);
@@ -439,6 +448,7 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
                             &writer_enrich_tx,
                             &mut series_cache,
                             &mut season_cache,
+                            &writer_counters,
                         )
                         .await;
                         writer_counters.files_queued.fetch_add(queued, Ordering::Relaxed);
@@ -469,6 +479,8 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
             let files_queued = progress_counters.files_queued.load(Ordering::Relaxed);
             let total = progress_counters.total_to_probe.load(Ordering::Relaxed);
             let completed = progress_counters.probes_completed.load(Ordering::Relaxed);
+            let to_enrich = progress_counters.items_to_enrich.load(Ordering::Relaxed);
+            let enriched = progress_counters.items_enriched.load(Ordering::Relaxed);
 
             emit_scan_progress(
                 &progress_ctx,
@@ -478,6 +490,8 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
                 &phase,
                 total,
                 completed,
+                to_enrich,
+                enriched,
             );
         }
     });
@@ -561,12 +575,17 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
         }
     }
 
+    // --- Enrichment phase: wait for all enrichment workers to drain ---
+    let _ = phase_tx.send("enriching".to_string());
+    drop(enrich_tx); // closes channel — workers will drain remaining items then exit
+
+    for handle in enrich_handles {
+        let _ = handle.await;
+    }
+
     // --- Stop progress emitter ---
     let _ = phase_tx.send("done".to_string());
     let _ = progress_handle.await;
-
-    // --- Enrichment: DON'T WAIT. Drop enrich_tx, workers run in background. ---
-    drop(enrich_tx);
 
     // Read final counters.
     let files_found = counters.files_found.load(Ordering::Relaxed);
@@ -610,14 +629,13 @@ async fn flush_batch(
     enrich_tx: &tokio::sync::mpsc::Sender<(sf_core::ItemId, sf_core::LibraryId, AppContext)>,
     series_cache: &mut HashMap<(sf_core::LibraryId, String), sf_db::models::Item>,
     season_cache: &mut HashMap<(sf_core::ItemId, i32), sf_db::models::Item>,
+    counters: &ScanCounters,
 ) -> (u64, u64) {
     let mut files_queued: u64 = 0;
     let mut errors: u64 = 0;
 
     // Items to enrich after the transaction commits.
     let mut enrich_items: Vec<sf_core::ItemId> = Vec::new();
-    // HLS cache tasks to run after the transaction commits.
-    let mut hls_tasks: Vec<(sf_core::MediaFileId, PathBuf)> = Vec::new();
 
     // Run the synchronous transaction in a block so the non-Send Connection
     // is dropped before any .await points.
@@ -675,18 +693,13 @@ async fn flush_batch(
                 Ok(IngestOutcome {
                     queued,
                     enrich_item_id,
-                    mf_id,
-                    is_profile_b,
-                    path,
+                    ..
                 }) => {
                     if queued {
                         files_queued += 1;
                     }
                     if let Some(eid) = enrich_item_id {
                         enrich_items.push(eid);
-                    }
-                    if is_profile_b {
-                        hls_tasks.push((mf_id, path));
                     }
                 }
                 Err(e) => {
@@ -713,20 +726,9 @@ async fn flush_batch(
 
     // Post-commit: send enrichment requests.
     for eid in enrich_items {
-        let _ = enrich_tx.send((eid, library_id, ctx.clone())).await;
-    }
-
-    // Post-commit: fire-and-forget HLS cache population.
-    for (mf_id, path) in hls_tasks {
-        let hls_ctx = ctx.clone();
-        tokio::spawn(async move {
-            if let Err(e) = crate::hls_prep::populate_hls_cache(&hls_ctx, mf_id, &path).await {
-                tracing::warn!(
-                    file = %path.display(), error = %e,
-                    "Failed to populate HLS cache during scan"
-                );
-            }
-        });
+        if enrich_tx.send((eid, library_id, ctx.clone())).await.is_ok() {
+            counters.items_to_enrich.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     (files_queued, errors)
@@ -735,9 +737,6 @@ async fn flush_batch(
 struct IngestOutcome {
     queued: bool,
     enrich_item_id: Option<sf_core::ItemId>,
-    mf_id: sf_core::MediaFileId,
-    is_profile_b: bool,
-    path: PathBuf,
 }
 
 /// Ingest a single probed file into the database (within an existing transaction).
@@ -927,11 +926,10 @@ fn ingest_probed_file(
         }
     }
 
-    let is_profile_b = profile == sf_core::Profile::B;
     let mut queued = false;
 
     // Only queue conversion for files that aren't already Profile B.
-    if auto_convert && !is_profile_b {
+    if auto_convert && profile != sf_core::Profile::B {
         let job = sf_db::queries::conversion_jobs::create_conversion_job(conn, item.id, mf.id)?;
         ctx.event_bus.broadcast(
             EventCategory::Admin,
@@ -945,9 +943,6 @@ fn ingest_probed_file(
     Ok(IngestOutcome {
         queued,
         enrich_item_id,
-        mf_id: mf.id,
-        is_profile_b,
-        path,
     })
 }
 
@@ -1045,7 +1040,7 @@ async fn ingest_converted_file(ctx: &AppContext, path: &Path) -> sf_core::Result
         .map(|dv| dv.profile as i32);
     let duration_secs = media_info.duration.map(|d| d.as_secs_f64());
 
-    let mf = sf_db::queries::media_files::create_media_file(
+    sf_db::queries::media_files::create_media_file(
         &conn,
         item_id,
         &file_path_str,
@@ -1063,21 +1058,6 @@ async fn ingest_converted_file(ctx: &AppContext, path: &Path) -> sf_core::Result
         &profile.to_string(),
         duration_secs,
     )?;
-
-    // Fire-and-forget HLS cache for Profile B files.
-    if profile == sf_core::Profile::B {
-        let hls_ctx = ctx.clone();
-        let hls_path = path.to_path_buf();
-        let hls_mf_id = mf.id;
-        tokio::spawn(async move {
-            if let Err(e) = crate::hls_prep::populate_hls_cache(&hls_ctx, hls_mf_id, &hls_path).await {
-                tracing::warn!(
-                    file = %hls_path.display(), error = %e,
-                    "Failed to populate HLS cache for converted file"
-                );
-            }
-        });
-    }
 
     Ok(true)
 }
@@ -1190,6 +1170,8 @@ fn emit_scan_progress(
     phase: &str,
     files_total: u64,
     files_processed: u64,
+    items_to_enrich: u64,
+    items_enriched: u64,
 ) {
     ctx.event_bus.broadcast(
         EventCategory::User,
@@ -1200,6 +1182,8 @@ fn emit_scan_progress(
             phase: phase.to_string(),
             files_total,
             files_processed,
+            items_to_enrich,
+            items_enriched,
         },
     );
 }

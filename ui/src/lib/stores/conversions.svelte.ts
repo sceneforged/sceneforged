@@ -69,7 +69,10 @@ function createConversionsStore() {
 									...j,
 									progress_pct: payload.progress * 100,
 									encode_fps: payload.encode_fps ?? j.encode_fps,
-									eta_secs: payload.eta_secs ?? j.eta_secs
+									eta_secs: payload.eta_secs ?? j.eta_secs,
+									bitrate: payload.bitrate ?? j.bitrate,
+									speed: payload.speed ?? j.speed,
+									output_size: payload.total_size ?? j.output_size
 								}
 							: j
 					);

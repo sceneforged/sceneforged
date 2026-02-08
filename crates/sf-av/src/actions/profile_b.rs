@@ -135,11 +135,22 @@ pub async fn convert_to_profile_b(
     Ok(())
 }
 
+/// Progress stats from an ffmpeg encode.
+pub struct EncodeProgress {
+    /// 0.0..1.0
+    pub pct: f64,
+    pub fps: Option<f64>,
+    pub bitrate: Option<String>,
+    pub speed: Option<String>,
+    pub total_size: Option<i64>,
+    pub frame: Option<u64>,
+}
+
 /// Like [`convert_to_profile_b`] but streams progress via a callback and
 /// supports cancellation.
 ///
 /// `duration_secs` is the source duration used to compute percentage.
-/// `progress_callback` receives `(pct 0.0..1.0, Option<fps>)` periodically.
+/// `progress_callback` receives an [`EncodeProgress`] periodically.
 pub async fn convert_to_profile_b_with_progress(
     tools: &ToolRegistry,
     input: &Path,
@@ -147,7 +158,7 @@ pub async fn convert_to_profile_b_with_progress(
     source_height: Option<u32>,
     config: &sf_core::config::ConversionConfig,
     duration_secs: Option<f64>,
-    mut progress_callback: impl FnMut(f64, Option<f64>),
+    mut progress_callback: impl FnMut(EncodeProgress),
     cancel: Option<CancellationToken>,
 ) -> sf_core::Result<()> {
     let ffmpeg = tools.require("ffmpeg")?;
@@ -201,9 +212,13 @@ pub async fn convert_to_profile_b_with_progress(
     cmd.args(["-map", "0:v:0", "-map", "0:a:0"]);
     cmd.arg(output.to_string_lossy().as_ref());
 
-    // Parse ffmpeg -progress output for out_time_us and fps.
+    // Parse ffmpeg -progress output.
     let mut last_out_time_us: Option<i64> = None;
     let mut last_fps: Option<f64> = None;
+    let mut last_bitrate: Option<String> = None;
+    let mut last_speed: Option<String> = None;
+    let mut last_total_size: Option<i64> = None;
+    let mut last_frame: Option<u64> = None;
     let mut last_callback = std::time::Instant::now();
 
     cmd.execute_with_stderr_callback(
@@ -212,6 +227,20 @@ pub async fn convert_to_profile_b_with_progress(
                 last_out_time_us = val.trim().parse::<i64>().ok();
             } else if let Some(val) = line.strip_prefix("fps=") {
                 last_fps = val.trim().parse::<f64>().ok();
+            } else if let Some(val) = line.strip_prefix("bitrate=") {
+                let v = val.trim();
+                if v != "N/A" {
+                    last_bitrate = Some(v.to_string());
+                }
+            } else if let Some(val) = line.strip_prefix("speed=") {
+                let v = val.trim();
+                if v != "N/A" {
+                    last_speed = Some(v.to_string());
+                }
+            } else if let Some(val) = line.strip_prefix("total_size=") {
+                last_total_size = val.trim().parse::<i64>().ok();
+            } else if let Some(val) = line.strip_prefix("frame=") {
+                last_frame = val.trim().parse::<u64>().ok();
             } else if line.starts_with("progress=") {
                 // End of a progress block — emit callback.
                 if let (Some(out_us), Some(dur)) = (last_out_time_us, duration_secs) {
@@ -223,7 +252,14 @@ pub async fn convert_to_profile_b_with_progress(
                         if now.duration_since(last_callback) >= Duration::from_secs(2)
                             || line.contains("end")
                         {
-                            progress_callback(pct, last_fps);
+                            progress_callback(EncodeProgress {
+                                pct,
+                                fps: last_fps,
+                                bitrate: last_bitrate.clone(),
+                                speed: last_speed.clone(),
+                                total_size: last_total_size,
+                                frame: last_frame,
+                            });
                             last_callback = now;
                         }
                     }

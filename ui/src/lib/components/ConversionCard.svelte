@@ -111,18 +111,31 @@
 	{#if job.status === 'processing' || job.progress_pct > 0}
 		<div class="space-y-1">
 			<div class="flex justify-between text-xs">
-				<span class="text-muted-foreground">
+				<span class="flex items-center gap-2 text-muted-foreground">
 					{#if job.encode_fps}
 						{job.encode_fps.toFixed(1)} fps
 					{:else}
 						Encoding...
+					{/if}
+					{#if job.speed}
+						<span class="text-muted-foreground/70">{job.speed}</span>
+					{/if}
+					{#if job.bitrate}
+						<span class="text-muted-foreground/70">{job.bitrate}</span>
 					{/if}
 				</span>
 				<span class="font-medium">{job.progress_pct.toFixed(1)}%</span>
 			</div>
 			<Progress value={job.progress_pct} max={100} />
 			<div class="flex justify-between text-xs text-muted-foreground">
-				<span>Elapsed: {formatDurationSecs(clientElapsed)}</span>
+				<span>
+					Elapsed: {formatDurationSecs(clientElapsed)}
+					{#if job.output_size != null && job.output_size > 0}
+						<span class="ml-2">
+							{(job.output_size / (1024 * 1024)).toFixed(0)} MB
+						</span>
+					{/if}
+				</span>
 				{#if job.eta_secs != null && job.eta_secs > 0}
 					<span>ETA: {formatDurationSecs(job.eta_secs)}</span>
 				{/if}

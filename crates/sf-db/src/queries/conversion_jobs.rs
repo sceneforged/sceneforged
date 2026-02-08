@@ -8,7 +8,8 @@ use crate::models::ConversionJob;
 
 const COLS: &str = "id, item_id, media_file_id, status, progress_pct, encode_fps,
     eta_secs, error, created_at, started_at, completed_at,
-    locked_by, locked_at, source_media_file_id, priority";
+    locked_by, locked_at, source_media_file_id, priority,
+    bitrate, speed, output_size";
 
 /// Create a new conversion job.
 pub fn create_conversion_job(
@@ -42,6 +43,9 @@ pub fn create_conversion_job(
         locked_at: None,
         source_media_file_id: Some(source_media_file_id),
         priority: 0,
+        bitrate: None,
+        speed: None,
+        output_size: None,
     })
 }
 
@@ -132,11 +136,16 @@ pub fn update_conversion_progress(
     pct: f64,
     fps: Option<f64>,
     eta: Option<i64>,
+    bitrate: Option<&str>,
+    speed: Option<&str>,
+    output_size: Option<i64>,
 ) -> Result<bool> {
     let n = conn
         .execute(
-            "UPDATE conversion_jobs SET progress_pct = ?1, encode_fps = ?2, eta_secs = ?3 WHERE id = ?4",
-            rusqlite::params![pct, fps, eta, id.to_string()],
+            "UPDATE conversion_jobs SET progress_pct = ?1, encode_fps = ?2, eta_secs = ?3,
+                bitrate = ?4, speed = ?5, output_size = ?6
+             WHERE id = ?7",
+            rusqlite::params![pct, fps, eta, bitrate, speed, output_size, id.to_string()],
         )
         .map_err(|e| Error::database(e.to_string()))?;
     Ok(n > 0)
@@ -366,11 +375,17 @@ mod tests {
     fn progress_update() {
         let (conn, item_id, mf_id) = setup();
         let job = create_conversion_job(&conn, item_id, mf_id).unwrap();
-        assert!(update_conversion_progress(&conn, job.id, 50.0, Some(24.5), Some(120)).unwrap());
+        assert!(update_conversion_progress(
+            &conn, job.id, 50.0, Some(24.5), Some(120),
+            Some("5000kbits/s"), Some("1.5x"), Some(1024000),
+        ).unwrap());
 
         let found = get_conversion_job(&conn, job.id).unwrap().unwrap();
         assert!((found.progress_pct - 50.0).abs() < f64::EPSILON);
         assert!((found.encode_fps.unwrap() - 24.5).abs() < f64::EPSILON);
         assert_eq!(found.eta_secs, Some(120));
+        assert_eq!(found.bitrate.as_deref(), Some("5000kbits/s"));
+        assert_eq!(found.speed.as_deref(), Some("1.5x"));
+        assert_eq!(found.output_size, Some(1024000));
     }
 }

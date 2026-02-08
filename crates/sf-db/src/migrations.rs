@@ -314,6 +314,13 @@ CREATE TABLE invitations (
 ALTER TABLE conversion_jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
 "#;
 
+/// V10: Add encoding stats columns to conversion_jobs.
+const V10_CONVERSION_STATS: &str = r#"
+ALTER TABLE conversion_jobs ADD COLUMN bitrate TEXT;
+ALTER TABLE conversion_jobs ADD COLUMN speed TEXT;
+ALTER TABLE conversion_jobs ADD COLUMN output_size INTEGER;
+"#;
+
 /// Ordered list of (version, sql) pairs.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, V1_INITIAL),
@@ -325,6 +332,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (7, V7_SCANNER_INDEXES),
     (8, V8_FK_CASCADES),
     (9, V9_INVITATIONS_PRIORITY),
+    (10, V10_CONVERSION_STATS),
 ];
 
 /// Run all pending migrations on `conn`.

@@ -47,6 +47,8 @@
 	let scanFilesQueued = $state(0);
 	let scanFilesTotal = $state(0);
 	let scanFilesProcessed = $state(0);
+	let scanItemsToEnrich = $state(0);
+	let scanItemsEnriched = $state(0);
 
 	interface DiscoveredItem {
 		id: string;
@@ -104,6 +106,8 @@
 				scanFilesQueued = 0;
 				scanFilesTotal = 0;
 				scanFilesProcessed = 0;
+				scanItemsToEnrich = 0;
+				scanItemsEnriched = 0;
 				discoveredItems = [];
 				scanErrors = [];
 				showErrors = false;
@@ -119,6 +123,8 @@
 				scanPhase = payload.phase;
 				scanFilesTotal = payload.files_total;
 				scanFilesProcessed = payload.files_processed;
+				scanItemsToEnrich = payload.items_to_enrich;
+				scanItemsEnriched = payload.items_enriched;
 			} else if (
 				payload.type === 'library_scan_complete' &&
 				payload.library_id === libraryId
@@ -214,6 +220,8 @@
 		scanFilesQueued = 0;
 		scanFilesTotal = 0;
 		scanFilesProcessed = 0;
+		scanItemsToEnrich = 0;
+		scanItemsEnriched = 0;
 		discoveredItems = [];
 		scanErrors = [];
 		showErrors = false;
@@ -345,7 +353,7 @@
 								{:else if scanPhase === 'writing'}
 									Writing batch to database...
 								{:else if scanPhase === 'enriching'}
-									Fetching metadata from TMDB...
+									Enriching {scanItemsEnriched} / {scanItemsToEnrich} items
 								{:else}
 									Initializing...
 								{/if}
@@ -356,6 +364,8 @@
 						</div>
 						{#if scanPhase === 'probing' && scanFilesTotal > 0}
 							<Progress value={phaseProgress} max={100} />
+						{:else if scanPhase === 'enriching' && scanItemsToEnrich > 0}
+							<Progress value={Math.round((scanItemsEnriched / scanItemsToEnrich) * 100)} max={100} />
 						{:else}
 							<div class="h-2 w-full overflow-hidden rounded-full bg-muted">
 								<div

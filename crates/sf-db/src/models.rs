@@ -348,6 +348,9 @@ pub struct ConversionJob {
     pub locked_at: Option<String>,
     pub source_media_file_id: Option<MediaFileId>,
     pub priority: i32,
+    pub bitrate: Option<String>,
+    pub speed: Option<String>,
+    pub output_size: Option<i64>,
 }
 
 impl ConversionJob {
@@ -368,6 +371,9 @@ impl ConversionJob {
             locked_at: row.get(12)?,
             source_media_file_id: parse_opt_id(row, 13)?,
             priority: row.get::<_, i32>(14).unwrap_or(0),
+            bitrate: row.get(15)?,
+            speed: row.get(16)?,
+            output_size: row.get(17)?,
         })
     }
 }

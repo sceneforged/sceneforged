@@ -163,36 +163,35 @@ async fn execute_conversion(
             let db = db.clone();
             let event_bus = event_bus.clone();
             let last_pct = last_pct.clone();
-            move |pct, fps| {
+            move |prog: sf_av::EncodeProgress| {
                 // Scale to 0..85% (encoding phase is 85% of total, HLS prep is remaining 15%).
-                let scaled_pct = pct * 85.0;
+                let scaled_pct = prog.pct * 85.0;
                 let int_pct = scaled_pct as u8;
 
                 // Only update DB/events when the integer percentage changes.
                 if int_pct > last_pct.load(Ordering::Relaxed) {
                     last_pct.store(int_pct, Ordering::Relaxed);
 
-                    // Compute ETA from pct and start time would require more state;
-                    // for now just report fps.
                     if let Ok(conn) = sf_db::pool::get_conn(&db) {
                         let _ = sf_db::queries::conversion_jobs::update_conversion_progress(
                             &conn,
                             job_id,
                             scaled_pct,
-                            fps,
+                            prog.fps,
                             None,
+                            prog.bitrate.as_deref(),
+                            prog.speed.as_deref(),
+                            prog.total_size,
                         );
                     }
 
                     // Estimate ETA from progress and fps.
-                    let eta = if pct > 0.01 {
+                    let eta = if prog.pct > 0.01 {
                         duration_secs.and_then(|dur| {
-                            fps.map(|f| {
+                            prog.fps.map(|f| {
                                 if f > 0.0 {
-                                    let remaining_pct = 1.0 - pct;
-                                    let elapsed_pct = pct;
-                                    // time_so_far / elapsed_pct = total_time
-                                    // remaining = total_time * remaining_pct
+                                    let remaining_pct = 1.0 - prog.pct;
+                                    let elapsed_pct = prog.pct;
                                     (dur * remaining_pct / elapsed_pct) as f64
                                 } else {
                                     0.0
@@ -208,8 +207,11 @@ async fn execute_conversion(
                         EventPayload::ConversionProgress {
                             job_id,
                             progress: scaled_pct as f32 / 100.0,
-                            encode_fps: fps,
+                            encode_fps: prog.fps,
                             eta_secs: eta,
+                            bitrate: prog.bitrate,
+                            speed: prog.speed,
+                            total_size: prog.total_size,
                         },
                     );
                 }
@@ -228,6 +230,9 @@ async fn execute_conversion(
             90.0,
             None,
             None,
+            None,
+            None,
+            None,
         )?;
     }
 
@@ -238,6 +243,9 @@ async fn execute_conversion(
             progress: 0.9,
             encode_fps: None,
             eta_secs: None,
+            bitrate: None,
+            speed: None,
+            total_size: None,
         },
     );
 
