@@ -124,27 +124,26 @@ impl TestHarness {
                 let app = app.clone();
                 tokio::spawn(async move {
                     let mut peek_buf = [0u8; 256];
-                    match stream.peek(&mut peek_buf).await {
-                        Ok(n) if sendfile::is_segment_request(&peek_buf[..n]) => {
+                    if let Ok(n) = stream.peek(&mut peek_buf).await {
+                        if let Some(route) = sendfile::classify_peek(&peek_buf[..n]) {
                             let std_stream = match stream.into_std() {
                                 Ok(s) => s,
                                 Err(_) => return,
                             };
                             tokio::task::spawn_blocking(move || {
-                                let _ = sendfile::handle_sendfile_segment(std_stream, &ctx);
+                                let _ = sendfile::handle_sendfile(std_stream, &ctx, route);
                             })
                             .await
                             .ok();
-                        }
-                        _ => {
-                            let io = TokioIo::new(stream);
-                            let hyper_service = TowerToHyperService::new(app.into_service());
-                            let _ = hyper::server::conn::http1::Builder::new()
-                                .serve_connection(io, hyper_service)
-                                .with_upgrades()
-                                .await;
+                            return;
                         }
                     }
+                    let io = TokioIo::new(stream);
+                    let hyper_service = TowerToHyperService::new(app.into_service());
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(io, hyper_service)
+                        .with_upgrades()
+                        .await;
                 });
             }
         });

@@ -196,8 +196,10 @@ async fn run_accept_loop(
 /// request, then either serve it via sendfile or pass it through to hyper/Axum.
 async fn handle_connection(stream: tokio::net::TcpStream, ctx: AppContext, app: Router) {
     let mut peek_buf = [0u8; 256];
-    match stream.peek(&mut peek_buf).await {
-        Ok(n) if sendfile::is_segment_request(&peek_buf[..n]) => {
+
+    // Try to route to the zero-copy sendfile handler.
+    if let Ok(n) = stream.peek(&mut peek_buf).await {
+        if let Some(route) = sendfile::classify_peek(&peek_buf[..n]) {
             let std_stream = match stream.into_std() {
                 Ok(s) => s,
                 Err(e) => {
@@ -206,57 +208,25 @@ async fn handle_connection(stream: tokio::net::TcpStream, ctx: AppContext, app: 
                 }
             };
             tokio::task::spawn_blocking(move || {
-                if let Err(e) = sendfile::handle_sendfile_segment(std_stream, &ctx) {
-                    tracing::debug!("Sendfile segment error: {e}");
+                if let Err(e) = sendfile::handle_sendfile(std_stream, &ctx, route) {
+                    tracing::debug!("Sendfile error: {e}");
                 }
             })
             .await
             .ok();
+            return;
         }
-        Ok(n) if sendfile::is_direct_request(&peek_buf[..n]) => {
-            let std_stream = match stream.into_std() {
-                Ok(s) => s,
-                Err(e) => {
-                    tracing::debug!("Failed to convert to std TcpStream: {e}");
-                    return;
-                }
-            };
-            tokio::task::spawn_blocking(move || {
-                if let Err(e) = sendfile::handle_sendfile_direct(std_stream, &ctx) {
-                    tracing::debug!("Sendfile direct error: {e}");
-                }
-            })
-            .await
-            .ok();
-        }
-        Ok(n) if sendfile::is_jellyfin_stream_request(&peek_buf[..n]) => {
-            let std_stream = match stream.into_std() {
-                Ok(s) => s,
-                Err(e) => {
-                    tracing::debug!("Failed to convert to std TcpStream: {e}");
-                    return;
-                }
-            };
-            tokio::task::spawn_blocking(move || {
-                if let Err(e) = sendfile::handle_sendfile_jellyfin_stream(std_stream, &ctx) {
-                    tracing::debug!("Sendfile jellyfin stream error: {e}");
-                }
-            })
-            .await
-            .ok();
-        }
-        _ => {
-            // Normal Axum/hyper path.
-            let io = TokioIo::new(stream);
-            let hyper_service = TowerToHyperService::new(app.into_service());
-            if let Err(e) = hyper::server::conn::http1::Builder::new()
-                .serve_connection(io, hyper_service)
-                .with_upgrades()
-                .await
-            {
-                tracing::debug!("Hyper connection error: {e}");
-            }
-        }
+    }
+
+    // Normal Axum/hyper path.
+    let io = TokioIo::new(stream);
+    let hyper_service = TowerToHyperService::new(app.into_service());
+    if let Err(e) = hyper::server::conn::http1::Builder::new()
+        .serve_connection(io, hyper_service)
+        .with_upgrades()
+        .await
+    {
+        tracing::debug!("Hyper connection error: {e}");
     }
 }
 
