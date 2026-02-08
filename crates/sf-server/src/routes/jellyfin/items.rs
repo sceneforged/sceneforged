@@ -151,6 +151,9 @@ pub async fn user_views(
             user_data: None,
             media_sources: None,
             media_streams: None,
+            media_type: None,
+            location_type: Some("FileSystem".to_string()),
+            video_type: None,
         })
         .collect();
 
@@ -330,6 +333,10 @@ pub async fn get_item(
             .iter()
             .map(|mf| {
                 let ticks = mf.duration_secs.map(|d| (d * dto::TICKS_PER_SECOND as f64) as i64);
+                let direct_stream_url = format!(
+                    "/Videos/{}/stream?mediaSourceId={}&static=true",
+                    item_id, mf.id,
+                );
                 dto::MediaSourceDto {
                     id: mf.id.to_string(),
                     name: mf.file_name.clone(),
@@ -340,6 +347,9 @@ pub async fn get_item(
                     supports_direct_stream: true,
                     supports_direct_play: true,
                     supports_transcoding: false,
+                    protocol: "File".to_string(),
+                    media_source_type: "Default".to_string(),
+                    direct_stream_url: Some(direct_stream_url),
                     media_streams: None,
                 }
             })

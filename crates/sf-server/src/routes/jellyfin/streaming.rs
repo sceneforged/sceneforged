@@ -106,6 +106,10 @@ pub async fn playback_info(
                 }
             }
 
+            let direct_stream_url = format!(
+                "/Videos/{}/stream?mediaSourceId={}&static=true",
+                item_id, mf.id,
+            );
             MediaSourceDto {
                 id: mf.id.to_string(),
                 name: mf.file_name.clone(),
@@ -116,6 +120,9 @@ pub async fn playback_info(
                 supports_direct_stream: true,
                 supports_direct_play: true,
                 supports_transcoding: false,
+                protocol: "File".to_string(),
+                media_source_type: "Default".to_string(),
+                direct_stream_url: Some(direct_stream_url),
                 media_streams: if streams.is_empty() {
                     None
                 } else {

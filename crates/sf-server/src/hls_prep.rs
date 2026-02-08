@@ -4,6 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use dashmap::mapref::entry::Entry;
+use dashmap::DashMap;
 use sf_core::{MediaFileId, Result};
 use sf_media::PreparedMedia;
 use tokio::sync::Notify;
@@ -14,6 +15,23 @@ use crate::context::AppContext;
 /// are evicted (arbitrary order). First request after eviction will re-parse
 /// the moov atom (~200ms latency).
 const MAX_HLS_CACHE_ENTRIES: usize = 200;
+
+/// Drop guard that ensures the `hls_loading` entry is cleaned up even if the
+/// loader future is cancelled (e.g. client disconnect). Without this, a stale
+/// `Notify` stays in the map and all subsequent requests for the same file
+/// deadlock permanently.
+struct LoadGuard<'a> {
+    loading: &'a DashMap<MediaFileId, Arc<Notify>>,
+    key: MediaFileId,
+    notify: Arc<Notify>,
+}
+
+impl Drop for LoadGuard<'_> {
+    fn drop(&mut self) {
+        self.loading.remove(&self.key);
+        self.notify.notify_waiters();
+    }
+}
 
 /// Get a `PreparedMedia` from the cache, populating it on demand if missing.
 ///
@@ -48,12 +66,18 @@ pub async fn get_or_populate(
                 let notify = Arc::new(Notify::new());
                 e.insert(notify.clone());
 
-                // Do the actual work, cleaning up on both success and failure.
+                // Guard ensures cleanup even if this future is cancelled.
+                let guard = LoadGuard {
+                    loading: &ctx.hls_loading,
+                    key: media_file_id,
+                    notify,
+                };
+
                 let result = do_populate(ctx, media_file_id).await;
 
-                // Remove our loading entry and notify all waiters.
-                ctx.hls_loading.remove(&media_file_id);
-                notify.notify_waiters();
+                // Explicit drop — guard's Drop removes the loading entry and
+                // wakes all waiters regardless of success/failure/cancellation.
+                drop(guard);
 
                 return result;
             }

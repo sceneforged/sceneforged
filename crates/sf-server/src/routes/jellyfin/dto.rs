@@ -45,6 +45,12 @@ pub struct BaseItemDto {
     pub media_streams: Option<Vec<MediaStreamDto>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collection_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_type: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -71,6 +77,11 @@ pub struct MediaSourceDto {
     pub supports_direct_stream: bool,
     pub supports_direct_play: bool,
     pub supports_transcoding: bool,
+    pub protocol: String,
+    #[serde(rename = "Type")]
+    pub media_source_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direct_stream_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media_streams: Option<Vec<MediaStreamDto>>,
 }
@@ -133,6 +144,8 @@ pub fn item_to_dto(
         _ => "Movie",
     };
 
+    let is_playable = item.item_kind == "movie" || item.item_kind == "episode";
+
     let run_time_ticks = item
         .runtime_minutes
         .map(|m| (m as i64) * 60 * TICKS_PER_SECOND);
@@ -176,5 +189,8 @@ pub fn item_to_dto(
         media_sources: None,
         media_streams: None,
         collection_type: None,
+        media_type: if is_playable { Some("Video".to_string()) } else { None },
+        location_type: Some("FileSystem".to_string()),
+        video_type: if is_playable { Some("VideoFile".to_string()) } else { None },
     }
 }
