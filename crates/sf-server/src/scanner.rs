@@ -702,13 +702,6 @@ async fn flush_batch(
     // Post-commit: send enrichment requests.
     for eid in enrich_items {
         let _ = enrich_tx.send((eid, library_id, ctx.clone())).await;
-        ctx.event_bus.broadcast(
-            EventCategory::User,
-            EventPayload::ItemEnrichmentQueued {
-                item_id: eid,
-                library_id,
-            },
-        );
     }
 
     // Post-commit: fire-and-forget HLS cache population.
@@ -1078,8 +1071,11 @@ async fn ingest_converted_file(ctx: &AppContext, path: &Path) -> sf_core::Result
 }
 
 /// Best-effort TMDB enrichment for a single item during scan.
-/// Silently returns on any failure (missing API key, no results, network error).
-/// Emits `ItemEnriched` event on success.
+///
+/// Emits `ItemEnrichmentQueued` before attempting TMDB lookup and
+/// `ItemEnriched` when done (success or failure), so the UI can show
+/// spinner → sparkle transitions. Early returns (no API key, disabled,
+/// already enriched) emit no events — those items never show a spinner.
 async fn auto_enrich(ctx: &AppContext, item_id: sf_core::ItemId, library_id: sf_core::LibraryId) {
     let (api_key, language) = {
         let meta = ctx.config_store.metadata.read();
@@ -1105,6 +1101,15 @@ async fn auto_enrich(ctx: &AppContext, item_id: sf_core::ItemId, library_id: sf_
         return; // Already enriched.
     }
 
+    // Signal to UI that enrichment is starting for this item.
+    ctx.event_bus.broadcast(
+        EventCategory::User,
+        EventPayload::ItemEnrichmentQueued {
+            item_id,
+            library_id,
+        },
+    );
+
     let client = crate::tmdb::TmdbClient::new(api_key, language);
     let is_tv = item.item_kind == "series";
 
@@ -1122,17 +1127,29 @@ async fn auto_enrich(ctx: &AppContext, item_id: sf_core::ItemId, library_id: sf_
         Ok(r) => r,
         Err(e) => {
             tracing::debug!(item_id = %item_id, error = %e, "Auto-enrich TMDB search failed");
+            // Emit enriched to clear the spinner even on failure.
+            ctx.event_bus.broadcast(
+                EventCategory::User,
+                EventPayload::ItemEnriched { item_id, library_id },
+            );
             return;
         }
     };
 
     let tmdb_id = match results.first() {
         Some(r) => r.id,
-        None => return,
+        None => {
+            // No TMDB results — clear the spinner.
+            ctx.event_bus.broadcast(
+                EventCategory::User,
+                EventPayload::ItemEnriched { item_id, library_id },
+            );
+            return;
+        }
     };
 
     // Use the enrich_item_with_body helper to do the actual enrichment.
-    if crate::routes::metadata::enrich_item_with_body(
+    let _ = crate::routes::metadata::enrich_item_with_body(
         ctx.clone(),
         item_id.to_string(),
         crate::routes::metadata::EnrichRequest {
@@ -1144,19 +1161,13 @@ async fn auto_enrich(ctx: &AppContext, item_id: sf_core::ItemId, library_id: sf_
             },
         },
     )
-    .await
-    .is_ok()
-    {
-        ctx.event_bus.broadcast(
-            EventCategory::User,
-            EventPayload::ItemEnriched {
-                item_id,
-                library_id,
-            },
-        );
-    } else {
-        tracing::debug!(item_id = %item_id, "Auto-enrich failed");
-    }
+    .await;
+
+    // Always emit enriched to clear the spinner.
+    ctx.event_bus.broadcast(
+        EventCategory::User,
+        EventPayload::ItemEnriched { item_id, library_id },
+    );
 }
 
 fn emit_scan_progress(
