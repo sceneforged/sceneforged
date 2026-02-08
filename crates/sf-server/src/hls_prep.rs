@@ -5,7 +5,6 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use dashmap::mapref::entry::Entry;
-use dashmap::DashMap;
 use sf_core::{MediaFileId, Result};
 use sf_media::PreparedMedia;
 use tokio::sync::Notify;
@@ -17,103 +16,128 @@ use crate::context::AppContext;
 /// the moov atom (~200ms latency).
 const MAX_HLS_CACHE_ENTRIES: usize = 200;
 
-/// Drop guard that ensures the `hls_loading` entry is cleaned up even if the
-/// loader future is cancelled (e.g. client disconnect). Without this, a stale
-/// `Notify` stays in the map and all subsequent requests for the same file
-/// deadlock permanently.
-struct LoadGuard<'a> {
-    loading: &'a DashMap<MediaFileId, Arc<Notify>>,
-    key: MediaFileId,
-    notify: Arc<Notify>,
-}
-
-impl Drop for LoadGuard<'_> {
-    fn drop(&mut self) {
-        self.loading.remove(&self.key);
-        self.notify.notify_waiters();
-    }
-}
+/// Maximum attempts before giving up (prevents infinite loops on corrupt files).
+const MAX_POPULATE_ATTEMPTS: usize = 2;
 
 /// Get a `PreparedMedia` from the cache, populating it on demand if missing.
 ///
 /// Uses request coalescing via `ctx.hls_loading` so that concurrent requests
-/// for the same file only trigger a single parse.
+/// for the same file only trigger a single parse. Population runs in a detached
+/// `tokio::spawn` task so it survives client disconnects.
 pub async fn get_or_populate(
     ctx: &AppContext,
     media_file_id: MediaFileId,
 ) -> Result<Arc<PreparedMedia>> {
-    // Fast path: already cached — touch timestamp for LRU.
-    if let Some(mut entry) = ctx.hls_cache.get_mut(&media_file_id) {
-        entry.1 = Instant::now();
-        return Ok(entry.0.clone());
-    }
+    let mut attempts = 0;
 
-    // Slow path: need to populate. Use coalescing to avoid duplicate work.
     loop {
+        // Check cache at the top of every iteration — handles the race where
+        // population completes between our Vacant insert and the next loop.
+        if let Some(mut entry) = ctx.hls_cache.get_mut(&media_file_id) {
+            entry.1 = Instant::now();
+            return Ok(entry.0.clone());
+        }
+
+        if attempts >= MAX_POPULATE_ATTEMPTS {
+            return Err(sf_core::Error::Internal(format!(
+                "HLS cache population failed after {MAX_POPULATE_ATTEMPTS} attempts for {media_file_id}"
+            )));
+        }
+
         match ctx.hls_loading.entry(media_file_id) {
             Entry::Occupied(e) => {
                 // Another task is already loading this file — wait for it.
                 let notify = e.get().clone();
                 drop(e);
                 notify.notified().await;
-
-                // Re-check cache: the loader should have populated it.
-                if let Some(mut entry) = ctx.hls_cache.get_mut(&media_file_id) {
-                    entry.1 = Instant::now();
-                    return Ok(entry.0.clone());
-                }
-                // Loader failed — loop to try becoming the loader ourselves.
+                attempts += 1;
+                // Loop back to check cache.
             }
             Entry::Vacant(e) => {
-                // We're the loader. Insert our Notify so others can wait.
+                // We're the first — insert Notify and spawn a detached task.
                 let notify = Arc::new(Notify::new());
                 e.insert(notify.clone());
 
-                // Guard ensures cleanup even if this future is cancelled.
-                let guard = LoadGuard {
-                    loading: &ctx.hls_loading,
-                    key: media_file_id,
-                    notify,
-                };
+                // Use a oneshot channel so the spawner gets the actual error back.
+                let (tx, rx) = tokio::sync::oneshot::channel::<Result<Arc<PreparedMedia>>>();
 
-                let result = do_populate(ctx, media_file_id).await;
+                let ctx2 = ctx.clone();
+                tokio::spawn(async move {
+                    let result = do_populate(&ctx2, media_file_id).await;
+                    // Always clean up and wake waiters, even on failure.
+                    ctx2.hls_loading.remove(&media_file_id);
+                    notify.notify_waiters();
+                    // Send result to the original caller (ignore error if they disconnected).
+                    let _ = tx.send(result);
+                });
 
-                // Explicit drop — guard's Drop removes the loading entry and
-                // wakes all waiters regardless of success/failure/cancellation.
-                drop(guard);
-
-                return result;
+                // Wait for the detached task to finish and get the result.
+                match rx.await {
+                    Ok(result) => return result,
+                    Err(_) => {
+                        // Task panicked — loop to retry.
+                        attempts += 1;
+                    }
+                }
             }
         }
     }
 }
 
 /// Look up the media file in DB, parse its moov, build PreparedMedia, and
-/// insert into the cache.
+/// insert into the cache. All blocking work runs inside `spawn_blocking`
+/// so it never blocks the async runtime AND survives cancellation.
 async fn do_populate(
     ctx: &AppContext,
     media_file_id: MediaFileId,
 ) -> Result<Arc<PreparedMedia>> {
-    // Look up the media file to get its path.
-    let conn = sf_db::pool::get_conn(&ctx.db)?;
-    let mf = sf_db::queries::media_files::get_media_file(&conn, media_file_id)?
-        .ok_or_else(|| sf_core::Error::not_found("media_file", media_file_id))?;
-    drop(conn);
+    let db = ctx.db.clone();
+    let hls_cache = ctx.hls_cache.clone();
 
-    let path = std::path::PathBuf::from(&mf.file_path);
-    if !path.exists() {
-        return Err(sf_core::Error::not_found("file", &mf.file_path));
-    }
+    let prepared = tokio::task::spawn_blocking(move || {
+        // DB lookup.
+        let conn = sf_db::pool::get_conn(&db)?;
+        let mf = sf_db::queries::media_files::get_media_file(&conn, media_file_id)?
+            .ok_or_else(|| sf_core::Error::not_found("media_file", media_file_id))?;
+        drop(conn);
 
-    // Parse and build (CPU-bound work on blocking thread).
-    populate_hls_cache(ctx, media_file_id, &path).await?;
+        let path = std::path::PathBuf::from(&mf.file_path);
+        if !path.exists() {
+            return Err(sf_core::Error::not_found("file", &mf.file_path));
+        }
 
-    ctx.hls_cache
-        .get(&media_file_id)
-        .map(|entry| entry.value().0.clone())
-        .ok_or_else(|| {
-            sf_core::Error::Internal("HLS cache entry missing after populate".into())
-        })
+        // Parse moov + build prepared media.
+        let file = std::fs::File::open(&path).map_err(|e| {
+            sf_core::Error::Internal(format!("Failed to open {}: {e}", path.display()))
+        })?;
+        let mut reader = std::io::BufReader::new(file);
+
+        let metadata = sf_media::parse_moov(&mut reader).map_err(|e| {
+            sf_core::Error::Internal(format!("Failed to parse moov in {}: {e}", path.display()))
+        })?;
+
+        let prepared = sf_media::build_prepared_media(&metadata, &path).map_err(|e| {
+            sf_core::Error::Internal(format!(
+                "Failed to build prepared media for {}: {e}",
+                path.display()
+            ))
+        })?;
+
+        let prepared = Arc::new(prepared);
+
+        // Insert into cache INSIDE spawn_blocking — non-cancellable.
+        hls_cache.insert(media_file_id, (prepared.clone(), Instant::now()));
+        tracing::debug!(media_file_id = %media_file_id, "HLS cache populated");
+
+        // Evict excess entries.
+        evict_if_over_limit(&hls_cache);
+
+        Ok(prepared)
+    })
+    .await
+    .map_err(|e| sf_core::Error::Internal(format!("spawn_blocking join error: {e}")))??;
+
+    Ok(prepared)
 }
 
 /// Parse the moov atom from a Profile B MP4 and insert precomputed segment
@@ -124,8 +148,9 @@ pub async fn populate_hls_cache(
     path: &Path,
 ) -> Result<()> {
     let path = path.to_path_buf();
+    let hls_cache = ctx.hls_cache.clone();
 
-    let prepared = tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
         let file = std::fs::File::open(&path).map_err(|e| {
             sf_core::Error::Internal(format!("Failed to open {}: {e}", path.display()))
         })?;
@@ -135,23 +160,24 @@ pub async fn populate_hls_cache(
             sf_core::Error::Internal(format!("Failed to parse moov in {}: {e}", path.display()))
         })?;
 
-        sf_media::build_prepared_media(&metadata, &path).map_err(|e| {
+        let prepared = sf_media::build_prepared_media(&metadata, &path).map_err(|e| {
             sf_core::Error::Internal(format!(
                 "Failed to build prepared media for {}: {e}",
                 path.display()
             ))
-        })
+        })?;
+
+        // Insert into cache inside spawn_blocking — non-cancellable.
+        hls_cache.insert(media_file_id, (Arc::new(prepared), Instant::now()));
+        tracing::debug!(media_file_id = %media_file_id, "HLS cache populated");
+
+        // Evict excess entries.
+        evict_if_over_limit(&hls_cache);
+
+        Ok(())
     })
     .await
-    .map_err(|e| sf_core::Error::Internal(format!("spawn_blocking join error: {e}")))??;
-
-    ctx.hls_cache.insert(media_file_id, (Arc::new(prepared), Instant::now()));
-    tracing::debug!(media_file_id = %media_file_id, "HLS cache populated");
-
-    // Evict excess entries to keep memory bounded.
-    evict_if_over_limit(&ctx.hls_cache);
-
-    Ok(())
+    .map_err(|e| sf_core::Error::Internal(format!("spawn_blocking join error: {e}")))?
 }
 
 /// Evict the least-recently-used entries from the HLS cache if it exceeds
