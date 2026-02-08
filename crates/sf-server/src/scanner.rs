@@ -44,6 +44,10 @@ const PB_CONCURRENCY: usize = 4;
 /// Interval in milliseconds between progress event emissions.
 const PROGRESS_INTERVAL_MS: u64 = 500;
 
+/// Maximum time (ms) to wait for more probe results before flushing a partial batch.
+/// This ensures items appear in the UI progressively instead of all at the end.
+const DB_FLUSH_TIMEOUT_MS: u64 = 500;
+
 /// Common media file extensions used when searching for a converted file's
 /// corresponding source.
 const SOURCE_EXTENSIONS: &[&str] = &["mkv", "mp4", "avi", "m4v", "webm", "ts", "wmv", "flv"];
@@ -374,43 +378,66 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
             HashMap::new();
         let mut batch: Vec<ProbeResult> = Vec::with_capacity(DB_BATCH_SIZE);
         let mut transitioned_to_writing = false;
+        let flush_timeout = std::time::Duration::from_millis(DB_FLUSH_TIMEOUT_MS);
 
-        while let Some(result) = probe_rx.recv().await {
-            batch.push(result);
-            if batch.len() >= DB_BATCH_SIZE {
-                if !transitioned_to_writing {
-                    let _ = writer_phase_tx.send("writing".to_string());
-                    transitioned_to_writing = true;
+        loop {
+            // If batch is empty, wait indefinitely for the first item.
+            // If batch has items, wait with a timeout so partial batches
+            // flush quickly — items appear in the UI progressively.
+            let recv_result = if batch.is_empty() {
+                probe_rx.recv().await
+            } else {
+                match tokio::time::timeout(flush_timeout, probe_rx.recv()).await {
+                    Ok(result) => result,
+                    Err(_) => None, // Timeout — flush the partial batch.
                 }
-                let (queued, errs) = flush_batch(
-                    &writer_ctx,
-                    library_id,
-                    auto_convert,
-                    &mut batch,
-                    &writer_enrich_tx,
-                    &mut series_cache,
-                    &mut season_cache,
-                )
-                .await;
-                writer_counters.files_queued.fetch_add(queued, Ordering::Relaxed);
-                writer_counters.errors.fetch_add(errs, Ordering::Relaxed);
-            }
-        }
+            };
 
-        // Flush remaining batch.
-        if !batch.is_empty() {
-            let (queued, errs) = flush_batch(
-                &writer_ctx,
-                library_id,
-                auto_convert,
-                &mut batch,
-                &writer_enrich_tx,
-                &mut series_cache,
-                &mut season_cache,
-            )
-            .await;
-            writer_counters.files_queued.fetch_add(queued, Ordering::Relaxed);
-            writer_counters.errors.fetch_add(errs, Ordering::Relaxed);
+            match recv_result {
+                Some(result) => {
+                    batch.push(result);
+                    if batch.len() >= DB_BATCH_SIZE {
+                        if !transitioned_to_writing {
+                            let _ = writer_phase_tx.send("writing".to_string());
+                            transitioned_to_writing = true;
+                        }
+                        let (queued, errs) = flush_batch(
+                            &writer_ctx,
+                            library_id,
+                            auto_convert,
+                            &mut batch,
+                            &writer_enrich_tx,
+                            &mut series_cache,
+                            &mut season_cache,
+                        )
+                        .await;
+                        writer_counters.files_queued.fetch_add(queued, Ordering::Relaxed);
+                        writer_counters.errors.fetch_add(errs, Ordering::Relaxed);
+                    }
+                }
+                None => {
+                    // Either channel closed or timeout with pending items.
+                    if !batch.is_empty() {
+                        let (queued, errs) = flush_batch(
+                            &writer_ctx,
+                            library_id,
+                            auto_convert,
+                            &mut batch,
+                            &writer_enrich_tx,
+                            &mut series_cache,
+                            &mut season_cache,
+                        )
+                        .await;
+                        writer_counters.files_queued.fetch_add(queued, Ordering::Relaxed);
+                        writer_counters.errors.fetch_add(errs, Ordering::Relaxed);
+                    }
+                    // If batch was empty and recv returned None, channel is closed.
+                    // If it was a timeout, we flushed and loop back to wait again.
+                    if probe_rx.is_closed() {
+                        break;
+                    }
+                }
+            }
         }
     });
 
