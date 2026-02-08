@@ -104,7 +104,8 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
     let auth_routes = Router::new()
         .route("/auth/login", post(routes::auth::login))
         .route("/auth/logout", post(routes::auth::logout))
-        .route("/auth/status", get(routes::auth::auth_status));
+        .route("/auth/status", get(routes::auth::auth_status))
+        .route("/auth/register", post(routes::invitations::register));
 
     // Protected API routes.
     let protected_routes = Router::new()
@@ -200,8 +201,16 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
             post(routes::conversions::dv_batch_convert),
         )
         .route(
+            "/conversions/reorder",
+            put(routes::conversions::reorder_conversions),
+        )
+        .route(
             "/conversions/{id}",
             get(routes::conversions::get_conversion).delete(routes::conversions::delete_conversion),
+        )
+        .route(
+            "/conversions/{id}/priority",
+            put(routes::conversions::update_priority),
         )
         // Playback
         .route(
@@ -271,6 +280,14 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
         .route(
             "/admin/users/{id}",
             put(routes::users::update_user).delete(routes::users::delete_user),
+        )
+        .route(
+            "/admin/invitations",
+            get(routes::invitations::list_invitations).post(routes::invitations::create_invitation),
+        )
+        .route(
+            "/admin/invitations/{id}",
+            delete(routes::invitations::delete_invitation),
         )
         .layer(middleware::from_fn_with_state(ctx.clone(), admin_middleware));
 

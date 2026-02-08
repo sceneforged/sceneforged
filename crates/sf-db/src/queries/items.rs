@@ -2,7 +2,7 @@
 
 use chrono::Utc;
 use rusqlite::Connection;
-use sf_core::{Error, ItemId, LibraryId, Result};
+use sf_core::{Error, ItemId, LibraryId, Result, UserId};
 
 use crate::models::Item;
 
@@ -376,6 +376,118 @@ pub fn search_items_fts(
                 vec![Box::new(fts_query), Box::new(limit)],
             ),
         };
+
+    let params_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    let mut stmt = conn.prepare(&sql).map_err(|e| Error::database(e.to_string()))?;
+    let rows = stmt
+        .query_map(params_refs.as_slice(), Item::from_row)
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?;
+    Ok(rows)
+}
+
+/// List items that a user has favorited, with optional library/kind filters.
+pub fn list_favorite_items(
+    conn: &Connection,
+    user_id: UserId,
+    library_id: Option<LibraryId>,
+    item_kinds: Option<&[&str]>,
+    offset: i64,
+    limit: i64,
+) -> Result<Vec<Item>> {
+    let mut sql = format!(
+        "SELECT {COLS} FROM items
+         INNER JOIN favorites ON favorites.item_id = items.id
+         WHERE favorites.user_id = ?1"
+    );
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(user_id.to_string())];
+    let mut idx = 2;
+
+    if let Some(lid) = library_id {
+        sql.push_str(&format!(" AND items.library_id = ?{idx}"));
+        params.push(Box::new(lid.to_string()));
+        idx += 1;
+    }
+
+    if let Some(kinds) = item_kinds {
+        if !kinds.is_empty() {
+            let placeholders: Vec<String> = kinds
+                .iter()
+                .enumerate()
+                .map(|(i, _)| format!("?{}", idx + i))
+                .collect();
+            sql.push_str(&format!(" AND items.item_kind IN ({})", placeholders.join(",")));
+            for kind in kinds {
+                params.push(Box::new(kind.to_string()));
+            }
+            idx += kinds.len();
+        }
+    }
+
+    sql.push_str(&format!(
+        " ORDER BY favorites.created_at DESC LIMIT ?{} OFFSET ?{}",
+        idx,
+        idx + 1
+    ));
+    params.push(Box::new(limit));
+    params.push(Box::new(offset));
+
+    let params_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    let mut stmt = conn.prepare(&sql).map_err(|e| Error::database(e.to_string()))?;
+    let rows = stmt
+        .query_map(params_refs.as_slice(), Item::from_row)
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?;
+    Ok(rows)
+}
+
+/// List items that a user has in-progress playback (position > 0, not completed).
+pub fn list_resumable_items(
+    conn: &Connection,
+    user_id: UserId,
+    library_id: Option<LibraryId>,
+    item_kinds: Option<&[&str]>,
+    offset: i64,
+    limit: i64,
+) -> Result<Vec<Item>> {
+    let mut sql = format!(
+        "SELECT {COLS} FROM items
+         INNER JOIN playback ON playback.item_id = items.id
+         WHERE playback.user_id = ?1 AND playback.position_secs > 0 AND playback.completed = 0"
+    );
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(user_id.to_string())];
+    let mut idx = 2;
+
+    if let Some(lid) = library_id {
+        sql.push_str(&format!(" AND items.library_id = ?{idx}"));
+        params.push(Box::new(lid.to_string()));
+        idx += 1;
+    }
+
+    if let Some(kinds) = item_kinds {
+        if !kinds.is_empty() {
+            let placeholders: Vec<String> = kinds
+                .iter()
+                .enumerate()
+                .map(|(i, _)| format!("?{}", idx + i))
+                .collect();
+            sql.push_str(&format!(" AND items.item_kind IN ({})", placeholders.join(",")));
+            for kind in kinds {
+                params.push(Box::new(kind.to_string()));
+            }
+            idx += kinds.len();
+        }
+    }
+
+    sql.push_str(&format!(
+        " ORDER BY playback.last_played_at DESC LIMIT ?{} OFFSET ?{}",
+        idx,
+        idx + 1
+    ));
+    params.push(Box::new(limit));
+    params.push(Box::new(offset));
 
     let params_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
     let mut stmt = conn.prepare(&sql).map_err(|e| Error::database(e.to_string()))?;

@@ -35,6 +35,7 @@ export interface ConversionJob {
 	source_audio_codec?: string;
 	source_resolution?: string;
 	source_container?: string;
+	priority: number;
 	created_at: string;
 	started_at?: string;
 	completed_at?: string;
@@ -256,4 +257,16 @@ export interface ContinueWatchingEntry {
 export interface FavoriteEntry {
 	item: Item;
 	created_at: string;
+}
+
+// Invitation types
+export interface Invitation {
+	id: string;
+	code: string;
+	role: string;
+	created_by: string;
+	created_at: string;
+	expires_at: string;
+	used_at?: string;
+	used_by?: string;
 }

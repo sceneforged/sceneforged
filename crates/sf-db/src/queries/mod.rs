@@ -4,6 +4,7 @@ pub mod auth;
 pub mod conversion_jobs;
 pub mod favorites;
 pub mod images;
+pub mod invitations;
 pub mod items;
 pub mod jobs;
 pub mod libraries;

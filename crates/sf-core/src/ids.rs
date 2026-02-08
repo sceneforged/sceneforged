@@ -94,6 +94,8 @@ typed_id! {
     RuleId,
     /// Unique identifier for a subtitle track.
     SubtitleTrackId,
+    /// Unique identifier for an invitation.
+    InvitationId,
 }
 
 #[cfg(test)]

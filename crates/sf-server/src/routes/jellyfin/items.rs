@@ -4,6 +4,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
+use rand::seq::SliceRandom;
 use serde::Deserialize;
 
 use crate::context::AppContext;
@@ -25,6 +26,8 @@ pub struct ItemsQuery {
     pub limit: Option<i64>,
     #[serde(alias = "sortBy", alias = "SortBy")]
     pub sort_by: Option<String>,
+    #[serde(alias = "sortOrder", alias = "SortOrder")]
+    pub sort_order: Option<String>,
     #[serde(alias = "searchTerm", alias = "SearchTerm")]
     pub search_term: Option<String>,
     #[serde(alias = "userId", alias = "UserId")]
@@ -33,9 +36,94 @@ pub struct ItemsQuery {
     pub series_id: Option<String>,
     #[serde(alias = "seasonId", alias = "SeasonId")]
     pub season_id: Option<String>,
+    #[serde(alias = "recursive", alias = "Recursive")]
+    pub recursive: Option<bool>,
+    #[serde(alias = "isFavorite", alias = "IsFavorite")]
+    pub is_favorite: Option<bool>,
+    #[serde(alias = "filters", alias = "Filters")]
+    pub filters: Option<String>,
 }
 
-/// GET /UserViews — list top-level library views.
+/// Map Jellyfin type names to our internal item_kind values.
+fn jellyfin_type_to_kind(jf_type: &str) -> Option<&'static str> {
+    match jf_type.trim() {
+        "Movie" => Some("movie"),
+        "Series" => Some("series"),
+        "Season" => Some("season"),
+        "Episode" => Some("episode"),
+        _ => None,
+    }
+}
+
+/// Collect all descendants of a parent item recursively (max 3 levels).
+fn collect_descendants(
+    conn: &rusqlite::Connection,
+    parent_id: sf_core::ItemId,
+    depth: u8,
+) -> Vec<sf_db::models::Item> {
+    if depth > 3 {
+        return Vec::new();
+    }
+    let children = sf_db::queries::items::list_children(conn, parent_id).unwrap_or_default();
+    let mut result = Vec::new();
+    for child in children {
+        let child_id = child.id;
+        result.push(child);
+        result.extend(collect_descendants(conn, child_id, depth + 1));
+    }
+    result
+}
+
+/// Apply includeItemTypes filtering to a list of items.
+fn filter_by_types(items: Vec<sf_db::models::Item>, include_types: &str) -> Vec<sf_db::models::Item> {
+    let kinds: Vec<&str> = include_types
+        .split(',')
+        .filter_map(jellyfin_type_to_kind)
+        .collect();
+    if kinds.is_empty() {
+        return items;
+    }
+    items
+        .into_iter()
+        .filter(|item| kinds.contains(&item.item_kind.as_str()))
+        .collect()
+}
+
+/// Apply sortBy/sortOrder to items.
+fn sort_items(items: &mut [sf_db::models::Item], sort_by: &str, sort_order: &str) {
+    let descending = sort_order.eq_ignore_ascii_case("Descending");
+    match sort_by.split(',').next().unwrap_or("") {
+        "SortName" => {
+            items.sort_by(|a, b| {
+                let a_name = a.sort_name.as_deref().unwrap_or(&a.name);
+                let b_name = b.sort_name.as_deref().unwrap_or(&b.name);
+                let cmp = a_name.to_lowercase().cmp(&b_name.to_lowercase());
+                if descending { cmp.reverse() } else { cmp }
+            });
+        }
+        "DateCreated" => {
+            items.sort_by(|a, b| {
+                let cmp = a.created_at.cmp(&b.created_at);
+                if descending { cmp.reverse() } else { cmp }
+            });
+        }
+        "CommunityRating" => {
+            items.sort_by(|a, b| {
+                let ar = a.community_rating.unwrap_or(0.0);
+                let br = b.community_rating.unwrap_or(0.0);
+                let cmp = ar.partial_cmp(&br).unwrap_or(std::cmp::Ordering::Equal);
+                if descending { cmp.reverse() } else { cmp }
+            });
+        }
+        "Random" => {
+            let mut rng = rand::thread_rng();
+            items.shuffle(&mut rng);
+        }
+        _ => {}
+    }
+}
+
+/// GET /UserViews -- list top-level library views.
 pub async fn user_views(
     State(ctx): State<AppContext>,
 ) -> Result<Json<ItemsResult>, AppError> {
@@ -73,54 +161,136 @@ pub async fn user_views(
     }))
 }
 
-/// GET /Items — list items with filtering.
+/// GET /Items -- list items with filtering.
 pub async fn list_items(
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Query(params): Query<ItemsQuery>,
 ) -> Result<Json<ItemsResult>, AppError> {
+    let user_id = resolve_user_from_headers(&ctx, &headers);
     let conn = sf_db::pool::get_conn(&ctx.db)?;
 
     let offset = params.start_index.unwrap_or(0);
     let limit = params.limit.unwrap_or(50).min(200);
 
-    let items = if let Some(ref parent_id) = params.parent_id {
+    // Check for isFavorite filter.
+    if params.is_favorite == Some(true) {
+        let kind_strs: Vec<&str> = params
+            .include_item_types
+            .as_deref()
+            .map(|s| s.split(',').filter_map(jellyfin_type_to_kind).collect())
+            .unwrap_or_default();
+        let kinds = if kind_strs.is_empty() { None } else { Some(kind_strs.as_slice()) };
+        let lib_id = params.parent_id.as_deref().and_then(|s| s.parse().ok());
+        let mut items = sf_db::queries::items::list_favorite_items(
+            &conn, user_id, lib_id, kinds, offset, limit,
+        )?;
+
+        if let Some(ref sort_by) = params.sort_by {
+            sort_items(&mut items, sort_by, params.sort_order.as_deref().unwrap_or("Ascending"));
+        }
+
+        return build_response(&conn, user_id, &items);
+    }
+
+    // Check for IsResumable filter.
+    if let Some(ref filters) = params.filters {
+        if filters.contains("IsResumable") {
+            let kind_strs: Vec<&str> = params
+                .include_item_types
+                .as_deref()
+                .map(|s| s.split(',').filter_map(jellyfin_type_to_kind).collect())
+                .unwrap_or_default();
+            let kinds = if kind_strs.is_empty() { None } else { Some(kind_strs.as_slice()) };
+            let lib_id = params.parent_id.as_deref().and_then(|s| s.parse().ok());
+            let mut items = sf_db::queries::items::list_resumable_items(
+                &conn, user_id, lib_id, kinds, offset, limit,
+            )?;
+
+            if let Some(ref sort_by) = params.sort_by {
+                sort_items(&mut items, sort_by, params.sort_order.as_deref().unwrap_or("Ascending"));
+            }
+
+            return build_response(&conn, user_id, &items);
+        }
+    }
+
+    // Standard item listing.
+    let mut items = if let Some(ref parent_id) = params.parent_id {
+        let recursive = params.recursive.unwrap_or(false);
         // Check if parent is a library or an item.
         if let Ok(lib_id) = parent_id.parse::<sf_core::LibraryId>() {
             if sf_db::queries::libraries::get_library(&conn, lib_id)?.is_some() {
-                // List top-level items (movies + series, no episodes/seasons directly).
-                sf_db::queries::items::list_items_by_library(&conn, lib_id, offset, limit)?
-                    .into_iter()
-                    .filter(|i| i.item_kind == "movie" || i.item_kind == "series")
-                    .collect()
+                if recursive {
+                    // Return all items in this library.
+                    sf_db::queries::items::list_items_by_library(&conn, lib_id, offset, limit)?
+                } else {
+                    // List top-level items (movies + series, no episodes/seasons directly).
+                    sf_db::queries::items::list_items_by_library(&conn, lib_id, offset, limit)?
+                        .into_iter()
+                        .filter(|i| i.item_kind == "movie" || i.item_kind == "series")
+                        .collect()
+                }
             } else if let Ok(item_id) = parent_id.parse::<sf_core::ItemId>() {
-                sf_db::queries::items::list_children(&conn, item_id)?
+                if recursive {
+                    collect_descendants(&conn, item_id, 0)
+                } else {
+                    sf_db::queries::items::list_children(&conn, item_id)?
+                }
             } else {
                 Vec::new()
             }
         } else if let Ok(item_id) = parent_id.parse::<sf_core::ItemId>() {
-            sf_db::queries::items::list_children(&conn, item_id)?
+            if recursive {
+                collect_descendants(&conn, item_id, 0)
+            } else {
+                sf_db::queries::items::list_children(&conn, item_id)?
+            }
         } else {
             Vec::new()
         }
     } else if let Some(ref search) = params.search_term {
         sf_db::queries::items::search_items(&conn, search, limit)?
     } else {
-        // Return all items without a parent_id filter — just first page.
+        // Return all items without a parent_id filter -- just first page.
         let libraries = sf_db::queries::libraries::list_libraries(&conn)?;
         let mut all = Vec::new();
         for lib in &libraries {
-            let items = sf_db::queries::items::list_items_by_library(&conn, lib.id, offset, limit)?;
-            all.extend(items);
+            let lib_items = sf_db::queries::items::list_items_by_library(&conn, lib.id, offset, limit)?;
+            all.extend(lib_items);
         }
         all
     };
 
+    // Apply includeItemTypes filter.
+    if let Some(ref types) = params.include_item_types {
+        items = filter_by_types(items, types);
+    }
+
+    // Apply sorting.
+    if let Some(ref sort_by) = params.sort_by {
+        sort_items(&mut items, sort_by, params.sort_order.as_deref().unwrap_or("Ascending"));
+    }
+
+    build_response(&conn, user_id, &items)
+}
+
+/// Build the ItemsResult response with user data for a list of items.
+fn build_response(
+    conn: &rusqlite::Connection,
+    user_id: sf_core::UserId,
+    items: &[sf_db::models::Item],
+) -> Result<Json<ItemsResult>, AppError> {
+    let item_ids: Vec<sf_core::ItemId> = items.iter().map(|i| i.id).collect();
+    let user_data_map = sf_db::queries::playback::batch_get_user_data(conn, user_id, &item_ids)?;
+
     let dtos: Vec<BaseItemDto> = items
         .iter()
         .map(|item| {
-            let images = sf_db::queries::images::list_images_by_item(&conn, item.id)
+            let images = sf_db::queries::images::list_images_by_item(conn, item.id)
                 .unwrap_or_default();
-            dto::item_to_dto(item, &images)
+            let ud = user_data_map.get(&item.id);
+            dto::item_to_dto(item, &images, ud)
         })
         .collect();
 
@@ -131,22 +301,27 @@ pub async fn list_items(
     }))
 }
 
-/// GET /Items/{id} — get a single item.
+/// GET /Items/{id} -- get a single item.
 pub async fn get_item(
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<BaseItemDto>, AppError> {
     let item_id: sf_core::ItemId = id
         .parse()
         .map_err(|_| sf_core::Error::Validation("Invalid item_id".into()))?;
 
+    let user_id = resolve_user_from_headers(&ctx, &headers);
     let conn = sf_db::pool::get_conn(&ctx.db)?;
     let item = sf_db::queries::items::get_item(&conn, item_id)?
         .ok_or_else(|| sf_core::Error::not_found("item", item_id))?;
 
     let images = sf_db::queries::images::list_images_by_item(&conn, item_id)
         .unwrap_or_default();
-    let mut item_dto = dto::item_to_dto(&item, &images);
+    let user_data_map =
+        sf_db::queries::playback::batch_get_user_data(&conn, user_id, &[item_id])?;
+    let ud = user_data_map.get(&item_id);
+    let mut item_dto = dto::item_to_dto(&item, &images, ud);
 
     // Add media sources for playable items.
     if item.item_kind == "movie" || item.item_kind == "episode" {
@@ -192,7 +367,7 @@ pub async fn show_seasons(
         .map(|item| {
             let images = sf_db::queries::images::list_images_by_item(&conn, item.id)
                 .unwrap_or_default();
-            let mut d = dto::item_to_dto(item, &images);
+            let mut d = dto::item_to_dto(item, &images, None);
             d.series_id = Some(series_id.to_string());
             d
         })
@@ -231,7 +406,7 @@ pub async fn show_episodes(
             for ep in eps {
                 let images = sf_db::queries::images::list_images_by_item(&conn, ep.id)
                     .unwrap_or_default();
-                let mut d = dto::item_to_dto(&ep, &images);
+                let mut d = dto::item_to_dto(&ep, &images, None);
                 d.series_id = Some(series_id.to_string());
                 d.season_id = Some(season.id.to_string());
                 episodes.push(d);
@@ -252,7 +427,7 @@ pub async fn show_episodes(
         .map(|item| {
             let images = sf_db::queries::images::list_images_by_item(&conn, item.id)
                 .unwrap_or_default();
-            dto::item_to_dto(item, &images)
+            dto::item_to_dto(item, &images, None)
         })
         .collect();
 
@@ -286,7 +461,7 @@ fn resolve_user_from_headers(ctx: &AppContext, headers: &HeaderMap) -> sf_core::
         .unwrap_or_else(anonymous_user_id)
 }
 
-/// GET /Shows/NextUp — next unwatched episode for the authenticated user.
+/// GET /Shows/NextUp -- next unwatched episode for the authenticated user.
 pub async fn next_up(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
@@ -303,7 +478,7 @@ pub async fn next_up(
         .map(|item| {
             let images = sf_db::queries::images::list_images_by_item(&conn, item.id)
                 .unwrap_or_default();
-            let mut d = dto::item_to_dto(item, &images);
+            let mut d = dto::item_to_dto(item, &images, None);
             // Set series info for episode DTOs.
             if let Some(season_id) = item.parent_id {
                 d.season_id = Some(season_id.to_string());

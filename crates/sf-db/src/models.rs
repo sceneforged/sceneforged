@@ -4,8 +4,8 @@
 //! `rusqlite::Row`.
 
 use sf_core::{
-    ConversionJobId, ImageId, ItemId, JobId, LibraryId, MediaFileId, SessionId, SubtitleTrackId,
-    UserId,
+    ConversionJobId, ImageId, InvitationId, ItemId, JobId, LibraryId, MediaFileId, SessionId,
+    SubtitleTrackId, UserId,
 };
 use uuid::Uuid;
 
@@ -347,6 +347,7 @@ pub struct ConversionJob {
     pub locked_by: Option<String>,
     pub locked_at: Option<String>,
     pub source_media_file_id: Option<MediaFileId>,
+    pub priority: i32,
 }
 
 impl ConversionJob {
@@ -366,6 +367,7 @@ impl ConversionJob {
             locked_by: row.get(11)?,
             locked_at: row.get(12)?,
             source_media_file_id: parse_opt_id(row, 13)?,
+            priority: row.get::<_, i32>(14).unwrap_or(0),
         })
     }
 }
@@ -414,6 +416,37 @@ impl Playback {
             completed: row.get::<_, i32>(3).unwrap_or(0) != 0,
             play_count: row.get::<_, i32>(4).unwrap_or(0),
             last_played_at: row.get(5)?,
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Invitation
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct Invitation {
+    pub id: InvitationId,
+    pub code: String,
+    pub role: String,
+    pub created_by: UserId,
+    pub created_at: String,
+    pub expires_at: String,
+    pub used_at: Option<String>,
+    pub used_by: Option<UserId>,
+}
+
+impl Invitation {
+    pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: parse_id(row, 0)?,
+            code: row.get(1)?,
+            role: row.get(2)?,
+            created_by: parse_id(row, 3)?,
+            created_at: row.get(4)?,
+            expires_at: row.get(5)?,
+            used_at: row.get(6)?,
+            used_by: parse_opt_id(row, 7)?,
         })
     }
 }

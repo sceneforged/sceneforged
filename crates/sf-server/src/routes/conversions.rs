@@ -47,6 +47,7 @@ pub struct ConversionJobResponse {
     pub encode_fps: Option<f64>,
     pub eta_secs: Option<i64>,
     pub error: Option<String>,
+    pub priority: i32,
     pub created_at: String,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
@@ -80,6 +81,7 @@ impl ConversionJobResponse {
             encode_fps: job.encode_fps,
             eta_secs: job.eta_secs,
             error: job.error.clone(),
+            priority: job.priority,
             created_at: job.created_at.clone(),
             started_at: job.started_at.clone(),
             completed_at: job.completed_at.clone(),
@@ -459,6 +461,63 @@ pub async fn delete_conversion(
             error: "Cancelled by user".into(),
         },
     );
+
+    Ok(StatusCode::OK)
+}
+
+/// Request body for reordering the queue.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct ReorderRequest {
+    pub job_ids: Vec<String>,
+}
+
+/// PUT /api/conversions/reorder
+///
+/// Reorder queued conversion jobs. The first ID gets the highest priority.
+pub async fn reorder_conversions(
+    State(ctx): State<AppContext>,
+    Json(payload): Json<ReorderRequest>,
+) -> Result<StatusCode, AppError> {
+    let job_ids: Vec<sf_core::ConversionJobId> = payload
+        .job_ids
+        .iter()
+        .map(|s| {
+            s.parse()
+                .map_err(|_| sf_core::Error::Validation(format!("Invalid job ID: {s}")))
+        })
+        .collect::<sf_core::Result<Vec<_>>>()?;
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    sf_db::queries::conversion_jobs::reorder_queue(&conn, &job_ids)?;
+
+    Ok(StatusCode::OK)
+}
+
+/// Request body for updating priority.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct UpdatePriorityRequest {
+    pub priority: i32,
+}
+
+/// PUT /api/conversions/{id}/priority
+///
+/// Update the priority of a single conversion job.
+pub async fn update_priority(
+    State(ctx): State<AppContext>,
+    Path(id): Path<String>,
+    Json(payload): Json<UpdatePriorityRequest>,
+) -> Result<StatusCode, AppError> {
+    let job_id: sf_core::ConversionJobId = id
+        .parse()
+        .map_err(|_| sf_core::Error::Validation("Invalid conversion job ID".into()))?;
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    let updated =
+        sf_db::queries::conversion_jobs::update_conversion_priority(&conn, job_id, payload.priority)?;
+
+    if !updated {
+        return Err(sf_core::Error::not_found("conversion_job", job_id).into());
+    }
 
     Ok(StatusCode::OK)
 }

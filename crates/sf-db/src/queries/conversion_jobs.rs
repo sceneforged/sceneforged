@@ -8,7 +8,7 @@ use crate::models::ConversionJob;
 
 const COLS: &str = "id, item_id, media_file_id, status, progress_pct, encode_fps,
     eta_secs, error, created_at, started_at, completed_at,
-    locked_by, locked_at, source_media_file_id";
+    locked_by, locked_at, source_media_file_id, priority";
 
 /// Create a new conversion job.
 pub fn create_conversion_job(
@@ -41,6 +41,7 @@ pub fn create_conversion_job(
         locked_by: None,
         locked_at: None,
         source_media_file_id: Some(source_media_file_id),
+        priority: 0,
     })
 }
 
@@ -69,7 +70,7 @@ pub fn list_conversion_jobs(
         (
             format!(
                 "SELECT {COLS} FROM conversion_jobs WHERE status = ?1
-                 ORDER BY created_at ASC LIMIT ?2 OFFSET ?3"
+                 ORDER BY priority DESC, created_at ASC LIMIT ?2 OFFSET ?3"
             ),
             vec![
                 Box::new(s.to_string()),
@@ -81,7 +82,7 @@ pub fn list_conversion_jobs(
         (
             format!(
                 "SELECT {COLS} FROM conversion_jobs
-                 ORDER BY created_at ASC LIMIT ?1 OFFSET ?2"
+                 ORDER BY priority DESC, created_at ASC LIMIT ?1 OFFSET ?2"
             ),
             vec![Box::new(limit), Box::new(offset)],
         )
@@ -111,7 +112,7 @@ pub fn dequeue_next_conversion(
         "UPDATE conversion_jobs SET status='processing', locked_by=?1, locked_at=?2, started_at=?2
          WHERE id = (
              SELECT id FROM conversion_jobs WHERE status='queued'
-             ORDER BY created_at ASC LIMIT 1
+             ORDER BY priority DESC, created_at ASC LIMIT 1
          )
          RETURNING {COLS}"
     );
@@ -204,6 +205,36 @@ pub fn cancel_conversion_job(
         )
         .map_err(|e| Error::database(e.to_string()))?;
     Ok(n > 0)
+}
+
+/// Update the priority of a single conversion job.
+pub fn update_conversion_priority(
+    conn: &Connection,
+    id: ConversionJobId,
+    priority: i32,
+) -> Result<bool> {
+    let n = conn
+        .execute(
+            "UPDATE conversion_jobs SET priority = ?1 WHERE id = ?2",
+            rusqlite::params![priority, id.to_string()],
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+    Ok(n > 0)
+}
+
+/// Reorder queued conversion jobs by setting priority = len-index for each.
+/// First item in the list gets the highest priority.
+pub fn reorder_queue(conn: &Connection, job_ids: &[ConversionJobId]) -> Result<()> {
+    let len = job_ids.len() as i32;
+    for (i, id) in job_ids.iter().enumerate() {
+        let priority = len - i as i32;
+        conn.execute(
+            "UPDATE conversion_jobs SET priority = ?1 WHERE id = ?2 AND status = 'queued'",
+            rusqlite::params![priority, id.to_string()],
+        )
+        .map_err(|e| Error::database(e.to_string()))?;
+    }
+    Ok(())
 }
 
 /// Check if an item already has a queued or processing conversion job.

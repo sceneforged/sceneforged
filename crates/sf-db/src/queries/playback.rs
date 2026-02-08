@@ -1,10 +1,21 @@
 //! Playback state operations.
 
+use std::collections::HashMap;
+
 use chrono::Utc;
 use rusqlite::Connection;
 use sf_core::{Error, ItemId, Result, UserId};
 
 use crate::models::{Item, Playback};
+
+/// Combined playback + favorite data for a single (user, item) pair.
+#[derive(Debug, Clone)]
+pub struct UserItemData {
+    pub position_secs: f64,
+    pub completed: bool,
+    pub play_count: i32,
+    pub is_favorite: bool,
+}
 
 const COLS: &str = "user_id, item_id, position_secs, completed, play_count, last_played_at";
 
@@ -218,6 +229,92 @@ pub fn next_up(conn: &Connection, user_id: UserId, limit: i64) -> Result<Vec<Ite
             if result.len() >= limit as usize {
                 break;
             }
+        }
+    }
+
+    Ok(result)
+}
+
+/// Batch-fetch playback + favorite data for a list of item IDs.
+///
+/// Runs 2 queries (playback + favorites) instead of N+1, then merges results.
+pub fn batch_get_user_data(
+    conn: &Connection,
+    user_id: UserId,
+    item_ids: &[ItemId],
+) -> Result<HashMap<ItemId, UserItemData>> {
+    if item_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let mut result: HashMap<ItemId, UserItemData> = HashMap::new();
+
+    // Build IN clause placeholders.
+    let placeholders: Vec<String> = (0..item_ids.len()).map(|i| format!("?{}", i + 2)).collect();
+    let in_clause = placeholders.join(",");
+
+    // Query 1: playback data
+    let sql = format!(
+        "SELECT item_id, position_secs, completed, play_count FROM playback WHERE user_id = ?1 AND item_id IN ({in_clause})"
+    );
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    params.push(Box::new(user_id.to_string()));
+    for id in item_ids {
+        params.push(Box::new(id.to_string()));
+    }
+    let params_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| Error::database(e.to_string()))?;
+    let rows = stmt
+        .query_map(params_refs.as_slice(), |row| {
+            let item_id_str: String = row.get(0)?;
+            let position_secs: f64 = row.get::<_, f64>(1).unwrap_or(0.0);
+            let completed: bool = row.get::<_, i32>(2).unwrap_or(0) != 0;
+            let play_count: i32 = row.get::<_, i32>(3).unwrap_or(0);
+            Ok((item_id_str, position_secs, completed, play_count))
+        })
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    for row in rows {
+        let (id_str, position_secs, completed, play_count) =
+            row.map_err(|e| Error::database(e.to_string()))?;
+        if let Ok(item_id) = id_str.parse::<ItemId>() {
+            result.insert(
+                item_id,
+                UserItemData {
+                    position_secs,
+                    completed,
+                    play_count,
+                    is_favorite: false,
+                },
+            );
+        }
+    }
+
+    // Query 2: favorites
+    let sql2 = format!(
+        "SELECT item_id FROM favorites WHERE user_id = ?1 AND item_id IN ({in_clause})"
+    );
+    let mut stmt2 = conn.prepare(&sql2).map_err(|e| Error::database(e.to_string()))?;
+    let fav_rows = stmt2
+        .query_map(params_refs.as_slice(), |row| {
+            let item_id_str: String = row.get(0)?;
+            Ok(item_id_str)
+        })
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    for row in fav_rows {
+        let id_str = row.map_err(|e| Error::database(e.to_string()))?;
+        if let Ok(item_id) = id_str.parse::<ItemId>() {
+            result
+                .entry(item_id)
+                .and_modify(|d| d.is_favorite = true)
+                .or_insert(UserItemData {
+                    position_secs: 0.0,
+                    completed: false,
+                    play_count: 0,
+                    is_favorite: true,
+                });
         }
     }
 

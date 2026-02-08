@@ -18,7 +18,8 @@ import type {
 	ContinueWatchingEntry,
 	FavoriteEntry,
 	DirEntry,
-	LibraryStats
+	LibraryStats,
+	Invitation
 } from '../types.js';
 
 export { api, ApiError } from './client.js';
@@ -507,4 +508,38 @@ export async function enrichItem(
 	mediaType: string
 ): Promise<{ updated: boolean; tmdb_id: number | null; images_downloaded: number }> {
 	return api.post(`/items/${itemId}/enrich`, { tmdb_id: tmdbId, type: mediaType });
+}
+
+// --- Invitations ---
+
+export async function createInvitation(data?: {
+	role?: string;
+	expires_in_days?: number;
+}): Promise<Invitation> {
+	const result = await api.post<Invitation>('/admin/invitations', data ?? {});
+	api.invalidate('/admin/invitations');
+	return result;
+}
+
+export async function listInvitations(): Promise<Invitation[]> {
+	return api.get<Invitation[]>('/admin/invitations', { skipCache: true });
+}
+
+export async function deleteInvitation(id: string): Promise<void> {
+	await api.delete(`/admin/invitations/${id}`);
+	api.invalidate('/admin/invitations');
+}
+
+export async function register(data: {
+	code: string;
+	username: string;
+	password: string;
+}): Promise<{ success: boolean; token: string }> {
+	return api.post('/auth/register', data);
+}
+
+// --- Conversions: reorder ---
+
+export async function reorderConversions(jobIds: string[]): Promise<void> {
+	await api.put<void>('/conversions/reorder', { job_ids: jobIds });
 }

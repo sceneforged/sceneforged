@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use serde::Serialize;
+use sf_db::queries::playback::UserItemData;
 
 /// Ticks per second (Jellyfin uses 100ns ticks).
 pub const TICKS_PER_SECOND: i64 = 10_000_000;
@@ -120,7 +121,11 @@ pub struct SearchHint {
 }
 
 /// Convert a DB Item into a BaseItemDto.
-pub fn item_to_dto(item: &sf_db::models::Item, images: &[sf_db::models::Image]) -> BaseItemDto {
+pub fn item_to_dto(
+    item: &sf_db::models::Item,
+    images: &[sf_db::models::Image],
+    user_data: Option<&UserItemData>,
+) -> BaseItemDto {
     let item_type = match item.item_kind.as_str() {
         "series" => "Series",
         "season" => "Season",
@@ -142,6 +147,16 @@ pub fn item_to_dto(item: &sf_db::models::Item, images: &[sf_db::models::Image]) 
         }
     }
 
+    let user_data_dto = user_data.map(|ud| UserDataDto {
+        played: ud.completed,
+        playback_position_ticks: if ud.position_secs > 0.0 {
+            Some((ud.position_secs * TICKS_PER_SECOND as f64) as i64)
+        } else {
+            None
+        },
+        is_favorite: ud.is_favorite,
+    });
+
     BaseItemDto {
         id: item.id.to_string(),
         name: item.name.clone(),
@@ -157,7 +172,7 @@ pub fn item_to_dto(item: &sf_db::models::Item, images: &[sf_db::models::Image]) 
         index_number: item.episode_number,
         parent_index_number: item.season_number,
         image_tags: if image_tags.is_empty() { None } else { Some(image_tags) },
-        user_data: None,
+        user_data: user_data_dto,
         media_sources: None,
         media_streams: None,
         collection_type: None,

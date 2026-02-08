@@ -298,6 +298,22 @@ ALTER TABLE favorites_new RENAME TO favorites;
 CREATE INDEX idx_favorites_user ON favorites(user_id);
 "#;
 
+/// V9: Invitation system + conversion job priority.
+const V9_INVITATIONS_PRIORITY: &str = r#"
+CREATE TABLE invitations (
+    id         TEXT PRIMARY KEY,
+    code       TEXT UNIQUE NOT NULL,
+    role       TEXT NOT NULL DEFAULT 'user',
+    created_by TEXT NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at    TEXT,
+    used_by    TEXT REFERENCES users(id)
+);
+
+ALTER TABLE conversion_jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
+"#;
+
 /// Ordered list of (version, sql) pairs.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, V1_INITIAL),
@@ -308,6 +324,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (6, V6_ITEMS_FTS),
     (7, V7_SCANNER_INDEXES),
     (8, V8_FK_CASCADES),
+    (9, V9_INVITATIONS_PRIORITY),
 ];
 
 /// Run all pending migrations on `conn`.
@@ -387,6 +404,7 @@ mod tests {
             "hls_cache",
             "playback",
             "favorites",
+            "invitations",
             "schema_migrations",
         ];
         for t in &tables {

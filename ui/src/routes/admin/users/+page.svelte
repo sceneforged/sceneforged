@@ -1,7 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { listUsers, createUser, updateUser, deleteUser } from '$lib/api/index.js';
-	import type { User } from '$lib/types.js';
+	import {
+		listUsers,
+		createUser,
+		updateUser,
+		deleteUser,
+		createInvitation,
+		listInvitations,
+		deleteInvitation
+	} from '$lib/api/index.js';
+	import type { User, Invitation } from '$lib/types.js';
 	import { authStore } from '$lib/stores/auth.svelte.js';
 	import {
 		Card,
@@ -22,7 +30,10 @@
 		Loader2,
 		RefreshCw,
 		Shield,
-		ShieldCheck
+		ShieldCheck,
+		Ticket,
+		Copy,
+		Check
 	} from '@lucide/svelte';
 
 	let users = $state<User[]>([]);
@@ -49,6 +60,60 @@
 	let showDeleteDialog = $state(false);
 	let deletingUser = $state<User | null>(null);
 	let deleting = $state(false);
+
+	// Invitations
+	let invitations = $state<Invitation[]>([]);
+	let invitationsLoading = $state(false);
+	let creatingInvitation = $state(false);
+	let newInvitationCode = $state<string | null>(null);
+	let copiedCode = $state(false);
+	let invitationRole = $state('user');
+
+	async function loadInvitations() {
+		invitationsLoading = true;
+		try {
+			invitations = await listInvitations();
+		} catch {
+			// silently fail
+		} finally {
+			invitationsLoading = false;
+		}
+	}
+
+	async function handleCreateInvitation() {
+		creatingInvitation = true;
+		try {
+			const inv = await createInvitation({ role: invitationRole });
+			newInvitationCode = inv.code;
+			copiedCode = false;
+			await loadInvitations();
+		} catch {
+			// silently fail
+		} finally {
+			creatingInvitation = false;
+		}
+	}
+
+	async function handleDeleteInvitation(id: string) {
+		try {
+			await deleteInvitation(id);
+			invitations = invitations.filter((inv) => inv.id !== id);
+		} catch {
+			// silently fail
+		}
+	}
+
+	async function copyCode(code: string) {
+		await navigator.clipboard.writeText(code);
+		copiedCode = true;
+		setTimeout(() => (copiedCode = false), 2000);
+	}
+
+	function invitationStatus(inv: Invitation): string {
+		if (inv.used_at) return 'used';
+		if (new Date(inv.expires_at) < new Date()) return 'expired';
+		return 'active';
+	}
 
 	function isSelf(user: User): boolean {
 		return user.id === authStore.userId;
@@ -137,6 +202,7 @@
 
 	onMount(() => {
 		loadUsers();
+		loadInvitations();
 	});
 </script>
 
@@ -168,6 +234,123 @@
 			{error}
 		</div>
 	{/if}
+
+	<!-- Invitations Section -->
+	<Card>
+		<CardHeader>
+			<div class="flex items-center justify-between">
+				<CardTitle class="flex items-center gap-2">
+					<Ticket class="h-5 w-5" />
+					Invitations
+				</CardTitle>
+				<div class="flex items-center gap-2">
+					<select
+						class="rounded-md border bg-background px-2 py-1 text-sm"
+						bind:value={invitationRole}
+					>
+						<option value="user">User</option>
+						<option value="admin">Admin</option>
+					</select>
+					<Button size="sm" onclick={handleCreateInvitation} disabled={creatingInvitation}>
+						{#if creatingInvitation}
+							<Loader2 class="mr-2 h-4 w-4 animate-spin" />
+						{:else}
+							<Plus class="mr-2 h-4 w-4" />
+						{/if}
+						Create Invitation
+					</Button>
+				</div>
+			</div>
+		</CardHeader>
+		<CardContent>
+			{#if newInvitationCode}
+				<div class="mb-4 flex items-center gap-2 rounded-md border border-green-500/50 bg-green-500/10 p-3">
+					<span class="text-sm font-medium">Invitation Code:</span>
+					<code class="rounded bg-muted px-2 py-1 font-mono text-lg tracking-wider">
+						{newInvitationCode}
+					</code>
+					<Button
+						variant="ghost"
+						size="icon"
+						onclick={() => copyCode(newInvitationCode!)}
+						title="Copy code"
+					>
+						{#if copiedCode}
+							<Check class="h-4 w-4 text-green-500" />
+						{:else}
+							<Copy class="h-4 w-4" />
+						{/if}
+					</Button>
+				</div>
+			{/if}
+
+			{#if invitationsLoading && invitations.length === 0}
+				<div class="flex items-center justify-center py-8">
+					<Loader2 class="h-6 w-6 animate-spin text-muted-foreground" />
+				</div>
+			{:else if invitations.length === 0}
+				<p class="py-4 text-center text-sm text-muted-foreground">
+					No invitations created yet
+				</p>
+			{:else}
+				<div class="rounded-md border">
+					<table class="w-full">
+						<thead>
+							<tr class="border-b bg-muted/50">
+								<th class="px-4 py-3 text-left text-sm font-medium">Code</th>
+								<th class="px-4 py-3 text-left text-sm font-medium">Role</th>
+								<th class="px-4 py-3 text-left text-sm font-medium">Status</th>
+								<th class="px-4 py-3 text-left text-sm font-medium">Expires</th>
+								<th class="w-16 px-4 py-3 text-left text-sm font-medium">Actions</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each invitations as inv (inv.id)}
+								{@const status = invitationStatus(inv)}
+								<tr class="border-b transition-colors hover:bg-muted/50">
+									<td class="px-4 py-3 font-mono text-sm tracking-wider">
+										{inv.code}
+									</td>
+									<td class="px-4 py-3">
+										<Badge variant={inv.role === 'admin' ? 'default' : 'secondary'}>
+											{inv.role}
+										</Badge>
+									</td>
+									<td class="px-4 py-3">
+										<Badge
+											variant={status === 'active'
+												? 'outline'
+												: status === 'used'
+													? 'default'
+													: 'destructive'}
+											class={status === 'active' ? 'border-green-500 text-green-500' : ''}
+										>
+											{status}
+										</Badge>
+									</td>
+									<td class="px-4 py-3 text-sm text-muted-foreground">
+										{new Date(inv.expires_at).toLocaleDateString()}
+									</td>
+									<td class="px-4 py-3">
+										{#if status === 'active'}
+											<Button
+												variant="ghost"
+												size="icon"
+												onclick={() => handleDeleteInvitation(inv.id)}
+												title="Revoke"
+											>
+												<Trash2 class="h-4 w-4" />
+											</Button>
+										{/if}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</CardContent>
+	</Card>
 
 	<!-- Users Table -->
 	<Card>

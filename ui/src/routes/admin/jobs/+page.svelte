@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { getJobs, retryJob, deleteJob, deleteConversion } from '$lib/api/index.js';
+	import {
+		getJobs,
+		retryJob,
+		deleteJob,
+		deleteConversion,
+		reorderConversions
+	} from '$lib/api/index.js';
 	import type { Job, ConversionJob } from '$lib/types.js';
 	import {
 		Card,
@@ -32,7 +38,8 @@
 		RotateCcw,
 		ArrowUp,
 		ArrowDown,
-		Loader2
+		Loader2,
+		GripVertical
 	} from '@lucide/svelte';
 
 	let loading = $state(true);
@@ -47,6 +54,49 @@
 	let now = $state(Date.now());
 	let tickInterval: ReturnType<typeof setInterval> | null = null;
 	let unsubscribeEvents: (() => void) | null = null;
+
+	// Drag-and-drop state for queued conversions
+	let dragIndex = $state<number | null>(null);
+	let dragOverIndex = $state<number | null>(null);
+	let reorderError = $state<string | null>(null);
+
+	function handleDragStart(index: number) {
+		dragIndex = index;
+		reorderError = null;
+	}
+
+	function handleDragOver(event: DragEvent, index: number) {
+		event.preventDefault();
+		dragOverIndex = index;
+	}
+
+	function handleDragEnd() {
+		dragIndex = null;
+		dragOverIndex = null;
+	}
+
+	async function handleDrop(event: DragEvent, dropIndex: number) {
+		event.preventDefault();
+		if (dragIndex === null || dragIndex === dropIndex) {
+			handleDragEnd();
+			return;
+		}
+
+		const queued = [...conversionsStore.queuedConversions];
+		const [moved] = queued.splice(dragIndex, 1);
+		queued.splice(dropIndex, 0, moved);
+		const jobIds = queued.map((j) => j.id);
+
+		handleDragEnd();
+
+		try {
+			await reorderConversions(jobIds);
+			await conversionsStore.refresh();
+		} catch (e) {
+			reorderError = e instanceof Error ? e.message : 'Failed to reorder queue';
+			await conversionsStore.refresh();
+		}
+	}
 
 	// Filter jobs based on search
 	const filteredJobs = $derived.by(() => {
@@ -258,13 +308,50 @@
 			</CardHeader>
 			<CardContent>
 				<div class="space-y-4">
-					{#each conversionsStore.activeConversions as cjob (cjob.id)}
+					{#each conversionsStore.runningConversions as cjob (cjob.id)}
 						<ConversionCard
 							job={cjob}
 							{now}
 							onCancel={handleCancelConversion}
 						/>
 					{/each}
+
+					{#if conversionsStore.queuedConversions.length > 0}
+						{#if conversionsStore.runningConversions.length > 0}
+							<div class="border-t pt-2">
+								<p class="mb-2 text-xs font-medium text-muted-foreground">
+									Queued — drag to reorder
+								</p>
+							</div>
+						{/if}
+						{#if reorderError}
+							<div class="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+								{reorderError}
+							</div>
+						{/if}
+						{#each conversionsStore.queuedConversions as cjob, i (cjob.id)}
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div
+								draggable="true"
+								ondragstart={() => handleDragStart(i)}
+								ondragover={(e: DragEvent) => handleDragOver(e, i)}
+								ondragend={handleDragEnd}
+								ondrop={(e: DragEvent) => handleDrop(e, i)}
+								class="flex items-stretch gap-2 {dragOverIndex === i && dragIndex !== i ? 'border-t-2 border-primary' : ''} {dragIndex === i ? 'opacity-50' : ''}"
+							>
+								<div class="flex cursor-grab items-center px-1 text-muted-foreground hover:text-foreground active:cursor-grabbing">
+									<GripVertical class="h-4 w-4" />
+								</div>
+								<div class="min-w-0 flex-1">
+									<ConversionCard
+										job={cjob}
+										{now}
+										onCancel={handleCancelConversion}
+									/>
+								</div>
+							</div>
+						{/each}
+					{/if}
 				</div>
 			</CardContent>
 		</Card>

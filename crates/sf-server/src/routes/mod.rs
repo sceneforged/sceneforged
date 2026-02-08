@@ -7,6 +7,7 @@ pub mod conversions;
 pub mod events;
 pub mod health;
 pub mod images;
+pub mod invitations;
 pub mod items;
 pub mod jellyfin;
 pub mod jobs;
