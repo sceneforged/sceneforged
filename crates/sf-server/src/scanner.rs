@@ -378,23 +378,31 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
             HashMap::new();
         let mut batch: Vec<ProbeResult> = Vec::with_capacity(DB_BATCH_SIZE);
         let mut transitioned_to_writing = false;
-        let flush_timeout = std::time::Duration::from_millis(DB_FLUSH_TIMEOUT_MS);
+        let flush_duration = std::time::Duration::from_millis(DB_FLUSH_TIMEOUT_MS);
+        // Deadline anchored to when the FIRST item in the current batch
+        // arrived. This ensures batches flush within DB_FLUSH_TIMEOUT_MS of
+        // the first item, even when items stream in continuously.
+        let mut batch_deadline: Option<tokio::time::Instant> = None;
 
         loop {
-            // If batch is empty, wait indefinitely for the first item.
-            // If batch has items, wait with a timeout so partial batches
-            // flush quickly — items appear in the UI progressively.
             let recv_result = if batch.is_empty() {
+                // No pending items — wait indefinitely for the first one.
                 probe_rx.recv().await
             } else {
-                match tokio::time::timeout(flush_timeout, probe_rx.recv()).await {
+                // We have pending items — wait until the deadline fires.
+                let deadline = batch_deadline.unwrap();
+                match tokio::time::timeout_at(deadline, probe_rx.recv()).await {
                     Ok(result) => result,
-                    Err(_) => None, // Timeout — flush the partial batch.
+                    Err(_) => None, // Deadline reached — flush the partial batch.
                 }
             };
 
             match recv_result {
                 Some(result) => {
+                    if batch.is_empty() {
+                        // First item in a new batch — set the deadline.
+                        batch_deadline = Some(tokio::time::Instant::now() + flush_duration);
+                    }
                     batch.push(result);
                     if batch.len() >= DB_BATCH_SIZE {
                         if !transitioned_to_writing {
@@ -413,11 +421,16 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
                         .await;
                         writer_counters.files_queued.fetch_add(queued, Ordering::Relaxed);
                         writer_counters.errors.fetch_add(errs, Ordering::Relaxed);
+                        batch_deadline = None; // Reset for next batch.
                     }
                 }
                 None => {
-                    // Either channel closed or timeout with pending items.
+                    // Either channel closed or deadline reached with pending items.
                     if !batch.is_empty() {
+                        if !transitioned_to_writing {
+                            let _ = writer_phase_tx.send("writing".to_string());
+                            transitioned_to_writing = true;
+                        }
                         let (queued, errs) = flush_batch(
                             &writer_ctx,
                             library_id,
@@ -430,9 +443,8 @@ pub async fn scan_library(ctx: AppContext, library: sf_db::models::Library) {
                         .await;
                         writer_counters.files_queued.fetch_add(queued, Ordering::Relaxed);
                         writer_counters.errors.fetch_add(errs, Ordering::Relaxed);
+                        batch_deadline = None; // Reset for next batch.
                     }
-                    // If batch was empty and recv returned None, channel is closed.
-                    // If it was a timeout, we flushed and loop back to wait again.
                     if probe_rx.is_closed() {
                         break;
                     }
