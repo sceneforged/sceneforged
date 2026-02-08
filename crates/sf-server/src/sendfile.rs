@@ -11,6 +11,8 @@ use std::io::{self, Read, Write};
 use std::net::TcpStream;
 use std::os::fd::{AsRawFd, RawFd};
 
+use dashmap::mapref::entry::Entry;
+
 use crate::context::AppContext;
 use crate::middleware::auth::validate_auth_headers;
 
@@ -160,26 +162,28 @@ struct ParsedRequest {
 /// Reads until `\r\n\r\n` delimiter. Only extracts the fields we need.
 fn read_request_headers(stream: &mut TcpStream) -> io::Result<ParsedRequest> {
     let mut buf = Vec::with_capacity(2048);
-    let mut byte = [0u8; 1];
+    let mut tmp = [0u8; 4096];
 
     // Read until we find \r\n\r\n (end of headers).
     loop {
-        match stream.read(&mut byte) {
+        let n = match stream.read(&mut tmp) {
             Ok(0) => return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "connection closed")),
-            Ok(_) => {
-                buf.push(byte[0]);
-                if buf.len() >= 4 && &buf[buf.len() - 4..] == b"\r\n\r\n" {
-                    break;
-                }
-                // Safety limit: 8KB of headers.
-                if buf.len() > 8192 {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "headers too large",
-                    ));
-                }
-            }
+            Ok(n) => n,
             Err(e) => return Err(e),
+        };
+        buf.extend_from_slice(&tmp[..n]);
+        if buf.len() >= 4 {
+            let scan_start = buf.len().saturating_sub(n + 3);
+            if buf[scan_start..].windows(4).any(|w| w == b"\r\n\r\n") {
+                break;
+            }
+        }
+        // Safety limit: 8KB of headers.
+        if buf.len() > 8192 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "headers too large",
+            ));
         }
     }
 
@@ -466,18 +470,14 @@ fn serve_segment(
     seg_index: usize,
 ) -> io::Result<()> {
     // Look up prepared media in HLS cache, populating on demand if missing.
-    let prepared = match ctx.hls_cache.get(&mf_id) {
-        Some(entry) => entry.value().clone(),
-        None => {
-            // Cache miss — do a blocking populate (DB lookup + moov parse).
-            match populate_hls_cache_blocking(ctx, mf_id) {
-                Ok(p) => p,
-                Err(_) => {
-                    let response = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-                    stream.write_all(response)?;
-                    return Ok(());
-                }
-            }
+    // Uses request coalescing so concurrent segment requests for the same
+    // uncached file don't trigger redundant moov parses.
+    let prepared = match populate_hls_cache_blocking(ctx, mf_id) {
+        Ok(p) => p,
+        Err(_) => {
+            let response = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            stream.write_all(response)?;
+            return Ok(());
         }
     };
 
@@ -727,11 +727,60 @@ fn extract_media_source_id(path: &str) -> Option<sf_core::MediaFileId> {
     None
 }
 
-/// Blocking populate of HLS cache for the sendfile path.
+/// Blocking populate of HLS cache for the sendfile path with request coalescing.
 ///
-/// Looks up the media file in DB, parses moov, builds PreparedMedia, and
-/// inserts into the cache. Returns the cached Arc on success.
+/// Uses `ctx.hls_loading` DashMap to ensure only one thread performs the
+/// moov parse for a given media file. Other threads poll until the cache
+/// is populated or the loader finishes (then retry).
 fn populate_hls_cache_blocking(
+    ctx: &AppContext,
+    mf_id: sf_core::MediaFileId,
+) -> io::Result<std::sync::Arc<sf_media::PreparedMedia>> {
+    // Fast path: already cached — touch timestamp for LRU.
+    if let Some(mut entry) = ctx.hls_cache.get_mut(&mf_id) {
+        entry.1 = std::time::Instant::now();
+        return Ok(entry.0.clone());
+    }
+
+    loop {
+        match ctx.hls_loading.entry(mf_id) {
+            Entry::Vacant(e) => {
+                // We're the loader.
+                let notify = std::sync::Arc::new(tokio::sync::Notify::new());
+                e.insert(notify.clone());
+
+                let result = do_populate_blocking(ctx, mf_id);
+
+                // Always cleanup + wake waiters.
+                ctx.hls_loading.remove(&mf_id);
+                notify.notify_waiters();
+
+                return result;
+            }
+            Entry::Occupied(e) => {
+                // Another task is loading — drop the entry ref and poll.
+                drop(e);
+            }
+        }
+
+        // Poll: wait for cache to be populated or loader to finish.
+        for _ in 0..400 {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            if let Some(mut entry) = ctx.hls_cache.get_mut(&mf_id) {
+                entry.1 = std::time::Instant::now();
+                return Ok(entry.0.clone());
+            }
+            if !ctx.hls_loading.contains_key(&mf_id) {
+                break; // Loader finished (possibly with error) — retry the loop.
+            }
+        }
+        // If we exit the poll loop, either the loader failed or timed out.
+        // Re-enter the outer loop to try becoming the loader ourselves.
+    }
+}
+
+/// Perform the actual DB lookup + moov parse + cache insert.
+fn do_populate_blocking(
     ctx: &AppContext,
     mf_id: sf_core::MediaFileId,
 ) -> io::Result<std::sync::Arc<sf_media::PreparedMedia>> {
@@ -752,7 +801,7 @@ fn populate_hls_cache_blocking(
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
 
     let prepared = std::sync::Arc::new(prepared);
-    ctx.hls_cache.insert(mf_id, prepared.clone());
+    ctx.hls_cache.insert(mf_id, (prepared.clone(), std::time::Instant::now()));
     Ok(prepared)
 }
 

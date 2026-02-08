@@ -2,6 +2,7 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Instant;
 
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
@@ -41,9 +42,10 @@ pub async fn get_or_populate(
     ctx: &AppContext,
     media_file_id: MediaFileId,
 ) -> Result<Arc<PreparedMedia>> {
-    // Fast path: already cached.
-    if let Some(entry) = ctx.hls_cache.get(&media_file_id) {
-        return Ok(entry.value().clone());
+    // Fast path: already cached — touch timestamp for LRU.
+    if let Some(mut entry) = ctx.hls_cache.get_mut(&media_file_id) {
+        entry.1 = Instant::now();
+        return Ok(entry.0.clone());
     }
 
     // Slow path: need to populate. Use coalescing to avoid duplicate work.
@@ -56,8 +58,9 @@ pub async fn get_or_populate(
                 notify.notified().await;
 
                 // Re-check cache: the loader should have populated it.
-                if let Some(entry) = ctx.hls_cache.get(&media_file_id) {
-                    return Ok(entry.value().clone());
+                if let Some(mut entry) = ctx.hls_cache.get_mut(&media_file_id) {
+                    entry.1 = Instant::now();
+                    return Ok(entry.0.clone());
                 }
                 // Loader failed — loop to try becoming the loader ourselves.
             }
@@ -107,7 +110,7 @@ async fn do_populate(
 
     ctx.hls_cache
         .get(&media_file_id)
-        .map(|entry| entry.value().clone())
+        .map(|entry| entry.value().0.clone())
         .ok_or_else(|| {
             sf_core::Error::Internal("HLS cache entry missing after populate".into())
         })
@@ -142,7 +145,7 @@ pub async fn populate_hls_cache(
     .await
     .map_err(|e| sf_core::Error::Internal(format!("spawn_blocking join error: {e}")))??;
 
-    ctx.hls_cache.insert(media_file_id, Arc::new(prepared));
+    ctx.hls_cache.insert(media_file_id, (Arc::new(prepared), Instant::now()));
     tracing::debug!(media_file_id = %media_file_id, "HLS cache populated");
 
     // Evict excess entries to keep memory bounded.
@@ -151,13 +154,14 @@ pub async fn populate_hls_cache(
     Ok(())
 }
 
-/// Evict entries from the HLS cache if it exceeds `MAX_HLS_CACHE_ENTRIES`.
+/// Evict the least-recently-used entries from the HLS cache if it exceeds
+/// `MAX_HLS_CACHE_ENTRIES`.
 ///
-/// Evicts in arbitrary order (DashMap iteration order). This is intentionally
-/// simple — more sophisticated LRU tracking isn't worth the complexity for a
-/// cache that repopulates on demand in ~200ms.
+/// Collects all `(key, last_access)` pairs, sorts by timestamp, and removes
+/// the oldest entries. This avoids evicting actively-streamed files that
+/// would cause a ~200ms re-parse stutter.
 fn evict_if_over_limit(
-    cache: &dashmap::DashMap<MediaFileId, Arc<PreparedMedia>>,
+    cache: &dashmap::DashMap<MediaFileId, (Arc<PreparedMedia>, Instant)>,
 ) {
     let len = cache.len();
     if len <= MAX_HLS_CACHE_ENTRIES {
@@ -165,19 +169,16 @@ fn evict_if_over_limit(
     }
 
     let to_remove = len - MAX_HLS_CACHE_ENTRIES;
-    let keys: Vec<MediaFileId> = cache
+    let mut entries: Vec<(MediaFileId, Instant)> = cache
         .iter()
-        .take(to_remove)
-        .map(|entry| *entry.key())
+        .map(|e| (*e.key(), e.value().1))
         .collect();
+    entries.sort_by_key(|&(_, ts)| ts);
 
+    let keys: Vec<MediaFileId> = entries.into_iter().take(to_remove).map(|(k, _)| k).collect();
     for key in &keys {
         cache.remove(key);
     }
 
-    tracing::debug!(
-        evicted = keys.len(),
-        remaining = cache.len(),
-        "HLS cache eviction"
-    );
+    tracing::debug!(evicted = keys.len(), remaining = cache.len(), "HLS cache LRU eviction");
 }

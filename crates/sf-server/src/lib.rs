@@ -207,6 +207,8 @@ async fn handle_connection(stream: tokio::net::TcpStream, ctx: AppContext, app: 
                     return;
                 }
             };
+            let _ = std_stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+            let _ = std_stream.set_write_timeout(Some(std::time::Duration::from_secs(30)));
             tokio::task::spawn_blocking(move || {
                 if let Err(e) = sendfile::handle_sendfile(std_stream, &ctx, route) {
                     tracing::debug!("Sendfile error: {e}");

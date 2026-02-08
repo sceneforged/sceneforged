@@ -25,7 +25,7 @@ pub fn init_pool(db_path: &str) -> Result<DbPool> {
     });
 
     let pool = Pool::builder()
-        .max_size(4)
+        .max_size(16)
         .build(manager)
         .map_err(|e| Error::database(format!("Failed to create connection pool: {e}")))?;
 
@@ -53,7 +53,7 @@ pub fn init_memory_pool() -> Result<DbPool> {
         .with_init(|conn| conn.execute_batch("PRAGMA foreign_keys = ON;"));
 
     let pool = Pool::builder()
-        .max_size(4)
+        .max_size(16)
         .build(manager)
         .map_err(|e| Error::database(format!("Failed to create in-memory pool: {e}")))?;
 
@@ -79,7 +79,7 @@ mod tests {
     #[test]
     fn test_init_memory_pool() {
         let pool = init_memory_pool().unwrap();
-        assert_eq!(pool.max_size(), 4);
+        assert_eq!(pool.max_size(), 16);
     }
 
     #[test]

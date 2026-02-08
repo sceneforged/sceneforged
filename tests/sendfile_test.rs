@@ -83,7 +83,7 @@ async fn sendfile_serves_segment_correctly() {
     expected_body.extend_from_slice(&vec![0xBBu8; 128]);
 
     // Insert into HLS cache.
-    harness.ctx.hls_cache.insert(mf_id, Arc::new(prepared));
+    harness.ctx.hls_cache.insert(mf_id, (Arc::new(prepared), std::time::Instant::now()));
 
     // Request the segment.
     let client = reqwest::Client::new();
@@ -133,7 +133,7 @@ async fn sendfile_server_serves_init_mp4_via_axum() {
     let (prepared, _tmp) = synthetic_prepared_media();
     let expected_init = prepared.init_segment.clone();
 
-    harness.ctx.hls_cache.insert(mf_id, Arc::new(prepared));
+    harness.ctx.hls_cache.insert(mf_id, (Arc::new(prepared), std::time::Instant::now()));
 
     // init.mp4 should go through Axum, not sendfile.
     let resp = reqwest::get(format!("http://{addr}/api/stream/{mf_id}/init.mp4"))
@@ -151,7 +151,7 @@ async fn sendfile_server_serves_playlist_via_axum() {
     let (prepared, _tmp) = synthetic_prepared_media();
     let expected_playlist = prepared.variant_playlist.clone();
 
-    harness.ctx.hls_cache.insert(mf_id, Arc::new(prepared));
+    harness.ctx.hls_cache.insert(mf_id, (Arc::new(prepared), std::time::Instant::now()));
 
     // Playlist should go through Axum, not sendfile.
     let resp = reqwest::get(format!("http://{addr}/api/stream/{mf_id}/index.m3u8"))
@@ -187,7 +187,7 @@ async fn sendfile_returns_404_for_missing_segment_index() {
 
     let mf_id = sf_core::MediaFileId::new();
     let (prepared, _tmp) = synthetic_prepared_media();
-    harness.ctx.hls_cache.insert(mf_id, Arc::new(prepared));
+    harness.ctx.hls_cache.insert(mf_id, (Arc::new(prepared), std::time::Instant::now()));
 
     // Segment index 99 does not exist (only index 0).
     let client = reqwest::Client::new();
@@ -215,7 +215,7 @@ async fn sendfile_rejects_unauthenticated_when_auth_enabled() {
 
     let mf_id = sf_core::MediaFileId::new();
     let (prepared, _tmp) = synthetic_prepared_media();
-    harness.ctx.hls_cache.insert(mf_id, Arc::new(prepared));
+    harness.ctx.hls_cache.insert(mf_id, (Arc::new(prepared), std::time::Instant::now()));
 
     // Request without credentials should get 401.
     let client = reqwest::Client::new();
@@ -239,7 +239,7 @@ async fn sendfile_accepts_authenticated_when_auth_enabled() {
 
     let mf_id = sf_core::MediaFileId::new();
     let (prepared, _tmp) = synthetic_prepared_media();
-    harness.ctx.hls_cache.insert(mf_id, Arc::new(prepared));
+    harness.ctx.hls_cache.insert(mf_id, (Arc::new(prepared), std::time::Instant::now()));
 
     // Request with correct API key should succeed.
     let client = reqwest::Client::new();
@@ -317,7 +317,7 @@ async fn sendfile_serves_multiple_segments() {
         target_duration: 2,
     };
 
-    harness.ctx.hls_cache.insert(mf_id, Arc::new(prepared));
+    harness.ctx.hls_cache.insert(mf_id, (Arc::new(prepared), std::time::Instant::now()));
 
     let client = reqwest::Client::new();
 

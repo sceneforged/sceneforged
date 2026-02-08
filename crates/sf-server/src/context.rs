@@ -7,6 +7,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 
 use dashmap::{DashMap, DashSet};
 use parking_lot::RwLock;
@@ -191,7 +192,8 @@ pub struct AppContext {
     /// External tool registry.
     pub tools: Arc<ToolRegistry>,
     /// In-memory HLS segment cache for zero-copy serving.
-    pub hls_cache: Arc<DashMap<MediaFileId, Arc<PreparedMedia>>>,
+    /// Value is `(prepared_media, last_access_time)` for LRU eviction.
+    pub hls_cache: Arc<DashMap<MediaFileId, (Arc<PreparedMedia>, Instant)>>,
     /// Coalescing map for in-flight HLS cache population (prevents duplicate parses).
     pub hls_loading: Arc<DashMap<MediaFileId, Arc<Notify>>>,
     /// Cancellation tokens for active conversion jobs (keyed by job ID).
