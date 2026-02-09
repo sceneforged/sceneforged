@@ -420,22 +420,18 @@ pub fn search_items_fts(
     // FTS5 query: append * for prefix matching (e.g. "break" matches "Breaking Bad").
     let fts_query = format!("{query}*");
 
-    // Use a JOIN so the FTS5 `rank` function is available for ordering.
-    let prefixed_cols = COLS
-        .split(',')
-        .map(|c| format!("i.{}", c.trim()))
-        .collect::<Vec<_>>()
-        .join(", ");
-
+    // Use a subquery to get ranked rowids from FTS5, then join back to items.
+    // This ensures the FTS table is always the driving table (avoiding the
+    // pathological plan where SQLite scans items by an index like library_id
+    // and probes FTS per-row, which is O(n) FTS lookups).
     let (sql, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) =
         match (library_id, item_kind) {
             (Some(lid), Some(kind)) => (
                 format!(
-                    "SELECT {prefixed_cols} FROM items i
-                     INNER JOIN items_fts ON items_fts.rowid = i.rowid AND items_fts MATCH ?1
-                     WHERE i.library_id = ?2
-                       AND i.item_kind = ?3
-                     ORDER BY items_fts.rank
+                    "SELECT {COLS} FROM items
+                     WHERE rowid IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?1 ORDER BY rank)
+                       AND library_id = ?2
+                       AND item_kind = ?3
                      LIMIT ?4"
                 ),
                 vec![
@@ -447,10 +443,9 @@ pub fn search_items_fts(
             ),
             (Some(lid), None) => (
                 format!(
-                    "SELECT {prefixed_cols} FROM items i
-                     INNER JOIN items_fts ON items_fts.rowid = i.rowid AND items_fts MATCH ?1
-                     WHERE i.library_id = ?2
-                     ORDER BY items_fts.rank
+                    "SELECT {COLS} FROM items
+                     WHERE rowid IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?1 ORDER BY rank)
+                       AND library_id = ?2
                      LIMIT ?3"
                 ),
                 vec![
@@ -461,10 +456,9 @@ pub fn search_items_fts(
             ),
             (None, Some(kind)) => (
                 format!(
-                    "SELECT {prefixed_cols} FROM items i
-                     INNER JOIN items_fts ON items_fts.rowid = i.rowid AND items_fts MATCH ?1
-                     WHERE i.item_kind = ?2
-                     ORDER BY items_fts.rank
+                    "SELECT {COLS} FROM items
+                     WHERE rowid IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?1 ORDER BY rank)
+                       AND item_kind = ?2
                      LIMIT ?3"
                 ),
                 vec![
@@ -475,9 +469,8 @@ pub fn search_items_fts(
             ),
             (None, None) => (
                 format!(
-                    "SELECT {prefixed_cols} FROM items i
-                     INNER JOIN items_fts ON items_fts.rowid = i.rowid AND items_fts MATCH ?1
-                     ORDER BY items_fts.rank
+                    "SELECT {COLS} FROM items
+                     WHERE rowid IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?1 ORDER BY rank)
                      LIMIT ?2"
                 ),
                 vec![Box::new(fts_query), Box::new(limit)],
