@@ -40,6 +40,7 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src/ ./src/
 COPY crates/ ./crates/
+COPY benches/ ./benches/
 
 RUN cargo chef prepare --recipe-path recipe.json
 
@@ -76,6 +77,7 @@ FROM cook AS builder
 COPY Cargo.toml Cargo.lock ./
 COPY src/ ./src/
 COPY crates/ ./crates/
+COPY benches/ ./benches/
 
 # Build the release binary
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
