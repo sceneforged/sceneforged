@@ -103,6 +103,7 @@ pub fn jellyfin_router() -> Router<AppContext> {
         // Items / library browsing
         .route("/UserViews", get(items::user_views))
         .route("/Items", get(items::list_items))
+        .route("/Items/Latest", get(items::items_latest))
         .route("/Items/{id}", get(items::get_item))
         .route(
             "/Shows/{id}/Seasons",

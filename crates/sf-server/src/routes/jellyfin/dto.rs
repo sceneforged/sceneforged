@@ -13,8 +13,11 @@ pub const TICKS_PER_SECOND: i64 = 10_000_000;
 pub struct BaseItemDto {
     pub id: String,
     pub name: String,
+    pub server_id: String,
     #[serde(rename = "Type")]
     pub item_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_folder: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub overview: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -161,6 +164,7 @@ pub fn item_to_dto(
     };
 
     let is_playable = item.item_kind == "movie" || item.item_kind == "episode";
+    let is_folder = item.item_kind == "series" || item.item_kind == "season";
 
     let run_time_ticks = item
         .runtime_minutes
@@ -189,7 +193,9 @@ pub fn item_to_dto(
     BaseItemDto {
         id: item.id.to_string(),
         name: item.name.clone(),
+        server_id: "sceneforged-server".to_string(),
         item_type: item_type.to_string(),
+        is_folder: if is_folder { Some(true) } else { None },
         overview: item.overview.clone(),
         production_year: item.year,
         run_time_ticks,

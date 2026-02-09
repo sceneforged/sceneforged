@@ -18,7 +18,9 @@ fn library_to_dto(lib: &sf_db::models::Library, child_count: i32) -> BaseItemDto
     BaseItemDto {
         id: lib.id.to_string(),
         name: lib.name.clone(),
+        server_id: "sceneforged-server".to_string(),
         item_type: "CollectionFolder".to_string(),
+        is_folder: Some(true),
         collection_type: Some(lib.media_type.clone()),
         overview: None,
         production_year: None,
@@ -719,16 +721,17 @@ pub struct LatestQuery {
     pub limit: Option<i64>,
     #[serde(alias = "includeItemTypes", alias = "IncludeItemTypes")]
     pub include_item_types: Option<String>,
+    #[serde(alias = "userId", alias = "UserId")]
+    pub user_id: Option<String>,
 }
 
-/// GET /Users/{user_id}/Items/Latest — recently added items.
-pub async fn user_latest(
-    State(ctx): State<AppContext>,
-    headers: HeaderMap,
-    Path(_user_id): Path<String>,
-    Query(params): Query<LatestQuery>,
+/// Shared implementation for latest items (used by both top-level and user-scoped routes).
+async fn latest_impl(
+    ctx: &AppContext,
+    headers: &HeaderMap,
+    params: &LatestQuery,
 ) -> Result<Json<Vec<BaseItemDto>>, AppError> {
-    let user_id = resolve_user_from_headers(&ctx, &headers);
+    let user_id = resolve_user_from_headers(ctx, headers);
     let conn = sf_db::pool::get_conn(&ctx.db)?;
 
     let limit = params.limit.unwrap_or(16).min(100);
@@ -757,6 +760,25 @@ pub async fn user_latest(
 
     // Jellyfin's /Latest returns a bare array, not wrapped in ItemsResult.
     Ok(Json(dtos))
+}
+
+/// GET /Users/{user_id}/Items/Latest — recently added items (user-scoped).
+pub async fn user_latest(
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+    Path(_user_id): Path<String>,
+    Query(params): Query<LatestQuery>,
+) -> Result<Json<Vec<BaseItemDto>>, AppError> {
+    latest_impl(&ctx, &headers, &params).await
+}
+
+/// GET /Items/Latest — recently added items (top-level, used by some clients).
+pub async fn items_latest(
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+    Query(params): Query<LatestQuery>,
+) -> Result<Json<Vec<BaseItemDto>>, AppError> {
+    latest_impl(&ctx, &headers, &params).await
 }
 
 /// GET /Users/{user_id}/GroupingOptions — library grouping options.
