@@ -779,7 +779,7 @@ fn populate_hls_cache_blocking(
     }
 }
 
-/// Perform the actual DB lookup + moov parse + cache insert.
+/// Three-tier DB lookup + moov parse + cache insert (blocking path).
 fn do_populate_blocking(
     ctx: &AppContext,
     mf_id: sf_core::MediaFileId,
@@ -789,8 +789,22 @@ fn do_populate_blocking(
     let mf = sf_db::queries::media_files::get_media_file(&conn, mf_id)
         .map_err(|e| io::Error::other(e.to_string()))?
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "media file not found"))?;
-    drop(conn);
 
+    // --- Tier 2: DB blob ---
+    if let Ok(Some(blob)) = sf_db::queries::media_files::get_hls_prepared(&conn, mf_id) {
+        drop(conn);
+        if let Ok(mut prepared) = sf_media::PreparedMedia::from_bincode(&blob) {
+            prepared.file_path = std::path::PathBuf::from(&mf.file_path);
+            let prepared = std::sync::Arc::new(prepared);
+            ctx.hls_cache.insert(mf_id, (prepared.clone(), std::time::Instant::now()));
+            tracing::debug!(media_file_id = %mf_id, "HLS cache loaded from DB (sendfile)");
+            return Ok(prepared);
+        }
+    } else {
+        drop(conn);
+    }
+
+    // --- Tier 3: moov parse ---
     let path = std::path::Path::new(&mf.file_path);
     let file = std::fs::File::open(path)?;
     let mut reader = std::io::BufReader::new(file);
@@ -799,6 +813,13 @@ fn do_populate_blocking(
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
     let prepared = sf_media::build_prepared_media(&metadata, path)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+    // Persist to DB for next time.
+    if let Ok(blob) = prepared.to_bincode() {
+        if let Ok(conn) = sf_db::pool::get_conn(&ctx.db) {
+            let _ = sf_db::queries::media_files::set_hls_prepared(&conn, mf_id, &blob);
+        }
+    }
 
     let prepared = std::sync::Arc::new(prepared);
     ctx.hls_cache.insert(mf_id, (prepared.clone(), std::time::Instant::now()));

@@ -43,9 +43,15 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
-	// Determine if item has a web-playable media file
+	// Determine if item has a web-playable media file (profile B with HLS ready)
 	const isPlayable = $derived(
-		item?.media_files?.some((f) => f.role === 'universal' || f.profile === 'B') ?? false
+		item?.media_files?.some((f) => (f.role === 'universal' || f.profile === 'B') && f.hls_ready) ?? false
+	);
+
+	// Profile B exists but HLS data not yet prepared
+	const isHlsPreparing = $derived(
+		!isPlayable &&
+		(item?.media_files?.some((f) => (f.role === 'universal' || f.profile === 'B') && !f.hls_ready) ?? false)
 	);
 
 	// Is this a container (series/season) that holds children?
@@ -248,7 +254,7 @@
 	}
 
 	function isEpisodePlayable(ep: Item): boolean {
-		return ep.media_files?.some((f) => f.role === 'universal' || f.profile === 'B') ?? false;
+		return ep.media_files?.some((f) => (f.role === 'universal' || f.profile === 'B') && f.hls_ready) ?? false;
 	}
 
 	// TMDB Identify
@@ -420,6 +426,14 @@
 								<Play class="mr-2 h-6 w-6 fill-current" />
 								Play
 							</Button>
+						{:else if isHlsPreparing}
+							<Button variant="secondary" size="lg" class="w-full py-6 text-lg" disabled>
+								<Loader2 class="mr-2 h-6 w-6 animate-spin" />
+								Preparing HLS...
+							</Button>
+							<p class="text-center text-sm text-muted-foreground">
+								HLS segment data is being prepared for streaming.
+							</p>
 						{:else if activeConversion}
 							<Button variant="secondary" size="lg" class="w-full py-6 text-lg" disabled>
 								<Loader2 class="mr-2 h-6 w-6 animate-spin" />

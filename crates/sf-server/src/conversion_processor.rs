@@ -282,6 +282,19 @@ async fn execute_conversion(
     // Populate in-memory HLS cache from the new Profile B MP4.
     crate::hls_prep::populate_hls_cache(ctx, output_mf.id, &output_path).await?;
 
+    // Persist the HLS blob to DB so it survives restarts.
+    if let Some(entry) = ctx.hls_cache.get(&output_mf.id) {
+        if let Ok(blob) = entry.0.to_bincode() {
+            let db = ctx.db.clone();
+            let mf_id = output_mf.id;
+            // Non-fatal: if this fails, the three-tier lookup will re-parse on next restart.
+            if let Ok(conn) = sf_db::pool::get_conn(&db) {
+                let _ = sf_db::queries::media_files::set_hls_prepared(&conn, mf_id, &blob);
+                tracing::debug!(media_file_id = %mf_id, "HLS blob persisted to DB after conversion");
+            }
+        }
+    }
+
     // Complete the conversion job.
     sf_db::queries::conversion_jobs::complete_conversion(&conn, job_id, output_mf.id)?;
 

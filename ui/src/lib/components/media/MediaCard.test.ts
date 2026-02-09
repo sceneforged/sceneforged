@@ -68,6 +68,7 @@ describe('MediaCard', () => {
 					has_dolby_vision: false,
 					role: 'universal',
 					profile: 'B',
+					hls_ready: true,
 					created_at: new Date().toISOString()
 				}
 			]

@@ -192,6 +192,8 @@ pub struct MediaFile {
     pub profile: String,
     pub duration_secs: Option<f64>,
     pub created_at: String,
+    /// True when hls_prepared blob is persisted (never loads the blob in listings).
+    pub hls_ready: bool,
 }
 
 impl MediaFile {
@@ -199,7 +201,7 @@ impl MediaFile {
     /// id, item_id, file_path, file_name, file_size, container,
     /// video_codec, audio_codec, resolution_width, resolution_height,
     /// hdr_format, has_dolby_vision, dv_profile, role, profile,
-    /// duration_secs, created_at
+    /// duration_secs, created_at, (hls_prepared IS NOT NULL)
     pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
         Ok(Self {
             id: parse_id(row, 0)?,
@@ -219,6 +221,7 @@ impl MediaFile {
             profile: row.get(14)?,
             duration_secs: row.get(15)?,
             created_at: row.get(16)?,
+            hls_ready: row.get::<_, i32>(17).unwrap_or(0) != 0,
         })
     }
 }

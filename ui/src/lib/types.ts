@@ -119,6 +119,8 @@ export interface MediaFile {
 	profile: string;
 	duration_secs?: number;
 	created_at: string;
+	/** True when HLS segment data is pre-computed and persisted */
+	hls_ready: boolean;
 }
 
 // Image/artwork for an item

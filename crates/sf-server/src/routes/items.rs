@@ -43,6 +43,7 @@ pub struct MediaFileResponse {
     pub role: String,
     pub profile: String,
     pub duration_secs: Option<f64>,
+    pub hls_ready: bool,
 }
 
 impl MediaFileResponse {
@@ -60,6 +61,7 @@ impl MediaFileResponse {
             role: mf.role.clone(),
             profile: mf.profile.clone(),
             duration_secs: mf.duration_secs,
+            hls_ready: mf.hls_ready,
         }
     }
 }

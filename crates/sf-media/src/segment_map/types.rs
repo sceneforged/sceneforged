@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 /// A byte range within the source MP4 file.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DataRange {
     pub file_offset: u64,
     pub length: u64,
@@ -11,7 +11,7 @@ pub struct DataRange {
 
 /// A precomputed HLS segment: moof header + mdat header are in memory,
 /// sample data is read from the source file on demand.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PrecomputedSegment {
     pub index: u32,
     pub start_time_secs: f64,
@@ -29,7 +29,7 @@ pub struct PrecomputedSegment {
 }
 
 /// Fully prepared media file for zero-copy HLS serving.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PreparedMedia {
     /// Path to the source MP4 file.
     pub file_path: PathBuf,
@@ -44,4 +44,16 @@ pub struct PreparedMedia {
     pub segments: Vec<PrecomputedSegment>,
     /// Target segment duration (for EXT-X-TARGETDURATION).
     pub target_duration: u32,
+}
+
+impl PreparedMedia {
+    /// Serialize to bincode bytes.
+    pub fn to_bincode(&self) -> Result<Vec<u8>, String> {
+        bincode::serialize(self).map_err(|e| format!("bincode serialize: {e}"))
+    }
+
+    /// Deserialize from bincode bytes.
+    pub fn from_bincode(data: &[u8]) -> Result<Self, String> {
+        bincode::deserialize(data).map_err(|e| format!("bincode deserialize: {e}"))
+    }
 }

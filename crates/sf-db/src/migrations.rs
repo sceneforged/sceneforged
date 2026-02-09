@@ -328,6 +328,12 @@ ALTER TABLE items ADD COLUMN scan_error TEXT;
 ALTER TABLE items ADD COLUMN source_file_path TEXT;
 "#;
 
+/// V12: Persist HLS PreparedMedia as a BLOB on media_files; drop unused hls_cache table.
+const V12_HLS_PREPARED: &str = r#"
+ALTER TABLE media_files ADD COLUMN hls_prepared BLOB;
+DROP TABLE IF EXISTS hls_cache;
+"#;
+
 /// Ordered list of (version, sql) pairs.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, V1_INITIAL),
@@ -341,6 +347,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (9, V9_INVITATIONS_PRIORITY),
     (10, V10_CONVERSION_STATS),
     (11, V11_SCAN_STATUS),
+    (12, V12_HLS_PREPARED),
 ];
 
 /// Run all pending migrations on `conn`.
@@ -417,7 +424,6 @@ mod tests {
             "images",
             "jobs",
             "conversion_jobs",
-            "hls_cache",
             "playback",
             "favorites",
             "invitations",
@@ -451,8 +457,6 @@ mod tests {
              VALUES ('i1', 'lib1', 'movie', 'Test Movie', '2025-01-01', '2025-01-01');
              INSERT INTO media_files (id, item_id, file_path, file_name, file_size, created_at)
              VALUES ('mf1', 'i1', '/test.mkv', 'test.mkv', 1000, '2025-01-01');
-             INSERT INTO hls_cache (media_file_id, playlist, segments, created_at)
-             VALUES ('mf1', '#EXTM3U', '[]', '2025-01-01');
              INSERT INTO conversion_jobs (id, item_id, media_file_id, created_at)
              VALUES ('cj1', 'i1', 'mf1', '2025-01-01');
              INSERT INTO playback (user_id, item_id, position_secs, last_played_at)
@@ -473,7 +477,6 @@ mod tests {
         };
         assert_eq!(count("items"), 0, "items should be cascade-deleted");
         assert_eq!(count("media_files"), 0, "media_files should be cascade-deleted");
-        assert_eq!(count("hls_cache"), 0, "hls_cache should be cascade-deleted");
         assert_eq!(count("conversion_jobs"), 0, "conversion_jobs should be cascade-deleted");
         assert_eq!(count("playback"), 0, "playback should be cascade-deleted");
         assert_eq!(count("favorites"), 0, "favorites should be cascade-deleted");

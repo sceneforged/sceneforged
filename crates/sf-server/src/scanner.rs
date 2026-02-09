@@ -69,6 +69,8 @@ enum ProbeOutcome {
         walk: WalkResult,
         media_info: sf_probe::types::MediaInfo,
         file_size: i64,
+        /// Pre-serialized HLS PreparedMedia blob (Profile B files only).
+        hls_blob: Option<Vec<u8>>,
     },
     Failure {
         item_id: sf_core::ItemId,
@@ -432,18 +434,27 @@ pub async fn scan_library(
                     let size = std::fs::metadata(&path_clone)
                         .map(|m| m.len() as i64)
                         .unwrap_or(0);
-                    Ok::<_, sf_core::Error>((info, size))
+
+                    // For Profile B files, pre-build the HLS segment data.
+                    let hls_blob = if info.classify_profile() == sf_core::Profile::B {
+                        try_build_prepared_media(&path_clone)
+                    } else {
+                        None
+                    };
+
+                    Ok::<_, sf_core::Error>((info, size, hls_blob))
                 })
                 .await;
 
                 probe_counters.probes_completed.fetch_add(1, Ordering::Relaxed);
 
                 let outcome = match result {
-                    Ok(Ok((media_info, file_size))) => ProbeOutcome::Success {
+                    Ok(Ok((media_info, file_size, hls_blob))) => ProbeOutcome::Success {
                         item_id: walk_result.item_id,
                         walk: walk_result,
                         media_info,
                         file_size,
+                        hls_blob,
                     },
                     Ok(Err(e)) => {
                         tracing::warn!(file = %walk_result.file_path_str, error = %e, "Failed to probe file");
@@ -897,6 +908,7 @@ async fn flush_batch(
                     walk,
                     media_info,
                     file_size,
+                    hls_blob,
                 } => {
                     let file_path_for_error = walk.file_path_str.clone();
                     match ingest_probed_file(
@@ -908,6 +920,7 @@ async fn flush_batch(
                         &walk,
                         &media_info,
                         file_size,
+                        hls_blob.as_deref(),
                     ) {
                         Ok(IngestOutcome {
                             queued,
@@ -1018,6 +1031,7 @@ fn ingest_probed_file(
     walk: &WalkResult,
     media_info: &sf_probe::types::MediaInfo,
     file_size: i64,
+    hls_blob: Option<&[u8]>,
 ) -> sf_core::Result<IngestOutcome> {
     let profile = media_info.classify_profile();
     let role = if profile == sf_core::Profile::B {
@@ -1067,8 +1081,8 @@ fn ingest_probed_file(
         Some(item.id)
     };
 
-    // Create the media_file record with detected profile.
-    let mf = sf_db::queries::media_files::create_media_file(
+    // Create the media_file record with detected profile (and HLS blob if available).
+    let mf = sf_db::queries::media_files::create_media_file_with_hls(
         conn,
         item_id,
         &walk.file_path_str,
@@ -1085,6 +1099,7 @@ fn ingest_probed_file(
         role,
         &profile.to_string(),
         duration_secs,
+        hls_blob,
     )?;
 
     // Store subtitle tracks from probe data.
@@ -1216,7 +1231,14 @@ async fn ingest_converted_file(ctx: &AppContext, path: &Path) -> sf_core::Result
         .map(|dv| dv.profile as i32);
     let duration_secs = media_info.duration.map(|d| d.as_secs_f64());
 
-    sf_db::queries::media_files::create_media_file(
+    // Build HLS blob for Profile B converted files.
+    let hls_blob = if profile == sf_core::Profile::B {
+        try_build_prepared_media(path)
+    } else {
+        None
+    };
+
+    sf_db::queries::media_files::create_media_file_with_hls(
         &conn,
         item_id,
         &file_path_str,
@@ -1233,9 +1255,21 @@ async fn ingest_converted_file(ctx: &AppContext, path: &Path) -> sf_core::Result
         role,
         &profile.to_string(),
         duration_secs,
+        hls_blob.as_deref(),
     )?;
 
     Ok(true)
+}
+
+/// Try to parse the moov atom and build a serialized PreparedMedia blob.
+///
+/// Returns `None` on any failure — this is non-fatal during scanning.
+fn try_build_prepared_media(path: &Path) -> Option<Vec<u8>> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut reader = std::io::BufReader::new(file);
+    let metadata = sf_media::parse_moov(&mut reader).ok()?;
+    let prepared = sf_media::build_prepared_media(&metadata, path).ok()?;
+    prepared.to_bincode().ok()
 }
 
 /// Best-effort TMDB enrichment for a single item during scan.

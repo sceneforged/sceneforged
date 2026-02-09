@@ -87,9 +87,14 @@ pub async fn get_or_populate(
     }
 }
 
-/// Look up the media file in DB, parse its moov, build PreparedMedia, and
-/// insert into the cache. All blocking work runs inside `spawn_blocking`
-/// so it never blocks the async runtime AND survives cancellation.
+/// Three-tier lookup: memory → DB → moov parse.
+///
+/// 1. Memory (DashMap) — already checked by caller
+/// 2. DB (hls_prepared blob) — deserialized and cached
+/// 3. File (moov parse) — built, cached, and persisted to DB
+///
+/// All blocking work runs inside `spawn_blocking` so it never blocks the
+/// async runtime AND survives cancellation.
 async fn do_populate(
     ctx: &AppContext,
     media_file_id: MediaFileId,
@@ -104,7 +109,24 @@ async fn do_populate(
 
         let mf = sf_db::queries::media_files::get_media_file(&conn, media_file_id)?
             .ok_or_else(|| sf_core::Error::not_found("media_file", media_file_id))?;
+
+        // --- Tier 2: DB blob ---
+        if let Some(blob) = sf_db::queries::media_files::get_hls_prepared(&conn, media_file_id)? {
+            drop(conn);
+            tracing::debug!(media_file_id = %media_file_id, "HLS cache loaded from DB");
+            let mut prepared = sf_media::PreparedMedia::from_bincode(&blob).map_err(|e| {
+                sf_core::Error::Internal(format!("Failed to deserialize HLS blob: {e}"))
+            })?;
+            // Update file_path from the DB record (may have moved).
+            prepared.file_path = std::path::PathBuf::from(&mf.file_path);
+            let prepared = Arc::new(prepared);
+            hls_cache.insert(media_file_id, (prepared.clone(), Instant::now()));
+            evict_if_over_limit(&hls_cache);
+            return Ok(prepared);
+        }
         drop(conn);
+
+        // --- Tier 3: moov parse ---
         tracing::debug!(media_file_id = %media_file_id, path = %mf.file_path, "do_populate: media file found");
 
         let path = std::path::PathBuf::from(&mf.file_path);
@@ -129,6 +151,14 @@ async fn do_populate(
                 path.display()
             ))
         })?;
+
+        // Persist to DB for next time.
+        if let Ok(blob) = prepared.to_bincode() {
+            if let Ok(conn) = sf_db::pool::get_conn(&db) {
+                let _ = sf_db::queries::media_files::set_hls_prepared(&conn, media_file_id, &blob);
+                tracing::debug!(media_file_id = %media_file_id, "HLS blob persisted to DB");
+            }
+        }
 
         let prepared = Arc::new(prepared);
 

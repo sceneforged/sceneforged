@@ -9,7 +9,7 @@ use crate::models::MediaFile;
 const COLS: &str = "id, item_id, file_path, file_name, file_size, container,
     video_codec, audio_codec, resolution_width, resolution_height,
     hdr_format, has_dolby_vision, dv_profile, role, profile,
-    duration_secs, created_at";
+    duration_secs, created_at, (hls_prepared IS NOT NULL)";
 
 /// Create a new media file record.
 #[allow(clippy::too_many_arguments)]
@@ -31,14 +31,43 @@ pub fn create_media_file(
     profile: &str,
     duration_secs: Option<f64>,
 ) -> Result<MediaFile> {
+    create_media_file_with_hls(
+        conn, item_id, file_path, file_name, file_size,
+        container, video_codec, audio_codec, resolution_width, resolution_height,
+        hdr_format, has_dolby_vision, dv_profile, role, profile, duration_secs, None,
+    )
+}
+
+/// Create a new media file record with optional pre-computed HLS data.
+#[allow(clippy::too_many_arguments)]
+pub fn create_media_file_with_hls(
+    conn: &Connection,
+    item_id: ItemId,
+    file_path: &str,
+    file_name: &str,
+    file_size: i64,
+    container: Option<&str>,
+    video_codec: Option<&str>,
+    audio_codec: Option<&str>,
+    resolution_width: Option<i32>,
+    resolution_height: Option<i32>,
+    hdr_format: Option<&str>,
+    has_dolby_vision: bool,
+    dv_profile: Option<i32>,
+    role: &str,
+    profile: &str,
+    duration_secs: Option<f64>,
+    hls_prepared: Option<&[u8]>,
+) -> Result<MediaFile> {
     let id = MediaFileId::new();
     let created_at = Utc::now().to_rfc3339();
 
     conn.execute(
         "INSERT INTO media_files (id, item_id, file_path, file_name, file_size,
             container, video_codec, audio_codec, resolution_width, resolution_height,
-            hdr_format, has_dolby_vision, dv_profile, role, profile, duration_secs, created_at)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+            hdr_format, has_dolby_vision, dv_profile, role, profile, duration_secs,
+            created_at, hls_prepared)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
         rusqlite::params![
             id.to_string(),
             item_id.to_string(),
@@ -57,6 +86,7 @@ pub fn create_media_file(
             profile,
             duration_secs,
             created_at,
+            hls_prepared,
         ],
     )
     .map_err(|e| Error::database(e.to_string()))?;
@@ -79,7 +109,32 @@ pub fn create_media_file(
         profile: profile.to_string(),
         duration_secs,
         created_at,
+        hls_ready: hls_prepared.is_some(),
     })
+}
+
+/// Store the serialized HLS PreparedMedia blob for a media file.
+pub fn set_hls_prepared(conn: &Connection, id: MediaFileId, data: &[u8]) -> Result<()> {
+    conn.execute(
+        "UPDATE media_files SET hls_prepared = ?1 WHERE id = ?2",
+        rusqlite::params![data, id.to_string()],
+    )
+    .map_err(|e| Error::database(e.to_string()))?;
+    Ok(())
+}
+
+/// Load the serialized HLS PreparedMedia blob for a media file.
+pub fn get_hls_prepared(conn: &Connection, id: MediaFileId) -> Result<Option<Vec<u8>>> {
+    let result = conn.query_row(
+        "SELECT hls_prepared FROM media_files WHERE id = ?1",
+        [id.to_string()],
+        |row| row.get::<_, Option<Vec<u8>>>(0),
+    );
+    match result {
+        Ok(blob) => Ok(blob),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(Error::database(e.to_string())),
+    }
 }
 
 /// Get a media file by ID.

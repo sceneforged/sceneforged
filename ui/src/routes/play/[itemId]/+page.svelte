@@ -39,8 +39,9 @@
 		try {
 			item = await getItem(itemId);
 
-			// Find the web-playable media file (universal/profile B), fall back to source
+			// Prefer profile B files with HLS ready, then any profile B, then source
 			const playableFile =
+				item.media_files?.find((f) => (f.role === 'universal' || f.profile === 'B') && f.hls_ready) ??
 				item.media_files?.find((f) => f.role === 'universal' || f.profile === 'B') ??
 				item.media_files?.find((f) => f.role === 'source');
 

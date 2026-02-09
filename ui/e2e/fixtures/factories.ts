@@ -51,6 +51,7 @@ export function createMediaFile(overrides: Partial<MediaFile> = {}): MediaFile {
 		role: 'source',
 		profile: 'A',
 		duration_secs: 7200,
+		hls_ready: false,
 		created_at: new Date().toISOString(),
 		...overrides
 	};

@@ -50,7 +50,8 @@ export function populatedState(): Scenario {
 		const mediaFile = createMediaFile({
 			item_id: item.id,
 			role: i < 3 ? 'universal' : 'source',
-			profile: i < 3 ? 'B' : 'A'
+			profile: i < 3 ? 'B' : 'A',
+			hls_ready: i < 3
 		});
 		item.media_files = [mediaFile];
 		items.push(item);
@@ -122,7 +123,7 @@ export function paginatedState(): Scenario {
 		});
 		if (i < 5) {
 			item.media_files = [
-				createMediaFile({ item_id: item.id, role: 'universal', profile: 'B' })
+				createMediaFile({ item_id: item.id, role: 'universal', profile: 'B', hls_ready: true })
 			];
 		}
 		items.push(item);

@@ -31,9 +31,15 @@
 	const isPending = $derived(item.scan_status === 'pending');
 	const isError = $derived(item.scan_status === 'error');
 
-	// Determine if item has a web-playable media file (role=universal or profile=B)
+	// Determine if item has a web-playable media file (profile B with HLS data ready)
 	const isWebPlayable = $derived(
-		item.media_files?.some((f) => f.role === 'universal' || f.profile === 'B') ?? false
+		item.media_files?.some((f) => (f.role === 'universal' || f.profile === 'B') && f.hls_ready) ?? false
+	);
+
+	// Profile B exists but HLS data not yet prepared
+	const isHlsPreparing = $derived(
+		!isWebPlayable &&
+		(item.media_files?.some((f) => (f.role === 'universal' || f.profile === 'B') && !f.hls_ready) ?? false)
 	);
 
 	// Derive profile badge from media files
@@ -157,6 +163,14 @@
 			<!-- Error scan overlay -->
 			<div class="absolute inset-0 bg-destructive/20 flex items-center justify-center">
 				<AlertTriangle class="w-10 h-10 text-destructive" />
+			</div>
+		{:else if isHlsPreparing}
+			<!-- HLS preparing overlay -->
+			<div class="absolute inset-0 bg-muted/40 flex items-center justify-center">
+				<div class="flex flex-col items-center gap-1">
+					<LoaderCircle class="w-8 h-8 text-muted-foreground animate-spin" />
+					<span class="text-xs text-muted-foreground font-medium">Preparing...</span>
+				</div>
 			</div>
 		{:else if isWebPlayable}
 			<!-- Play overlay on hover (only show if web-playable and ready) -->
