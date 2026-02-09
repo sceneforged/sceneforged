@@ -731,6 +731,36 @@ pub async fn user_latest(
     Ok(Json(dtos))
 }
 
+/// GET /Users/{user_id}/GroupingOptions — library grouping options.
+///
+/// Infuse calls this immediately after Views to determine how libraries
+/// can be organized. Returns the same libraries as UserViews in a
+/// simpler format.
+pub async fn grouping_options(
+    State(ctx): State<AppContext>,
+    Path(_user_id): Path<String>,
+) -> Result<Json<Vec<GroupingOption>>, AppError> {
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    let libraries = sf_db::queries::libraries::list_libraries(&conn)?;
+
+    let options: Vec<GroupingOption> = libraries
+        .iter()
+        .map(|lib| GroupingOption {
+            id: lib.id.to_string(),
+            name: lib.name.clone(),
+        })
+        .collect();
+
+    Ok(Json(options))
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GroupingOption {
+    pub id: String,
+    pub name: String,
+}
+
 /// GET /Items/{id}/Images/{image_type}
 pub async fn get_image(
     State(ctx): State<AppContext>,

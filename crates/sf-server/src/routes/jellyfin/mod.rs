@@ -127,6 +127,7 @@ pub fn jellyfin_router() -> Router<AppContext> {
         .route("/Users/{user_id}/Views", get(items::user_views))
         .route("/Users/{user_id}/Items", get(items::list_items))
         .route("/Users/{user_id}/Items/{id}", get(items::user_scoped_get_item))
+        .route("/Users/{user_id}/GroupingOptions", get(items::grouping_options))
         // User-scoped home screen routes (Infuse Continue Watching / Recently Added)
         .route("/Users/{user_id}/Items/Resume", get(items::user_resume))
         .route("/Users/{user_id}/Items/Latest", get(items::user_latest))
