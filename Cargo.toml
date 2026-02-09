@@ -188,3 +188,7 @@ harness = false
 [[bench]]
 name = "db_item_queries"
 harness = false
+
+[[bench]]
+name = "hls_pipeline"
+harness = false

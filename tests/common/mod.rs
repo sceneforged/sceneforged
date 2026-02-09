@@ -329,6 +329,70 @@ impl TestHarness {
         (inv.id, inv.code)
     }
 
+    /// Create an item + media file record pointing to a real file on disk.
+    /// Returns (item_id, media_file_id, item_id_string, mf_id_string).
+    pub fn create_item_with_real_media(
+        &self,
+        library_id: LibraryId,
+        name: &str,
+        file_path: &str,
+        container: &str,
+        video_codec: &str,
+        audio_codec: &str,
+        width: i32,
+        height: i32,
+        profile: &str,
+        duration_secs: f64,
+    ) -> (ItemId, MediaFileId, String, String) {
+        let conn = self.conn();
+        let item = sf_db::queries::items::create_item(
+            &conn,
+            library_id,
+            "movie",
+            name,
+            None,
+            Some(2024),
+            None,
+            Some((duration_secs / 60.0) as i32),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("failed to create test item");
+
+        let file_size = std::fs::metadata(file_path)
+            .map(|m| m.len() as i64)
+            .unwrap_or(0);
+
+        let mf = sf_db::queries::media_files::create_media_file(
+            &conn,
+            item.id,
+            file_path,
+            std::path::Path::new(file_path)
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            file_size,
+            Some(container),
+            Some(video_codec),
+            Some(audio_codec),
+            Some(width),
+            Some(height),
+            None,
+            false,
+            None,
+            "universal",
+            profile,
+            Some(duration_secs),
+        )
+        .expect("failed to create test media file");
+
+        (item.id, mf.id, item.id.to_string(), mf.id.to_string())
+    }
+
     /// Create a subtitle track for a media file.
     pub fn create_subtitle_track(
         &self,

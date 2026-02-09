@@ -60,6 +60,20 @@ Very fast. Serialization is not a bottleneck.
 
 All fast. PK lookups under 6 µs.
 
+## HLS Pipeline (real MP4 file)
+
+Fixture: Big Buck Bunny 24s, 640×360, H.264 High + AAC, keyframes every 2s (967 KB).
+
+| Operation | Time | Notes |
+|---|---|---|
+| `parse_moov` (I/O + atom parsing) | 276 µs | File open + seek + parse all sample tables |
+| `build_prepared_media` (CPU only) | 19 µs | Segment map + fMP4 init/moof generation |
+| Full pipeline (parse + build) | 253 µs | End-to-end: file → ready to serve HLS |
+
+Moov parsing dominates (~93% of total). The CPU-bound segment/fMP4 work
+is just 19 µs. For a 24s file this means HLS is ready in under 300 µs —
+well under the threshold for seamless playback start.
+
 ## FTS5 / LIKE Search
 
 ### After optimization (subquery-driven FTS)
