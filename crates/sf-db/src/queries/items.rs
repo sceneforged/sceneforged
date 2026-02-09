@@ -599,6 +599,41 @@ pub fn list_resumable_items(
     Ok(rows)
 }
 
+/// List the most recently added items, optionally filtered by library.
+///
+/// Returns playable items (movies/episodes) ordered by `created_at DESC`.
+/// Used by Jellyfin `/Users/{id}/Items/Latest`.
+pub fn list_latest_items(
+    conn: &Connection,
+    library_id: Option<LibraryId>,
+    limit: i64,
+) -> Result<Vec<Item>> {
+    let mut sql = format!(
+        "SELECT {COLS} FROM items
+         WHERE item_kind IN ('movie', 'episode') AND scan_status IS NULL"
+    );
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    let mut idx = 1;
+
+    if let Some(lid) = library_id {
+        sql.push_str(&format!(" AND library_id = ?{idx}"));
+        params.push(Box::new(lid.to_string()));
+        idx += 1;
+    }
+
+    sql.push_str(&format!(" ORDER BY created_at DESC LIMIT ?{idx}"));
+    params.push(Box::new(limit));
+
+    let params_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    let mut stmt = conn.prepare(&sql).map_err(|e| Error::database(e.to_string()))?;
+    let rows = stmt
+        .query_map(params_refs.as_slice(), Item::from_row)
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?;
+    Ok(rows)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -336,7 +336,7 @@ pub async fn get_item(
     let ud = user_data_map.get(&item_id);
     let mut item_dto = dto::item_to_dto(&item, &images, ud);
 
-    // Add media sources for playable items.
+    // Add media sources for playable items (with MediaStreams for codec info).
     if item.item_kind == "movie" || item.item_kind == "episode" {
         let media_files = sf_db::queries::media_files::list_media_files_by_item(&conn, item_id)?;
         let sources: Vec<dto::MediaSourceDto> = media_files
@@ -347,6 +347,67 @@ pub async fn get_item(
                     "/Videos/{}/stream?mediaSourceId={}&static=true",
                     item_id, mf.id,
                 );
+
+                // Build media streams so clients know codec info before PlaybackInfo.
+                let mut streams = Vec::new();
+                let mut idx = 0i32;
+
+                if let Some(ref codec) = mf.video_codec {
+                    let display = match (mf.resolution_width, mf.resolution_height) {
+                        (Some(w), Some(h)) => format!("{w}x{h} {codec}"),
+                        _ => codec.clone(),
+                    };
+                    streams.push(dto::MediaStreamDto {
+                        stream_type: "Video".to_string(),
+                        index: idx,
+                        codec: Some(codec.clone()),
+                        language: None,
+                        display_title: Some(display),
+                        is_default: true,
+                        is_forced: false,
+                        width: mf.resolution_width,
+                        height: mf.resolution_height,
+                    });
+                    idx += 1;
+                }
+
+                if let Some(ref codec) = mf.audio_codec {
+                    streams.push(dto::MediaStreamDto {
+                        stream_type: "Audio".to_string(),
+                        index: idx,
+                        codec: Some(codec.clone()),
+                        language: None,
+                        display_title: Some(codec.clone()),
+                        is_default: true,
+                        is_forced: false,
+                        width: None,
+                        height: None,
+                    });
+                    idx += 1;
+                }
+
+                if let Ok(subtitle_tracks) = sf_db::queries::subtitle_tracks::list_by_media_file(&conn, mf.id) {
+                    for track in &subtitle_tracks {
+                        let display = track.language.as_deref().unwrap_or("Unknown");
+                        let mut title = display.to_string();
+                        if track.forced {
+                            title.push_str(" (Forced)");
+                        }
+                        streams.push(dto::MediaStreamDto {
+                            stream_type: "Subtitle".to_string(),
+                            index: idx,
+                            codec: Some(track.codec.clone()),
+                            language: track.language.clone(),
+                            display_title: Some(title),
+                            is_default: track.default_track,
+                            is_forced: track.forced,
+                            width: None,
+                            height: None,
+                        });
+                        idx += 1;
+                    }
+                }
+
                 dto::MediaSourceDto {
                     id: mf.id.to_string(),
                     name: mf.file_name.clone(),
@@ -360,7 +421,7 @@ pub async fn get_item(
                     protocol: "File".to_string(),
                     media_source_type: "Default".to_string(),
                     direct_stream_url: Some(direct_stream_url),
-                    media_streams: None,
+                    media_streams: if streams.is_empty() { None } else { Some(streams) },
                 }
             })
             .collect();
@@ -591,6 +652,83 @@ pub async fn search_hints(
         search_hints: hints,
         total_record_count: count,
     }))
+}
+
+/// GET /Users/{user_id}/Items/Resume — continue watching row.
+pub async fn user_resume(
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+    Path(_user_id): Path<String>,
+    Query(params): Query<ItemsQuery>,
+) -> Result<Json<ItemsResult>, AppError> {
+    let user_id = resolve_user_from_headers(&ctx, &headers);
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+
+    let limit = params.limit.unwrap_or(12).min(100);
+    let offset = params.start_index.unwrap_or(0);
+
+    let kind_strs: Vec<&str> = params
+        .include_item_types
+        .as_deref()
+        .map(|s| s.split(',').filter_map(jellyfin_type_to_kind).collect())
+        .unwrap_or_default();
+    let kinds = if kind_strs.is_empty() { None } else { Some(kind_strs.as_slice()) };
+    let lib_id = params.parent_id.as_deref().and_then(|s| s.parse().ok());
+
+    let items = sf_db::queries::items::list_resumable_items(
+        &conn, user_id, lib_id, kinds, offset, limit,
+    )?;
+
+    build_response(&conn, user_id, &items)
+}
+
+/// Query params for the Latest endpoint.
+#[derive(Debug, Deserialize)]
+pub struct LatestQuery {
+    #[serde(alias = "parentId", alias = "ParentId")]
+    pub parent_id: Option<String>,
+    #[serde(alias = "limit", alias = "Limit")]
+    pub limit: Option<i64>,
+    #[serde(alias = "includeItemTypes", alias = "IncludeItemTypes")]
+    pub include_item_types: Option<String>,
+}
+
+/// GET /Users/{user_id}/Items/Latest — recently added items.
+pub async fn user_latest(
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+    Path(_user_id): Path<String>,
+    Query(params): Query<LatestQuery>,
+) -> Result<Json<Vec<BaseItemDto>>, AppError> {
+    let user_id = resolve_user_from_headers(&ctx, &headers);
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+
+    let limit = params.limit.unwrap_or(16).min(100);
+    let lib_id = params.parent_id.as_deref().and_then(|s| s.parse().ok());
+
+    let mut items = sf_db::queries::items::list_latest_items(&conn, lib_id, limit)?;
+
+    // Apply includeItemTypes filter if provided.
+    if let Some(ref types) = params.include_item_types {
+        items = filter_by_types(items, types);
+    }
+
+    let ready = filter_ready_items(&items);
+    let item_ids: Vec<sf_core::ItemId> = ready.iter().map(|i| i.id).collect();
+    let user_data_map = sf_db::queries::playback::batch_get_user_data(&conn, user_id, &item_ids)?;
+    let mut images_map = sf_db::queries::images::batch_get_images(&conn, &item_ids)?;
+
+    let dtos: Vec<BaseItemDto> = ready
+        .iter()
+        .map(|item| {
+            let images = images_map.remove(&item.id).unwrap_or_default();
+            let ud = user_data_map.get(&item.id);
+            dto::item_to_dto(item, &images, ud)
+        })
+        .collect();
+
+    // Jellyfin's /Latest returns a bare array, not wrapped in ItemsResult.
+    Ok(Json(dtos))
 }
 
 /// GET /Items/{id}/Images/{image_type}

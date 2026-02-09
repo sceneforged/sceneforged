@@ -3,7 +3,7 @@
 //! These map the Jellyfin sessions/playstate protocol to our internal
 //! playback tracking.
 
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use serde::Deserialize;
@@ -122,6 +122,118 @@ pub async fn progress(
         }
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// POST /Users/{userId}/PlayedItems/{itemId} — mark item as played.
+pub async fn mark_played(
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+    Path((_user_id, item_id)): Path<(String, String)>,
+) -> Result<Json<super::dto::UserDataDto>, AppError> {
+    let user_id = resolve_user_from_headers(&ctx, &headers);
+    let item_id: sf_core::ItemId = item_id
+        .parse()
+        .map_err(|_| sf_core::Error::Validation("Invalid itemId".into()))?;
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    sf_db::queries::playback::upsert_playback(&conn, user_id, item_id, 0.0, true)?;
+
+    let is_fav = sf_db::queries::favorites::get_favorite(&conn, user_id, item_id)?
+        .is_some();
+
+    Ok(Json(super::dto::UserDataDto {
+        played: true,
+        playback_position_ticks: None,
+        is_favorite: is_fav,
+    }))
+}
+
+/// DELETE /Users/{userId}/PlayedItems/{itemId} — mark item as unplayed.
+pub async fn mark_unplayed(
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+    Path((_user_id, item_id)): Path<(String, String)>,
+) -> Result<Json<super::dto::UserDataDto>, AppError> {
+    let user_id = resolve_user_from_headers(&ctx, &headers);
+    let item_id: sf_core::ItemId = item_id
+        .parse()
+        .map_err(|_| sf_core::Error::Validation("Invalid itemId".into()))?;
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    sf_db::queries::playback::upsert_playback(&conn, user_id, item_id, 0.0, false)?;
+
+    let is_fav = sf_db::queries::favorites::get_favorite(&conn, user_id, item_id)?
+        .is_some();
+
+    Ok(Json(super::dto::UserDataDto {
+        played: false,
+        playback_position_ticks: None,
+        is_favorite: is_fav,
+    }))
+}
+
+/// POST /Users/{userId}/FavoriteItems/{itemId} — add to favorites.
+pub async fn add_favorite(
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+    Path((_user_id, item_id)): Path<(String, String)>,
+) -> Result<Json<super::dto::UserDataDto>, AppError> {
+    let user_id = resolve_user_from_headers(&ctx, &headers);
+    let item_id: sf_core::ItemId = item_id
+        .parse()
+        .map_err(|_| sf_core::Error::Validation("Invalid itemId".into()))?;
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    sf_db::queries::favorites::add_favorite(&conn, user_id, item_id)?;
+
+    // Fetch current playback state for the response.
+    let user_data_map =
+        sf_db::queries::playback::batch_get_user_data(&conn, user_id, &[item_id])?;
+    let ud = user_data_map.get(&item_id);
+
+    Ok(Json(super::dto::UserDataDto {
+        played: ud.map_or(false, |u| u.completed),
+        playback_position_ticks: ud.and_then(|u| {
+            if u.position_secs > 0.0 {
+                Some((u.position_secs * TICKS_PER_SECOND as f64) as i64)
+            } else {
+                None
+            }
+        }),
+        is_favorite: true,
+    }))
+}
+
+/// DELETE /Users/{userId}/FavoriteItems/{itemId} — remove from favorites.
+pub async fn remove_favorite(
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+    Path((_user_id, item_id)): Path<(String, String)>,
+) -> Result<Json<super::dto::UserDataDto>, AppError> {
+    let user_id = resolve_user_from_headers(&ctx, &headers);
+    let item_id: sf_core::ItemId = item_id
+        .parse()
+        .map_err(|_| sf_core::Error::Validation("Invalid itemId".into()))?;
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    sf_db::queries::favorites::remove_favorite(&conn, user_id, item_id)?;
+
+    // Fetch current playback state for the response.
+    let user_data_map =
+        sf_db::queries::playback::batch_get_user_data(&conn, user_id, &[item_id])?;
+    let ud = user_data_map.get(&item_id);
+
+    Ok(Json(super::dto::UserDataDto {
+        played: ud.map_or(false, |u| u.completed),
+        playback_position_ticks: ud.and_then(|u| {
+            if u.position_secs > 0.0 {
+                Some((u.position_secs * TICKS_PER_SECOND as f64) as i64)
+            } else {
+                None
+            }
+        }),
+        is_favorite: false,
+    }))
 }
 
 /// POST /Sessions/Playing/Stopped — client stopped playback.

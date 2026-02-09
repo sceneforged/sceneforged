@@ -65,6 +65,19 @@ pub fn jellyfin_router() -> Router<AppContext> {
         .route("/Users/{user_id}/Views", get(items::user_views))
         .route("/Users/{user_id}/Items", get(items::list_items))
         .route("/Users/{user_id}/Items/{id}", get(items::user_scoped_get_item))
+        // User-scoped home screen routes (Infuse Continue Watching / Recently Added)
+        .route("/Users/{user_id}/Items/Resume", get(items::user_resume))
+        .route("/Users/{user_id}/Items/Latest", get(items::user_latest))
+        // Mark played/unplayed
+        .route(
+            "/Users/{user_id}/PlayedItems/{item_id}",
+            post(playstate::mark_played).delete(playstate::mark_unplayed),
+        )
+        // Favorite toggle
+        .route(
+            "/Users/{user_id}/FavoriteItems/{item_id}",
+            post(playstate::add_favorite).delete(playstate::remove_favorite),
+        )
         // Images
         .route(
             "/Items/{id}/Images/{image_type}",
@@ -84,5 +97,10 @@ pub fn jellyfin_router() -> Router<AppContext> {
         .route(
             "/Videos/{id}/master.m3u8",
             get(streaming::master_playlist),
+        )
+        // Jellyfin subtitle delivery
+        .route(
+            "/Videos/{id}/{media_source_id}/Subtitles/{index}/0/Stream.vtt",
+            get(streaming::jellyfin_subtitle),
         )
 }

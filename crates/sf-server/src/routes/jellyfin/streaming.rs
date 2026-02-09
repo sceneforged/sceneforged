@@ -195,6 +195,65 @@ pub async fn video_stream(
     .await?)
 }
 
+/// GET /Videos/{id}/{mediaSourceId}/Subtitles/{index}/0/Stream.vtt — Jellyfin subtitle delivery.
+///
+/// Infuse requests subtitles at this path. Delegates to the same ffmpeg WebVTT
+/// extraction logic used by `/api/stream/{mf_id}/subtitles/{track_index}`.
+pub async fn jellyfin_subtitle(
+    State(ctx): State<AppContext>,
+    Path((_item_id, media_source_id, index)): Path<(String, String, i32)>,
+) -> Result<impl IntoResponse, AppError> {
+    let mf_id: sf_core::MediaFileId = media_source_id
+        .parse()
+        .map_err(|_| sf_core::Error::Validation("Invalid mediaSourceId".into()))?;
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    let mf = sf_db::queries::media_files::get_media_file(&conn, mf_id)?
+        .ok_or_else(|| sf_core::Error::not_found("media_file", mf_id))?;
+
+    // Verify track exists.
+    let tracks = sf_db::queries::subtitle_tracks::list_by_media_file(&conn, mf_id)?;
+    let track = tracks
+        .iter()
+        .find(|t| t.track_index == index)
+        .ok_or_else(|| {
+            sf_core::Error::not_found("subtitle_track", format!("{mf_id}:{index}"))
+        })?;
+    drop(conn);
+
+    // Extract via ffmpeg to WebVTT.
+    let output = tokio::process::Command::new("ffmpeg")
+        .args([
+            "-i",
+            &mf.file_path,
+            "-map",
+            &format!("0:s:{}", track.track_index),
+            "-f",
+            "webvtt",
+            "-",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .await
+        .map_err(|e| sf_core::Error::Internal(format!("ffmpeg subtitle extraction failed: {e}")))?;
+
+    if !output.status.success() {
+        return Err(
+            sf_core::Error::Internal("ffmpeg subtitle extraction returned non-zero".into()).into(),
+        );
+    }
+
+    Ok((
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "text/vtt; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        output.stdout,
+    ))
+}
+
 /// GET /Videos/{id}/master.m3u8 — HLS master playlist.
 ///
 /// Jellyfin clients request this for HLS playback. Redirects to our internal
