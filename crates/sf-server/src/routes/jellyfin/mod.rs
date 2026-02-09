@@ -89,6 +89,7 @@ pub fn jellyfin_router() -> Router<AppContext> {
         .route("/System/Info", get(system::system_info))
         .route("/QuickConnect/Enabled", get(system::quick_connect_enabled))
         .route("/Branding/Configuration", get(system::branding_configuration))
+        .route("/Library/VirtualFolders", get(items::virtual_folders))
         // Users
         .route("/Users/Public", get(users::public_users))
         .route(

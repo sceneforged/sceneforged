@@ -789,6 +789,43 @@ pub struct GroupingOption {
     pub name: String,
 }
 
+/// GET /Library/VirtualFolders — library folder configuration.
+///
+/// Infuse calls this during setup to understand library structure.
+pub async fn virtual_folders(
+    State(ctx): State<AppContext>,
+) -> Result<Json<Vec<VirtualFolder>>, AppError> {
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    let libraries = sf_db::queries::libraries::list_libraries(&conn)?;
+
+    let folders: Vec<VirtualFolder> = libraries
+        .iter()
+        .map(|lib| {
+            let paths = lib.paths.clone();
+            VirtualFolder {
+                name: lib.name.clone(),
+                locations: paths,
+                collection_type: Some(lib.media_type.clone()),
+                item_id: lib.id.to_string(),
+                library_options: serde_json::json!({}),
+            }
+        })
+        .collect();
+
+    Ok(Json(folders))
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct VirtualFolder {
+    pub name: String,
+    pub locations: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collection_type: Option<String>,
+    pub item_id: String,
+    pub library_options: serde_json::Value,
+}
+
 /// GET /Items/{id}/Images/{image_type}
 pub async fn get_image(
     State(ctx): State<AppContext>,
