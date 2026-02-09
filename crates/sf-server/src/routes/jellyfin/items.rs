@@ -296,12 +296,12 @@ fn build_response(
     let ready = filter_ready_items(items);
     let item_ids: Vec<sf_core::ItemId> = ready.iter().map(|i| i.id).collect();
     let user_data_map = sf_db::queries::playback::batch_get_user_data(conn, user_id, &item_ids)?;
+    let mut images_map = sf_db::queries::images::batch_get_images(conn, &item_ids)?;
 
     let dtos: Vec<BaseItemDto> = ready
         .iter()
         .map(|item| {
-            let images = sf_db::queries::images::list_images_by_item(conn, item.id)
-                .unwrap_or_default();
+            let images = images_map.remove(&item.id).unwrap_or_default();
             let ud = user_data_map.get(&item.id);
             dto::item_to_dto(item, &images, ud)
         })
@@ -390,12 +390,17 @@ pub async fn show_seasons(
 
     let conn = sf_db::pool::get_conn(&ctx.db)?;
     let children = sf_db::queries::items::list_children(&conn, series_id)?;
-    let seasons: Vec<BaseItemDto> = children
+    let season_items: Vec<&sf_db::models::Item> = children
         .iter()
         .filter(|c| c.item_kind == "season")
+        .collect();
+    let season_ids: Vec<sf_core::ItemId> = season_items.iter().map(|i| i.id).collect();
+    let mut images_map = sf_db::queries::images::batch_get_images(&conn, &season_ids)?;
+
+    let seasons: Vec<BaseItemDto> = season_items
+        .iter()
         .map(|item| {
-            let images = sf_db::queries::images::list_images_by_item(&conn, item.id)
-                .unwrap_or_default();
+            let images = images_map.remove(&item.id).unwrap_or_default();
             let mut d = dto::item_to_dto(item, &images, None);
             d.series_id = Some(series_id.to_string());
             d
@@ -429,18 +434,26 @@ pub async fn show_episodes(
             .map_err(|_| sf_core::Error::Validation("Invalid id".into()))?;
 
         let seasons = sf_db::queries::items::list_children(&conn, series_id)?;
-        let mut episodes = Vec::new();
+        let mut all_eps: Vec<(sf_db::models::Item, sf_core::ItemId)> = Vec::new();
         for season in &seasons {
             let eps = sf_db::queries::items::list_children(&conn, season.id)?;
             for ep in eps {
-                let images = sf_db::queries::images::list_images_by_item(&conn, ep.id)
-                    .unwrap_or_default();
-                let mut d = dto::item_to_dto(&ep, &images, None);
-                d.series_id = Some(series_id.to_string());
-                d.season_id = Some(season.id.to_string());
-                episodes.push(d);
+                all_eps.push((ep, season.id));
             }
         }
+        let ep_ids: Vec<sf_core::ItemId> = all_eps.iter().map(|(ep, _)| ep.id).collect();
+        let mut images_map = sf_db::queries::images::batch_get_images(&conn, &ep_ids)?;
+
+        let episodes: Vec<BaseItemDto> = all_eps
+            .iter()
+            .map(|(ep, season_id)| {
+                let images = images_map.remove(&ep.id).unwrap_or_default();
+                let mut d = dto::item_to_dto(ep, &images, None);
+                d.series_id = Some(series_id.to_string());
+                d.season_id = Some(season_id.to_string());
+                d
+            })
+            .collect();
 
         let count = episodes.len();
         return Ok(Json(ItemsResult {
@@ -450,12 +463,17 @@ pub async fn show_episodes(
     };
 
     let children = sf_db::queries::items::list_children(&conn, parent_id)?;
-    let episodes: Vec<BaseItemDto> = children
+    let ep_items: Vec<&sf_db::models::Item> = children
         .iter()
         .filter(|c| c.item_kind == "episode")
+        .collect();
+    let ep_ids: Vec<sf_core::ItemId> = ep_items.iter().map(|i| i.id).collect();
+    let mut images_map = sf_db::queries::images::batch_get_images(&conn, &ep_ids)?;
+
+    let episodes: Vec<BaseItemDto> = ep_items
+        .iter()
         .map(|item| {
-            let images = sf_db::queries::images::list_images_by_item(&conn, item.id)
-                .unwrap_or_default();
+            let images = images_map.remove(&item.id).unwrap_or_default();
             dto::item_to_dto(item, &images, None)
         })
         .collect();
@@ -502,11 +520,13 @@ pub async fn next_up(
     let conn = sf_db::pool::get_conn(&ctx.db)?;
     let items = sf_db::queries::playback::next_up(&conn, user_id, limit)?;
 
+    let item_ids: Vec<sf_core::ItemId> = items.iter().map(|i| i.id).collect();
+    let mut images_map = sf_db::queries::images::batch_get_images(&conn, &item_ids)?;
+
     let dtos: Vec<BaseItemDto> = items
         .iter()
         .map(|item| {
-            let images = sf_db::queries::images::list_images_by_item(&conn, item.id)
-                .unwrap_or_default();
+            let images = images_map.remove(&item.id).unwrap_or_default();
             let mut d = dto::item_to_dto(item, &images, None);
             // Set series info for episode DTOs.
             if let Some(season_id) = item.parent_id {
