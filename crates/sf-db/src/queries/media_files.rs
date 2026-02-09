@@ -160,6 +160,47 @@ pub fn list_media_files_by_item(conn: &Connection, item_id: ItemId) -> Result<Ve
     Ok(rows)
 }
 
+/// Batch-fetch media files for multiple items in a single query.
+///
+/// Returns a HashMap keyed by ItemId, with each value being the list of media
+/// files for that item.
+pub fn batch_get_media_files(
+    conn: &Connection,
+    item_ids: &[ItemId],
+) -> Result<std::collections::HashMap<ItemId, Vec<MediaFile>>> {
+    use std::collections::HashMap;
+
+    if item_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let placeholders: Vec<String> = (0..item_ids.len()).map(|i| format!("?{}", i + 1)).collect();
+    let in_clause = placeholders.join(",");
+
+    let sql = format!(
+        "SELECT {COLS} FROM media_files WHERE item_id IN ({in_clause}) ORDER BY created_at ASC"
+    );
+
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    for id in item_ids {
+        params.push(Box::new(id.to_string()));
+    }
+    let params_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| Error::database(e.to_string()))?;
+    let rows = stmt
+        .query_map(params_refs.as_slice(), MediaFile::from_row)
+        .map_err(|e| Error::database(e.to_string()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| Error::database(e.to_string()))?;
+
+    let mut map: HashMap<ItemId, Vec<MediaFile>> = HashMap::new();
+    for mf in rows {
+        map.entry(mf.item_id).or_default().push(mf);
+    }
+    Ok(map)
+}
+
 /// Delete a media file by ID.
 pub fn delete_media_file(conn: &Connection, id: MediaFileId) -> Result<bool> {
     let n = conn

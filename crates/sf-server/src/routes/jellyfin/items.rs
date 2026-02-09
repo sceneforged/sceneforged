@@ -315,6 +315,94 @@ fn filter_ready_items(items: &[sf_db::models::Item]) -> Vec<&sf_db::models::Item
         .collect()
 }
 
+/// Build a list of MediaSourceDto for a media file.
+fn build_media_source(
+    conn: &rusqlite::Connection,
+    item_id: sf_core::ItemId,
+    mf: &sf_db::models::MediaFile,
+) -> dto::MediaSourceDto {
+    let ticks = mf.duration_secs.map(|d| (d * dto::TICKS_PER_SECOND as f64) as i64);
+    let direct_stream_url = format!(
+        "/Videos/{}/stream?mediaSourceId={}&static=true",
+        item_id, mf.id,
+    );
+
+    let mut streams = Vec::new();
+    let mut idx = 0i32;
+
+    if let Some(ref codec) = mf.video_codec {
+        let display = match (mf.resolution_width, mf.resolution_height) {
+            (Some(w), Some(h)) => format!("{w}x{h} {codec}"),
+            _ => codec.clone(),
+        };
+        streams.push(dto::MediaStreamDto {
+            stream_type: "Video".to_string(),
+            index: idx,
+            codec: Some(codec.clone()),
+            language: None,
+            display_title: Some(display),
+            is_default: true,
+            is_forced: false,
+            width: mf.resolution_width,
+            height: mf.resolution_height,
+        });
+        idx += 1;
+    }
+
+    if let Some(ref codec) = mf.audio_codec {
+        streams.push(dto::MediaStreamDto {
+            stream_type: "Audio".to_string(),
+            index: idx,
+            codec: Some(codec.clone()),
+            language: None,
+            display_title: Some(codec.clone()),
+            is_default: true,
+            is_forced: false,
+            width: None,
+            height: None,
+        });
+        idx += 1;
+    }
+
+    if let Ok(subtitle_tracks) = sf_db::queries::subtitle_tracks::list_by_media_file(conn, mf.id) {
+        for track in &subtitle_tracks {
+            let display = track.language.as_deref().unwrap_or("Unknown");
+            let mut title = display.to_string();
+            if track.forced {
+                title.push_str(" (Forced)");
+            }
+            streams.push(dto::MediaStreamDto {
+                stream_type: "Subtitle".to_string(),
+                index: idx,
+                codec: Some(track.codec.clone()),
+                language: track.language.clone(),
+                display_title: Some(title),
+                is_default: track.default_track,
+                is_forced: track.forced,
+                width: None,
+                height: None,
+            });
+            idx += 1;
+        }
+    }
+
+    dto::MediaSourceDto {
+        id: mf.id.to_string(),
+        name: mf.file_name.clone(),
+        path: mf.file_path.clone(),
+        container: mf.container.clone(),
+        size: Some(mf.file_size),
+        run_time_ticks: ticks,
+        supports_direct_stream: true,
+        supports_direct_play: true,
+        supports_transcoding: false,
+        protocol: "File".to_string(),
+        media_source_type: "Default".to_string(),
+        direct_stream_url: Some(direct_stream_url),
+        media_streams: if streams.is_empty() { None } else { Some(streams) },
+    }
+}
+
 /// Build the ItemsResult response with user data for a list of items.
 fn build_response(
     conn: &rusqlite::Connection,
@@ -326,12 +414,34 @@ fn build_response(
     let user_data_map = sf_db::queries::playback::batch_get_user_data(conn, user_id, &item_ids)?;
     let mut images_map = sf_db::queries::images::batch_get_images(conn, &item_ids)?;
 
+    // Batch-fetch media files for playable items so we can include MediaSources.
+    let playable_ids: Vec<sf_core::ItemId> = ready
+        .iter()
+        .filter(|i| i.item_kind == "movie" || i.item_kind == "episode")
+        .map(|i| i.id)
+        .collect();
+    let mut media_files_map =
+        sf_db::queries::media_files::batch_get_media_files(conn, &playable_ids)?;
+
     let dtos: Vec<BaseItemDto> = ready
         .iter()
         .map(|item| {
             let images = images_map.remove(&item.id).unwrap_or_default();
             let ud = user_data_map.get(&item.id);
-            dto::item_to_dto(item, &images, ud)
+            let mut d = dto::item_to_dto(item, &images, ud);
+
+            // Populate MediaSources for playable items.
+            if let Some(mfs) = media_files_map.remove(&item.id) {
+                if !mfs.is_empty() {
+                    let sources: Vec<dto::MediaSourceDto> = mfs
+                        .iter()
+                        .map(|mf| build_media_source(conn, item.id, mf))
+                        .collect();
+                    d.media_sources = Some(sources);
+                }
+            }
+
+            d
         })
         .collect();
 
@@ -381,89 +491,7 @@ pub async fn get_item(
         let media_files = sf_db::queries::media_files::list_media_files_by_item(&conn, item_id)?;
         let sources: Vec<dto::MediaSourceDto> = media_files
             .iter()
-            .map(|mf| {
-                let ticks = mf.duration_secs.map(|d| (d * dto::TICKS_PER_SECOND as f64) as i64);
-                let direct_stream_url = format!(
-                    "/Videos/{}/stream?mediaSourceId={}&static=true",
-                    item_id, mf.id,
-                );
-
-                // Build media streams so clients know codec info before PlaybackInfo.
-                let mut streams = Vec::new();
-                let mut idx = 0i32;
-
-                if let Some(ref codec) = mf.video_codec {
-                    let display = match (mf.resolution_width, mf.resolution_height) {
-                        (Some(w), Some(h)) => format!("{w}x{h} {codec}"),
-                        _ => codec.clone(),
-                    };
-                    streams.push(dto::MediaStreamDto {
-                        stream_type: "Video".to_string(),
-                        index: idx,
-                        codec: Some(codec.clone()),
-                        language: None,
-                        display_title: Some(display),
-                        is_default: true,
-                        is_forced: false,
-                        width: mf.resolution_width,
-                        height: mf.resolution_height,
-                    });
-                    idx += 1;
-                }
-
-                if let Some(ref codec) = mf.audio_codec {
-                    streams.push(dto::MediaStreamDto {
-                        stream_type: "Audio".to_string(),
-                        index: idx,
-                        codec: Some(codec.clone()),
-                        language: None,
-                        display_title: Some(codec.clone()),
-                        is_default: true,
-                        is_forced: false,
-                        width: None,
-                        height: None,
-                    });
-                    idx += 1;
-                }
-
-                if let Ok(subtitle_tracks) = sf_db::queries::subtitle_tracks::list_by_media_file(&conn, mf.id) {
-                    for track in &subtitle_tracks {
-                        let display = track.language.as_deref().unwrap_or("Unknown");
-                        let mut title = display.to_string();
-                        if track.forced {
-                            title.push_str(" (Forced)");
-                        }
-                        streams.push(dto::MediaStreamDto {
-                            stream_type: "Subtitle".to_string(),
-                            index: idx,
-                            codec: Some(track.codec.clone()),
-                            language: track.language.clone(),
-                            display_title: Some(title),
-                            is_default: track.default_track,
-                            is_forced: track.forced,
-                            width: None,
-                            height: None,
-                        });
-                        idx += 1;
-                    }
-                }
-
-                dto::MediaSourceDto {
-                    id: mf.id.to_string(),
-                    name: mf.file_name.clone(),
-                    path: mf.file_path.clone(),
-                    container: mf.container.clone(),
-                    size: Some(mf.file_size),
-                    run_time_ticks: ticks,
-                    supports_direct_stream: true,
-                    supports_direct_play: true,
-                    supports_transcoding: false,
-                    protocol: "File".to_string(),
-                    media_source_type: "Default".to_string(),
-                    direct_stream_url: Some(direct_stream_url),
-                    media_streams: if streams.is_empty() { None } else { Some(streams) },
-                }
-            })
+            .map(|mf| build_media_source(&conn, item_id, mf))
             .collect();
         item_dto.media_sources = Some(sources);
     }
@@ -763,12 +791,33 @@ async fn latest_impl(
     let user_data_map = sf_db::queries::playback::batch_get_user_data(&conn, user_id, &item_ids)?;
     let mut images_map = sf_db::queries::images::batch_get_images(&conn, &item_ids)?;
 
+    // Batch-fetch media files for playable items.
+    let playable_ids: Vec<sf_core::ItemId> = ready
+        .iter()
+        .filter(|i| i.item_kind == "movie" || i.item_kind == "episode")
+        .map(|i| i.id)
+        .collect();
+    let mut media_files_map =
+        sf_db::queries::media_files::batch_get_media_files(&conn, &playable_ids)?;
+
     let dtos: Vec<BaseItemDto> = ready
         .iter()
         .map(|item| {
             let images = images_map.remove(&item.id).unwrap_or_default();
             let ud = user_data_map.get(&item.id);
-            dto::item_to_dto(item, &images, ud)
+            let mut d = dto::item_to_dto(item, &images, ud);
+
+            if let Some(mfs) = media_files_map.remove(&item.id) {
+                if !mfs.is_empty() {
+                    let sources: Vec<dto::MediaSourceDto> = mfs
+                        .iter()
+                        .map(|mf| build_media_source(&conn, item.id, mf))
+                        .collect();
+                    d.media_sources = Some(sources);
+                }
+            }
+
+            d
         })
         .collect();
 
