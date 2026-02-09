@@ -87,6 +87,8 @@ pub fn jellyfin_router() -> Router<AppContext> {
         // System
         .route("/System/Info/Public", get(system::system_info_public))
         .route("/System/Info", get(system::system_info))
+        .route("/QuickConnect/Enabled", get(system::quick_connect_enabled))
+        .route("/Branding/Configuration", get(system::branding_configuration))
         // Users
         .route("/Users/Public", get(users::public_users))
         .route(
@@ -176,6 +178,9 @@ pub fn jellyfin_router() -> Router<AppContext> {
         .nest("/Search", jellyfin_catchall.clone())
         .nest("/DisplayPreferences", jellyfin_catchall.clone())
         .nest("/Branding", jellyfin_catchall.clone())
+        .nest("/QuickConnect", jellyfin_catchall.clone())
+        .nest("/Library", jellyfin_catchall.clone())
+        .nest("/Notifications", jellyfin_catchall.clone())
         .nest("/Plugins", jellyfin_catchall)
         // Log response bodies for debugging client compatibility issues.
         .layer(middleware::from_fn(log_jellyfin_response))

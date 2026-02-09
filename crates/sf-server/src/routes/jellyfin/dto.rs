@@ -51,6 +51,22 @@ pub struct BaseItemDto {
     pub location_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub video_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub child_count: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recursive_item_count: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_created: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_ids: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub genres: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -192,5 +208,13 @@ pub fn item_to_dto(
         media_type: if is_playable { Some("Video".to_string()) } else { None },
         location_type: Some("FileSystem".to_string()),
         video_type: if is_playable { Some("VideoFile".to_string()) } else { None },
+        child_count: None,
+        recursive_item_count: None,
+        date_created: Some(item.created_at.clone()),
+        etag: None,
+        sort_name: item.sort_name.clone(),
+        path: None,
+        provider_ids: None,
+        genres: None,
     }
 }

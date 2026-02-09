@@ -39,3 +39,20 @@ pub async fn system_info_public() -> Json<SystemInfo> {
 pub async fn system_info() -> Json<SystemInfo> {
     system_info_public().await
 }
+
+/// GET /QuickConnect/Enabled — Infuse checks this during setup.
+pub async fn quick_connect_enabled() -> Json<bool> {
+    Json(false)
+}
+
+/// GET /Branding/Configuration — branding/customization settings.
+pub async fn branding_configuration() -> Json<BrandingOptions> {
+    Json(BrandingOptions::default())
+}
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct BrandingOptions {
+    pub login_disclaimer: Option<String>,
+    pub custom_css: Option<String>,
+}

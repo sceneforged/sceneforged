@@ -13,6 +13,41 @@ use crate::middleware::auth::validate_auth_headers;
 
 use super::dto::{self, BaseItemDto, ItemsResult, SearchHint, SearchHintResult};
 
+/// Build a BaseItemDto for a library (CollectionFolder).
+fn library_to_dto(lib: &sf_db::models::Library, child_count: i32) -> BaseItemDto {
+    BaseItemDto {
+        id: lib.id.to_string(),
+        name: lib.name.clone(),
+        item_type: "CollectionFolder".to_string(),
+        collection_type: Some(lib.media_type.clone()),
+        overview: None,
+        production_year: None,
+        run_time_ticks: None,
+        community_rating: None,
+        parent_id: None,
+        series_id: None,
+        series_name: None,
+        season_id: None,
+        index_number: None,
+        parent_index_number: None,
+        image_tags: None,
+        user_data: None,
+        media_sources: None,
+        media_streams: None,
+        media_type: None,
+        location_type: Some("FileSystem".to_string()),
+        video_type: None,
+        child_count: Some(child_count),
+        recursive_item_count: Some(child_count),
+        date_created: None,
+        etag: Some(lib.id.to_string().get(..8).unwrap_or("00000000").to_string()),
+        sort_name: Some(lib.name.clone()),
+        path: None,
+        provider_ids: Some(std::collections::HashMap::new()),
+        genres: Some(Vec::new()),
+    }
+}
+
 /// Case-insensitive query params (Jellyfin clients send both camelCase and PascalCase).
 #[derive(Debug, Deserialize)]
 pub struct ItemsQuery {
@@ -132,28 +167,10 @@ pub async fn user_views(
 
     let items: Vec<BaseItemDto> = libraries
         .iter()
-        .map(|lib| BaseItemDto {
-            id: lib.id.to_string(),
-            name: lib.name.clone(),
-            item_type: "CollectionFolder".to_string(),
-            collection_type: Some(lib.media_type.clone()),
-            overview: None,
-            production_year: None,
-            run_time_ticks: None,
-            community_rating: None,
-            parent_id: None,
-            series_id: None,
-            series_name: None,
-            season_id: None,
-            index_number: None,
-            parent_index_number: None,
-            image_tags: None,
-            user_data: None,
-            media_sources: None,
-            media_streams: None,
-            media_type: None,
-            location_type: Some("FileSystem".to_string()),
-            video_type: None,
+        .map(|lib| {
+            let count = sf_db::queries::items::count_items_by_library(&conn, lib.id)
+                .unwrap_or(0) as i32;
+            library_to_dto(lib, count)
         })
         .collect();
 
@@ -326,29 +343,9 @@ pub async fn get_item(
     // Check if the ID is a library first, then fall back to item lookup.
     if let Ok(lib_id) = id.parse::<sf_core::LibraryId>() {
         if let Some(lib) = sf_db::queries::libraries::get_library(&conn, lib_id)? {
-            return Ok(Json(BaseItemDto {
-                id: lib.id.to_string(),
-                name: lib.name.clone(),
-                item_type: "CollectionFolder".to_string(),
-                collection_type: Some(lib.media_type.clone()),
-                overview: None,
-                production_year: None,
-                run_time_ticks: None,
-                community_rating: None,
-                parent_id: None,
-                series_id: None,
-                series_name: None,
-                season_id: None,
-                index_number: None,
-                parent_index_number: None,
-                image_tags: None,
-                user_data: None,
-                media_sources: None,
-                media_streams: None,
-                media_type: None,
-                location_type: Some("FileSystem".to_string()),
-                video_type: None,
-            }));
+            let count = sf_db::queries::items::count_items_by_library(&conn, lib_id)
+                .unwrap_or(0) as i32;
+            return Ok(Json(library_to_dto(&lib, count)));
         }
     }
 
