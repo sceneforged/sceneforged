@@ -16,8 +16,7 @@ pub struct BaseItemDto {
     pub server_id: String,
     #[serde(rename = "Type")]
     pub item_type: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_folder: Option<bool>,
+    pub is_folder: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub overview: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -38,10 +37,9 @@ pub struct BaseItemDto {
     pub index_number: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_index_number: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub image_tags: Option<HashMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_data: Option<UserDataDto>,
+    pub image_tags: HashMap<String, String>,
+    pub backdrop_image_tags: Vec<String>,
+    pub user_data: UserDataDto,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media_sources: Option<Vec<MediaSourceDto>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -50,8 +48,7 @@ pub struct BaseItemDto {
     pub collection_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub location_type: Option<String>,
+    pub location_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub video_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -66,19 +63,18 @@ pub struct BaseItemDto {
     pub sort_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider_ids: Option<HashMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub genres: Option<Vec<String>>,
+    pub provider_ids: HashMap<String, String>,
+    pub genres: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct UserDataDto {
     pub played: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub playback_position_ticks: Option<i64>,
+    pub playback_position_ticks: i64,
+    pub play_count: i32,
     pub is_favorite: bool,
+    pub key: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -130,6 +126,7 @@ pub struct MediaStreamDto {
 pub struct ItemsResult {
     pub items: Vec<BaseItemDto>,
     pub total_record_count: usize,
+    pub start_index: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -171,38 +168,47 @@ pub fn item_to_dto(
         .map(|m| (m as i64) * 60 * TICKS_PER_SECOND);
 
     let mut image_tags = HashMap::new();
+    let mut backdrop_image_tags = Vec::new();
     for img in images {
         let tag = img.id.to_string().get(..8).unwrap_or("00000000").to_string();
         match img.image_type.as_str() {
             "primary" => { image_tags.insert("Primary".to_string(), tag); }
-            "backdrop" => { image_tags.insert("Backdrop".to_string(), tag); }
+            "backdrop" => { backdrop_image_tags.push(tag); }
             _ => { image_tags.insert(img.image_type.clone(), tag); }
         }
     }
 
-    let user_data_dto = Some(match user_data {
+    let item_id_str = item.id.to_string();
+    let user_data_dto = match user_data {
         Some(ud) => UserDataDto {
             played: ud.completed,
             playback_position_ticks: if ud.position_secs > 0.0 {
-                Some((ud.position_secs * TICKS_PER_SECOND as f64) as i64)
+                (ud.position_secs * TICKS_PER_SECOND as f64) as i64
             } else {
-                None
+                0
             },
+            play_count: if ud.completed { 1 } else { 0 },
             is_favorite: ud.is_favorite,
+            key: item_id_str.clone(),
         },
         None => UserDataDto {
             played: false,
-            playback_position_ticks: None,
+            playback_position_ticks: 0,
+            play_count: 0,
             is_favorite: false,
+            key: item_id_str.clone(),
         },
-    });
+    };
+
+    // Use first 8 chars of item ID as etag.
+    let etag = item_id_str.get(..8).map(|s| s.to_string());
 
     BaseItemDto {
-        id: item.id.to_string(),
+        id: item_id_str,
         name: item.name.clone(),
         server_id: "sceneforged-server".to_string(),
         item_type: item_type.to_string(),
-        is_folder: if is_folder { Some(true) } else { None },
+        is_folder,
         overview: item.overview.clone(),
         production_year: item.year,
         run_time_ticks,
@@ -213,21 +219,22 @@ pub fn item_to_dto(
         season_id: None,
         index_number: item.episode_number,
         parent_index_number: item.season_number,
-        image_tags: if image_tags.is_empty() { None } else { Some(image_tags) },
+        image_tags,
+        backdrop_image_tags,
         user_data: user_data_dto,
         media_sources: None,
         media_streams: None,
         collection_type: None,
         media_type: if is_playable { Some("Video".to_string()) } else { None },
-        location_type: Some("FileSystem".to_string()),
+        location_type: "FileSystem".to_string(),
         video_type: if is_playable { Some("VideoFile".to_string()) } else { None },
         child_count: None,
         recursive_item_count: None,
         date_created: Some(item.created_at.clone()),
-        etag: None,
+        etag,
         sort_name: item.sort_name.clone(),
         path: None,
-        provider_ids: None,
-        genres: None,
+        provider_ids: HashMap::new(),
+        genres: Vec::new(),
     }
 }

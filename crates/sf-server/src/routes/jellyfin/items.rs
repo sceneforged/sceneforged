@@ -15,12 +15,13 @@ use super::dto::{self, BaseItemDto, ItemsResult, SearchHint, SearchHintResult};
 
 /// Build a BaseItemDto for a library (CollectionFolder).
 fn library_to_dto(lib: &sf_db::models::Library, child_count: i32) -> BaseItemDto {
+    let lib_id_str = lib.id.to_string();
     BaseItemDto {
-        id: lib.id.to_string(),
+        id: lib_id_str.clone(),
         name: lib.name.clone(),
         server_id: "sceneforged-server".to_string(),
         item_type: "CollectionFolder".to_string(),
-        is_folder: Some(true),
+        is_folder: true,
         collection_type: Some(lib.media_type.clone()),
         overview: None,
         production_year: None,
@@ -32,21 +33,28 @@ fn library_to_dto(lib: &sf_db::models::Library, child_count: i32) -> BaseItemDto
         season_id: None,
         index_number: None,
         parent_index_number: None,
-        image_tags: None,
-        user_data: None,
+        image_tags: std::collections::HashMap::new(),
+        backdrop_image_tags: Vec::new(),
+        user_data: dto::UserDataDto {
+            played: false,
+            playback_position_ticks: 0,
+            play_count: 0,
+            is_favorite: false,
+            key: lib_id_str.clone(),
+        },
         media_sources: None,
         media_streams: None,
         media_type: None,
-        location_type: Some("FileSystem".to_string()),
+        location_type: "FileSystem".to_string(),
         video_type: None,
         child_count: Some(child_count),
         recursive_item_count: Some(child_count),
         date_created: None,
-        etag: Some(lib.id.to_string().get(..8).unwrap_or("00000000").to_string()),
+        etag: lib_id_str.get(..8).map(|s| s.to_string()),
         sort_name: Some(lib.name.clone()),
         path: None,
-        provider_ids: Some(std::collections::HashMap::new()),
-        genres: Some(Vec::new()),
+        provider_ids: std::collections::HashMap::new(),
+        genres: Vec::new(),
     }
 }
 
@@ -180,6 +188,7 @@ pub async fn user_views(
     Ok(Json(ItemsResult {
         items,
         total_record_count: count,
+        start_index: 0,
     }))
 }
 
@@ -330,6 +339,7 @@ fn build_response(
     Ok(Json(ItemsResult {
         items: dtos,
         total_record_count: count,
+        start_index: 0,
     }))
 }
 
@@ -502,6 +512,7 @@ pub async fn show_seasons(
     Ok(Json(ItemsResult {
         items: seasons,
         total_record_count: count,
+        start_index: 0,
     }))
 }
 
@@ -550,6 +561,7 @@ pub async fn show_episodes(
         return Ok(Json(ItemsResult {
             items: episodes,
             total_record_count: count,
+            start_index: 0,
         }));
     };
 
@@ -573,6 +585,7 @@ pub async fn show_episodes(
     Ok(Json(ItemsResult {
         items: episodes,
         total_record_count: count,
+        start_index: 0,
     }))
 }
 
@@ -640,6 +653,7 @@ pub async fn next_up(
     Ok(Json(ItemsResult {
         items: dtos,
         total_record_count: count,
+        start_index: 0,
     }))
 }
 

@@ -164,8 +164,10 @@ pub async fn mark_played(
 
     Ok(Json(super::dto::UserDataDto {
         played: true,
-        playback_position_ticks: None,
+        playback_position_ticks: 0,
+        play_count: 1,
         is_favorite: is_fav,
+        key: item_id.to_string(),
     }))
 }
 
@@ -188,8 +190,10 @@ pub async fn mark_unplayed(
 
     Ok(Json(super::dto::UserDataDto {
         played: false,
-        playback_position_ticks: None,
+        playback_position_ticks: 0,
+        play_count: 0,
         is_favorite: is_fav,
+        key: item_id.to_string(),
     }))
 }
 
@@ -212,16 +216,17 @@ pub async fn add_favorite(
         sf_db::queries::playback::batch_get_user_data(&conn, user_id, &[item_id])?;
     let ud = user_data_map.get(&item_id);
 
+    let played = ud.map_or(false, |u| u.completed);
+    let position_ticks = ud
+        .map(|u| if u.position_secs > 0.0 { (u.position_secs * TICKS_PER_SECOND as f64) as i64 } else { 0 })
+        .unwrap_or(0);
+
     Ok(Json(super::dto::UserDataDto {
-        played: ud.map_or(false, |u| u.completed),
-        playback_position_ticks: ud.and_then(|u| {
-            if u.position_secs > 0.0 {
-                Some((u.position_secs * TICKS_PER_SECOND as f64) as i64)
-            } else {
-                None
-            }
-        }),
+        played,
+        playback_position_ticks: position_ticks,
+        play_count: if played { 1 } else { 0 },
         is_favorite: true,
+        key: item_id.to_string(),
     }))
 }
 
@@ -244,16 +249,17 @@ pub async fn remove_favorite(
         sf_db::queries::playback::batch_get_user_data(&conn, user_id, &[item_id])?;
     let ud = user_data_map.get(&item_id);
 
+    let played = ud.map_or(false, |u| u.completed);
+    let position_ticks = ud
+        .map(|u| if u.position_secs > 0.0 { (u.position_secs * TICKS_PER_SECOND as f64) as i64 } else { 0 })
+        .unwrap_or(0);
+
     Ok(Json(super::dto::UserDataDto {
-        played: ud.map_or(false, |u| u.completed),
-        playback_position_ticks: ud.and_then(|u| {
-            if u.position_secs > 0.0 {
-                Some((u.position_secs * TICKS_PER_SECOND as f64) as i64)
-            } else {
-                None
-            }
-        }),
+        played,
+        playback_position_ticks: position_ticks,
+        play_count: if played { 1 } else { 0 },
         is_favorite: false,
+        key: item_id.to_string(),
     }))
 }
 
