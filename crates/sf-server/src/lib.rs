@@ -214,7 +214,13 @@ async fn handle_connection(stream: tokio::net::TcpStream, ctx: AppContext, app: 
             let _ = std_stream.set_write_timeout(Some(std::time::Duration::from_secs(30)));
             tokio::task::spawn_blocking(move || {
                 if let Err(e) = sendfile::handle_sendfile(std_stream, &ctx, route) {
-                    tracing::debug!("Sendfile error: {e}");
+                    // Broken pipe is expected when clients probe video streams
+                    // (e.g. Infuse reads a few bytes then disconnects).
+                    if e.kind() == std::io::ErrorKind::BrokenPipe {
+                        tracing::trace!("Sendfile client disconnected: {e}");
+                    } else {
+                        tracing::debug!("Sendfile error: {e}");
+                    }
                 }
             })
             .await
