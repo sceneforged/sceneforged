@@ -989,4 +989,129 @@ mod tests {
     fn parse_range_value_invalid() {
         assert!(parse_range_value("invalid").is_none());
     }
+
+    // -- sendfile EAGAIN regression tests --
+    //
+    // These verify that sendfile_range completes successfully even when the
+    // socket is non-blocking (which triggers EAGAIN when the send buffer
+    // fills up).  Before the fix, EAGAIN with bytes_sent==0 caused an
+    // immediate error return and a silent connection drop.
+
+    /// Helper: set SO_SNDBUF to a small value to make EAGAIN more likely.
+    #[cfg(unix)]
+    fn set_small_sndbuf(fd: RawFd) {
+        let size: libc::c_int = 4096;
+        unsafe {
+            libc::setsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_SNDBUF,
+                &size as *const _ as *const libc::c_void,
+                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+            );
+        }
+    }
+
+    /// Regression: sendfile_range must succeed on a non-blocking socket by
+    /// retrying on EAGAIN instead of returning an error.
+    #[cfg(unix)]
+    #[test]
+    fn sendfile_range_handles_eagain_on_nonblocking_socket() {
+        use std::os::unix::net::UnixStream;
+
+        // 256KB of deterministic data — larger than any socket buffer.
+        let data_len: usize = 256 * 1024;
+        let data: Vec<u8> = (0..data_len).map(|i| (i % 251) as u8).collect();
+
+        // Write to a temp file.
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), &data).unwrap();
+        let file = std::fs::File::open(tmp.path()).unwrap();
+        let file_fd = file.as_raw_fd();
+
+        // Create a connected Unix socket pair.
+        let (sender, receiver) = UnixStream::pair().unwrap();
+
+        // Make the sender non-blocking + small buffer → guarantees EAGAIN.
+        sender.set_nonblocking(true).unwrap();
+        set_small_sndbuf(sender.as_raw_fd());
+
+        let sock_fd = sender.as_raw_fd();
+
+        // Reader thread: slowly drain from the other end.
+        let handle = std::thread::spawn(move || {
+            let mut received = Vec::with_capacity(data_len);
+            let mut buf = [0u8; 8192];
+            loop {
+                match std::io::Read::read(&mut &receiver, &mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => received.extend_from_slice(&buf[..n]),
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(e) => panic!("reader error: {e}"),
+                }
+            }
+            received
+        });
+
+        // This is the call under test — before the fix it would fail with
+        // "Resource temporarily unavailable" on the first EAGAIN.
+        sendfile_range(sock_fd, file_fd, 0, data_len as u64, None)
+            .expect("sendfile_range must handle EAGAIN and complete");
+
+        // Close the sender so the reader sees EOF.
+        drop(sender);
+        drop(file);
+
+        let received = handle.join().expect("reader thread panicked");
+        assert_eq!(received.len(), data_len, "all bytes must be received");
+        assert_eq!(received, data, "data must be intact");
+    }
+
+    /// Regression: sendfile_range with headers on a non-blocking socket.
+    #[cfg(unix)]
+    #[test]
+    fn sendfile_range_handles_eagain_with_headers() {
+        use std::os::unix::net::UnixStream;
+
+        let data_len: usize = 128 * 1024;
+        let data: Vec<u8> = (0..data_len).map(|i| (i % 199) as u8).collect();
+        let header = b"HTTP/1.1 200 OK\r\nContent-Length: 131072\r\n\r\n";
+
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), &data).unwrap();
+        let file = std::fs::File::open(tmp.path()).unwrap();
+        let file_fd = file.as_raw_fd();
+
+        let (sender, receiver) = UnixStream::pair().unwrap();
+        sender.set_nonblocking(true).unwrap();
+        set_small_sndbuf(sender.as_raw_fd());
+        let sock_fd = sender.as_raw_fd();
+
+        let expected_total = header.len() + data_len;
+        let handle = std::thread::spawn(move || {
+            let mut received = Vec::with_capacity(expected_total);
+            let mut buf = [0u8; 8192];
+            loop {
+                match std::io::Read::read(&mut &receiver, &mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => received.extend_from_slice(&buf[..n]),
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(e) => panic!("reader error: {e}"),
+                }
+            }
+            received
+        });
+
+        let hdr_slice: &[u8] = header;
+        sendfile_range(sock_fd, file_fd, 0, data_len as u64, Some(&[hdr_slice]))
+            .expect("sendfile_range with headers must handle EAGAIN");
+
+        drop(sender);
+        drop(file);
+
+        let received = handle.join().expect("reader thread panicked");
+        assert_eq!(received.len(), expected_total, "header + body bytes");
+        assert_eq!(&received[..header.len()], &header[..]);
+        assert_eq!(&received[header.len()..], &data[..]);
+    }
 }

@@ -39,11 +39,14 @@ async fn log_jellyfin_response(req: Request, next: Next) -> Response {
 
     if content_type.contains("json") {
         let (parts, body) = response.into_parts();
-        let bytes = axum::body::to_bytes(body, 64 * 1024)
+        // Use a 10 MB limit so large item-list responses aren't silently
+        // replaced with an empty body (the old 64 KB limit caused this).
+        let bytes = axum::body::to_bytes(body, 10 * 1024 * 1024)
             .await
             .unwrap_or_default();
 
-        let body_str = String::from_utf8_lossy(&bytes);
+        let preview_end = bytes.len().min(4096);
+        let body_str = String::from_utf8_lossy(&bytes[..preview_end]);
         tracing::debug!(
             %method, %uri, %status,
             body = %body_str,
