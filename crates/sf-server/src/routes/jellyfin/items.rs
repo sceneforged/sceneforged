@@ -320,12 +320,43 @@ pub async fn get_item(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<BaseItemDto>, AppError> {
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+
+    // Infuse fetches library views by their ID via this endpoint.
+    // Check if the ID is a library first, then fall back to item lookup.
+    if let Ok(lib_id) = id.parse::<sf_core::LibraryId>() {
+        if let Some(lib) = sf_db::queries::libraries::get_library(&conn, lib_id)? {
+            return Ok(Json(BaseItemDto {
+                id: lib.id.to_string(),
+                name: lib.name.clone(),
+                item_type: "CollectionFolder".to_string(),
+                collection_type: Some(lib.media_type.clone()),
+                overview: None,
+                production_year: None,
+                run_time_ticks: None,
+                community_rating: None,
+                parent_id: None,
+                series_id: None,
+                series_name: None,
+                season_id: None,
+                index_number: None,
+                parent_index_number: None,
+                image_tags: None,
+                user_data: None,
+                media_sources: None,
+                media_streams: None,
+                media_type: None,
+                location_type: Some("FileSystem".to_string()),
+                video_type: None,
+            }));
+        }
+    }
+
     let item_id: sf_core::ItemId = id
         .parse()
         .map_err(|_| sf_core::Error::Validation("Invalid item_id".into()))?;
 
     let user_id = resolve_user_from_headers(&ctx, &headers);
-    let conn = sf_db::pool::get_conn(&ctx.db)?;
     let item = sf_db::queries::items::get_item(&conn, item_id)?
         .ok_or_else(|| sf_core::Error::not_found("item", item_id))?;
 
