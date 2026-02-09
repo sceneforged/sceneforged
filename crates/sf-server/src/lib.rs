@@ -207,6 +207,9 @@ async fn handle_connection(stream: tokio::net::TcpStream, ctx: AppContext, app: 
                     return;
                 }
             };
+            // tokio uses non-blocking sockets; switch to blocking so
+            // sendfile(2) waits instead of returning EAGAIN immediately.
+            let _ = std_stream.set_nonblocking(false);
             let _ = std_stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
             let _ = std_stream.set_write_timeout(Some(std::time::Duration::from_secs(30)));
             tokio::task::spawn_blocking(move || {

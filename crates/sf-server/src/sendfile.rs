@@ -319,8 +319,8 @@ fn sendfile_range(
                 first_call = false;
                 continue;
             }
-            if err.kind() == io::ErrorKind::WouldBlock && bytes_sent > 0 {
-                // Partial send on non-blocking socket.
+            if err.kind() == io::ErrorKind::WouldBlock {
+                // Send buffer full — adjust for any partial send and retry.
                 if first_call && !hdr_iovecs.is_empty() {
                     let hdr_total: u64 = hdr_iovecs.iter().map(|v| v.iov_len as u64).sum();
                     if bytes_sent > hdr_total {
@@ -331,6 +331,10 @@ fn sendfile_range(
                 } else {
                     offset += bytes_sent;
                     remaining -= bytes_sent;
+                }
+                if bytes_sent == 0 {
+                    // No progress — back off briefly to let the client drain.
+                    std::thread::sleep(std::time::Duration::from_millis(1));
                 }
                 first_call = false;
                 continue;
@@ -372,6 +376,11 @@ fn sendfile_range(
         if ret == -1 {
             let err = io::Error::last_os_error();
             if err.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            if err.kind() == io::ErrorKind::WouldBlock {
+                // Send buffer full — back off briefly and retry.
+                std::thread::sleep(std::time::Duration::from_millis(1));
                 continue;
             }
             return Err(err);
