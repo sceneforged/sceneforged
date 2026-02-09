@@ -180,14 +180,21 @@ pub fn item_to_dto(
         }
     }
 
-    let user_data_dto = user_data.map(|ud| UserDataDto {
-        played: ud.completed,
-        playback_position_ticks: if ud.position_secs > 0.0 {
-            Some((ud.position_secs * TICKS_PER_SECOND as f64) as i64)
-        } else {
-            None
+    let user_data_dto = Some(match user_data {
+        Some(ud) => UserDataDto {
+            played: ud.completed,
+            playback_position_ticks: if ud.position_secs > 0.0 {
+                Some((ud.position_secs * TICKS_PER_SECOND as f64) as i64)
+            } else {
+                None
+            },
+            is_favorite: ud.is_favorite,
         },
-        is_favorite: ud.is_favorite,
+        None => UserDataDto {
+            played: false,
+            playback_position_ticks: None,
+            is_favorite: false,
+        },
     });
 
     BaseItemDto {
