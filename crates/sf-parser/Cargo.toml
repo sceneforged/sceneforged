@@ -11,3 +11,8 @@ serde.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "parser_throughput"
+harness = false

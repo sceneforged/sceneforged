@@ -139,3 +139,78 @@ async fn search_items_empty_query() {
     let results: Vec<serde_json::Value> = resp.json().await.unwrap();
     assert!(results.is_empty());
 }
+
+#[tokio::test]
+async fn search_with_library_filter() {
+    let (h, addr) = TestHarness::with_server().await;
+    let (lib1, lib1_str) = h.create_library_named("Movies", "movies");
+    let (lib2, _) = h.create_library_named("TV", "tvshows");
+    h.create_item_with_media(lib1, "The Matrix", "movie");
+    h.create_item_with_media(lib2, "The Matrix Show", "series");
+
+    // Both items match "Matrix", but library filter narrows to lib1.
+    let resp = reqwest::get(format!(
+        "http://{addr}/api/search?q=Matrix&library_id={lib1_str}"
+    ))
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+    let results: Vec<serde_json::Value> = resp.json().await.unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["name"], "The Matrix");
+}
+
+#[tokio::test]
+async fn search_with_item_kind_filter() {
+    let (h, addr) = TestHarness::with_server().await;
+    let (lib_id, _) = h.create_library();
+    h.create_item_with_media(lib_id, "Star Wars", "movie");
+    h.create_item_with_media(lib_id, "Star Trek Show", "series");
+
+    // Both match "Star", but item_kind filter narrows to movies.
+    let resp = reqwest::get(format!(
+        "http://{addr}/api/search?q=Star&item_kind=movie"
+    ))
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+    let results: Vec<serde_json::Value> = resp.json().await.unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["name"], "Star Wars");
+}
+
+#[tokio::test]
+async fn list_items_with_pagination() {
+    let (h, addr) = TestHarness::with_server().await;
+    let (lib_id, lib_id_str) = h.create_library();
+    for i in 0..10 {
+        h.create_item_with_media(lib_id, &format!("Movie {i:02}"), "movie");
+    }
+
+    let resp = reqwest::get(format!(
+        "http://{addr}/api/items?library_id={lib_id_str}&offset=3&limit=3"
+    ))
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+    let items: Vec<serde_json::Value> = resp.json().await.unwrap();
+    assert_eq!(items.len(), 3);
+}
+
+#[tokio::test]
+async fn list_items_with_search_param() {
+    let (h, addr) = TestHarness::with_server().await;
+    let (lib_id, _) = h.create_library();
+    h.create_item_with_media(lib_id, "The Matrix", "movie");
+    h.create_item_with_media(lib_id, "Inception", "movie");
+
+    let resp = reqwest::get(format!(
+        "http://{addr}/api/items?search=Matrix"
+    ))
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+    let items: Vec<serde_json::Value> = resp.json().await.unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["name"], "The Matrix");
+}

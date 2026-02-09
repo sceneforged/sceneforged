@@ -162,3 +162,37 @@ async fn auth_status_accessible_without_token() {
     assert_eq!(json["authenticated"], false);
     assert_eq!(json["auth_enabled"], true);
 }
+
+#[tokio::test]
+async fn auth_roundtrip_login_then_bearer() {
+    let mut config = sf_core::config::Config::default();
+    config.auth.enabled = true;
+    let (h, addr) = TestHarness::with_server_config(config).await;
+    h.create_user("roundtrip", "secret123");
+
+    let client = reqwest::Client::new();
+
+    // Login to get a token.
+    let resp = client
+        .post(format!("http://{addr}/api/auth/login"))
+        .json(&serde_json::json!({
+            "username": "roundtrip",
+            "password": "secret123",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let json: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(json["success"], true);
+    let token = json["token"].as_str().unwrap();
+
+    // Use the token as Bearer on a protected route.
+    let resp = client
+        .get(format!("http://{addr}/api/libraries"))
+        .header("Authorization", format!("Bearer {token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+}

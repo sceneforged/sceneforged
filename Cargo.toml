@@ -114,6 +114,7 @@ parking_lot = "0.12"
 proptest = "1.6"
 wiremock = "0.6"
 assert_cmd = "2.0"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [package]
 name = "sceneforged"
@@ -163,5 +164,27 @@ dashmap.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 bcrypt.workspace = true
+wiremock.workspace = true
+criterion.workspace = true
+sf-parser.workspace = true
+rusqlite.workspace = true
+r2d2.workspace = true
+r2d2_sqlite.workspace = true
 async-stream = "0.3"
 futures-core = "0.3"
+
+[[bench]]
+name = "sendfile_classify"
+harness = false
+
+[[bench]]
+name = "fts_search"
+harness = false
+
+[[bench]]
+name = "dto_serialization"
+harness = false
+
+[[bench]]
+name = "db_item_queries"
+harness = false

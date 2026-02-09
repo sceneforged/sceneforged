@@ -370,6 +370,15 @@ pub async fn get_item(
     Ok(Json(item_dto))
 }
 
+/// GET /Users/{user_id}/Items/{id} -- user-scoped alias for get_item.
+pub async fn user_scoped_get_item(
+    state: State<AppContext>,
+    headers: HeaderMap,
+    Path((_user_id, id)): Path<(String, String)>,
+) -> Result<Json<BaseItemDto>, AppError> {
+    get_item(state, headers, Path(id)).await
+}
+
 /// GET /Shows/{id}/Seasons
 pub async fn show_seasons(
     State(ctx): State<AppContext>,

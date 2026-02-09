@@ -196,3 +196,83 @@ async fn list_items_with_search_term() {
     let json: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(json["Items"].as_array().unwrap().len(), 2);
 }
+
+#[tokio::test]
+async fn list_items_include_types_filter() {
+    let (h, addr) = TestHarness::with_server().await;
+    let (lib_id, lib_id_str) = h.create_library_named("Mixed", "movies");
+    h.create_item_with_media(lib_id, "Movie A", "movie");
+    h.create_item_with_media(lib_id, "Show A", "series");
+
+    let resp = reqwest::get(format!(
+        "http://{addr}/Items?ParentId={lib_id_str}&IncludeItemTypes=Movie"
+    ))
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+    let json: serde_json::Value = resp.json().await.unwrap();
+    let items = json["Items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["Type"], "Movie");
+}
+
+#[tokio::test]
+async fn list_items_sort_descending() {
+    let (h, addr) = TestHarness::with_server().await;
+    let (lib_id, lib_id_str) = h.create_library();
+    h.create_item_with_media(lib_id, "Alpha", "movie");
+    h.create_item_with_media(lib_id, "Beta", "movie");
+    h.create_item_with_media(lib_id, "Gamma", "movie");
+
+    let resp = reqwest::get(format!(
+        "http://{addr}/Items?ParentId={lib_id_str}&SortBy=SortName&SortOrder=Descending"
+    ))
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+    let json: serde_json::Value = resp.json().await.unwrap();
+    let items = json["Items"].as_array().unwrap();
+    assert_eq!(items.len(), 3);
+    // Descending: Gamma, Beta, Alpha
+    assert_eq!(items[0]["Name"], "Gamma");
+    assert_eq!(items[2]["Name"], "Alpha");
+}
+
+#[tokio::test]
+async fn list_items_pagination() {
+    let (h, addr) = TestHarness::with_server().await;
+    let (lib_id, lib_id_str) = h.create_library();
+    for i in 0..6 {
+        h.create_item_with_media(lib_id, &format!("Item {i:02}"), "movie");
+    }
+
+    let resp = reqwest::get(format!(
+        "http://{addr}/Items?ParentId={lib_id_str}&StartIndex=2&Limit=2"
+    ))
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+    let json: serde_json::Value = resp.json().await.unwrap();
+    let items = json["Items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+}
+
+#[tokio::test]
+async fn list_items_recursive() {
+    let (h, addr) = TestHarness::with_server().await;
+    let (lib_id, lib_id_str) = h.create_library_named("TV Rec", "tvshows");
+    h.create_series_hierarchy(lib_id, "Rec Show", 3);
+
+    let resp = reqwest::get(format!(
+        "http://{addr}/Items?ParentId={lib_id_str}&Recursive=true&IncludeItemTypes=Episode"
+    ))
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+    let json: serde_json::Value = resp.json().await.unwrap();
+    let items = json["Items"].as_array().unwrap();
+    assert_eq!(items.len(), 3);
+    for item in items {
+        assert_eq!(item["Type"], "Episode");
+    }
+}

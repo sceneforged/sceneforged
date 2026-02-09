@@ -64,7 +64,7 @@ pub fn jellyfin_router() -> Router<AppContext> {
         // User-scoped aliases (Infuse uses /Users/{user_id}/Views etc.)
         .route("/Users/{user_id}/Views", get(items::user_views))
         .route("/Users/{user_id}/Items", get(items::list_items))
-        .route("/Users/{user_id}/Items/{id}", get(items::get_item))
+        .route("/Users/{user_id}/Items/{id}", get(items::user_scoped_get_item))
         // Images
         .route(
             "/Items/{id}/Images/{image_type}",

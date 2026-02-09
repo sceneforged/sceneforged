@@ -7,3 +7,10 @@ edition = "2021"
 sf-core.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "segment_map"
+harness = false

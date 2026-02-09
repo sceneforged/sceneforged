@@ -12,7 +12,7 @@ use dashmap::DashMap;
 use sf_av::ToolRegistry;
 use sf_core::config::Config;
 use sf_core::events::EventBus;
-use sf_core::{ItemId, LibraryId, MediaFileId, UserId};
+use sf_core::{InvitationId, ItemId, LibraryId, MediaFileId, UserId};
 use sf_db::pool::{init_memory_pool, DbPool};
 use sf_probe::{CompositeProber, Prober, RustProber};
 use hyper_util::rt::TokioIo;
@@ -302,6 +302,52 @@ impl TestHarness {
         sf_db::queries::auth::create_token(&conn, user_id, &token, &expires.to_rfc3339())
             .expect("failed to create auth token");
         token
+    }
+
+    /// Create a bcrypt-hashed admin user and return (user_id, user_id_string).
+    pub fn create_admin_user(&self, username: &str, password: &str) -> (UserId, String) {
+        let hash = bcrypt::hash(password, 4).expect("bcrypt hash failed");
+        let conn = self.conn();
+        let user = sf_db::queries::users::create_user(&conn, username, &hash, "admin")
+            .expect("failed to create admin user");
+        let id_str = user.id.to_string();
+        (user.id, id_str)
+    }
+
+    /// Create an invitation via DB and return (invitation_id, code).
+    pub fn create_invitation(
+        &self,
+        role: &str,
+        expires_in_days: i64,
+        creator: UserId,
+    ) -> (InvitationId, String) {
+        let expires = (chrono::Utc::now() + chrono::Duration::days(expires_in_days)).to_rfc3339();
+        let conn = self.conn();
+        let inv =
+            sf_db::queries::invitations::create_invitation(&conn, role, creator, &expires)
+                .expect("failed to create invitation");
+        (inv.id, inv.code)
+    }
+
+    /// Create a subtitle track for a media file.
+    pub fn create_subtitle_track(
+        &self,
+        media_file_id: MediaFileId,
+        index: i32,
+        codec: &str,
+        language: Option<&str>,
+    ) {
+        let conn = self.conn();
+        sf_db::queries::subtitle_tracks::create_subtitle_track(
+            &conn,
+            media_file_id,
+            index,
+            codec,
+            language,
+            false,
+            false,
+        )
+        .expect("failed to create subtitle track");
     }
 
     /// Create a series → season → episodes hierarchy.
