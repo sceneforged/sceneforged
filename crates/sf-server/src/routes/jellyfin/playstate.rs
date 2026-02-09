@@ -68,6 +68,27 @@ fn resolve_user_from_headers(ctx: &AppContext, headers: &HeaderMap) -> sf_core::
     .unwrap_or_else(anonymous_user_id)
 }
 
+/// POST /Sessions/Capabilities/Full — client registers its capabilities.
+///
+/// Infuse sends this immediately after auth. We accept and discard the body.
+pub async fn capabilities_full(
+    _headers: HeaderMap,
+) -> StatusCode {
+    StatusCode::NO_CONTENT
+}
+
+/// POST /Sessions/Capabilities — simplified capability registration.
+pub async fn capabilities(
+    _headers: HeaderMap,
+) -> StatusCode {
+    StatusCode::NO_CONTENT
+}
+
+/// POST /Sessions/Playing/Ping — keep session alive during playback.
+pub async fn playing_ping() -> StatusCode {
+    StatusCode::NO_CONTENT
+}
+
 /// POST /Sessions/Playing — client started playback.
 pub async fn playing(
     State(ctx): State<AppContext>,

@@ -96,7 +96,10 @@ pub fn jellyfin_router() -> Router<AppContext> {
             "/Users/AuthenticateByName",
             post(users::authenticate_by_name),
         )
+        .route("/Users/Me", get(users::get_me))
         .route("/Users/{user_id}", get(users::get_user))
+        // Display preferences (must exist or Infuse login flow stalls)
+        .route("/DisplayPreferences/{id}", get(users::display_preferences))
         // Items / library browsing
         .route("/UserViews", get(items::user_views))
         .route("/Items", get(items::list_items))
@@ -116,6 +119,10 @@ pub fn jellyfin_router() -> Router<AppContext> {
             "/Items/{id}/PlaybackInfo",
             post(streaming::playback_info),
         )
+        // Session capabilities (Infuse sends these immediately after auth)
+        .route("/Sessions/Capabilities/Full", post(playstate::capabilities_full))
+        .route("/Sessions/Capabilities", post(playstate::capabilities))
+        .route("/Sessions/Playing/Ping", post(playstate::playing_ping))
         // Playstate reporting
         .route("/Sessions/Playing", post(playstate::playing))
         .route(

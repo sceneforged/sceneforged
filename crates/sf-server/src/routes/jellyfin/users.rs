@@ -1,12 +1,12 @@
 //! Jellyfin user endpoints (AuthenticateByName, user info).
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::context::AppContext;
 use crate::error::AppError;
-use crate::middleware::auth::parse_mediabrowser_header;
+use crate::middleware::auth::{parse_mediabrowser_header, validate_auth_headers};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
@@ -238,4 +238,83 @@ pub async fn get_user(
 
     let is_admin = user.role == "admin";
     Ok(Json(make_user(user.id.to_string(), user.username, is_admin)))
+}
+
+/// GET /Users/Me — resolve user from auth token.
+///
+/// Infuse and other clients call this after login to verify the session
+/// is still valid and get fresh user data.
+pub async fn get_me(
+    State(ctx): State<AppContext>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<JellyfinUser>, AppError> {
+    let authorization = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
+
+    let cookie = headers
+        .get(axum::http::header::COOKIE)
+        .and_then(|v| v.to_str().ok());
+
+    let x_emby_token = headers
+        .get("X-Emby-Token")
+        .and_then(|v| v.to_str().ok());
+
+    let user_id = validate_auth_headers(
+        &ctx.config.auth,
+        &ctx.db,
+        authorization,
+        cookie,
+        x_emby_token,
+    )
+    .ok_or_else(|| sf_core::Error::Unauthorized("No valid token".into()))?;
+
+    let conn = sf_db::pool::get_conn(&ctx.db)?;
+    let user = sf_db::queries::users::get_user_by_id(&conn, user_id)?
+        .ok_or_else(|| sf_core::Error::not_found("user", user_id))?;
+
+    let is_admin = user.role == "admin";
+    Ok(Json(make_user(user.id.to_string(), user.username, is_admin)))
+}
+
+/// Jellyfin display preferences — layout settings per user.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct DisplayPreferences {
+    pub id: String,
+    pub view_type: Option<String>,
+    pub sort_by: String,
+    pub sort_order: String,
+    pub remember_indexing: bool,
+    pub remember_sorting: bool,
+    pub scroll_direction: String,
+    pub custom_prefs: std::collections::HashMap<String, String>,
+    pub client: String,
+}
+
+/// GET /DisplayPreferences/{id} — return display preferences.
+///
+/// Jellyfin clients (and Infuse) call this immediately after login.
+/// Missing this endpoint is known to block the login flow (Jellyfin issue #6413).
+pub async fn display_preferences(
+    Path(id): Path<String>,
+    Query(params): Query<DisplayPrefsQuery>,
+) -> Json<DisplayPreferences> {
+    Json(DisplayPreferences {
+        id,
+        view_type: None,
+        sort_by: "SortName".into(),
+        sort_order: "Ascending".into(),
+        remember_indexing: false,
+        remember_sorting: false,
+        scroll_direction: "Horizontal".into(),
+        custom_prefs: std::collections::HashMap::new(),
+        client: params.client.unwrap_or_else(|| "emby".into()),
+    })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DisplayPrefsQuery {
+    #[serde(alias = "client", alias = "Client")]
+    pub client: Option<String>,
 }
