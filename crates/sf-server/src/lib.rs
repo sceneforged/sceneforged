@@ -195,11 +195,12 @@ async fn run_accept_loop(
     }
 }
 
-/// Desired `SO_SNDBUF` size for sendfile streams (512KB).
+/// Desired `SO_SNDBUF` size for sendfile streams (128KB).
 ///
-/// Moderate increase over the typical default (~128KB). Larger buffers (2MB)
-/// cause burstier sendfile I/O patterns that increase iowait and softirq.
-const SENDFILE_SNDBUF: u32 = 512 * 1024;
+/// Matches the effective size that was in use before wmem_max was fixed
+/// (kernel capped 1MB request to wmem_max/2 = 104KB). Larger values
+/// (512KB, 2MB) caused burstier I/O patterns with higher iowait.
+const SENDFILE_SNDBUF: u32 = 128 * 1024;
 
 /// Read the kernel's `net.core.wmem_max` limit from procfs.
 ///
