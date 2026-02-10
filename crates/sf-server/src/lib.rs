@@ -195,12 +195,16 @@ async fn run_accept_loop(
     }
 }
 
-/// Log startup diagnostics about kernel TCP buffer autotuning limits.
+/// Desired `SO_SNDBUF` for sendfile streams (128KB).
 ///
-/// We deliberately do NOT set SO_SNDBUF — doing so sets SOCK_SNDBUF_LOCK
-/// which disables the kernel's tcp_sndbuf_expand() autotuner. The autotuner
-/// dynamically sizes the send buffer based on cwnd and RTT, which is optimal
-/// for sustained sendfile streaming over network-attached storage.
+/// Empirically optimal for sustained sendfile over NFS-backed storage at
+/// ~70 Mbps. Larger buffers (512KB, 2MB) cause burstier NFS reads and higher
+/// iowait/softirq. Kernel autotuning also overshoots because it optimizes
+/// for TCP throughput, not backend I/O cost. 128KB (~15ms at 70 Mbps) keeps
+/// the TCP pipe full without excessive NFS pipeline depth.
+const SENDFILE_SNDBUF: u32 = 128 * 1024;
+
+/// Log startup diagnostics about kernel socket buffer limits.
 fn check_sndbuf_limits() {
     #[cfg(target_os = "linux")]
     {
@@ -208,25 +212,53 @@ fn check_sndbuf_limits() {
             tracing::info!(tcp_wmem = tcp_wmem.trim(), "TCP send buffer autotuning range");
         }
         if let Ok(wmem_max) = std::fs::read_to_string("/proc/sys/net/core/wmem_max") {
-            tracing::info!(wmem_max = wmem_max.trim(), "SO_SNDBUF upper limit");
+            let wmem_str = wmem_max.trim();
+            if let Ok(val) = wmem_str.parse::<u32>() {
+                if val / 2 < SENDFILE_SNDBUF {
+                    tracing::warn!(
+                        wmem_max = wmem_str,
+                        effective_max = val / 2,
+                        requested = SENDFILE_SNDBUF,
+                        "SO_SNDBUF will be capped by kernel. \
+                         Fix: sysctl -w net.core.wmem_max={}",
+                        SENDFILE_SNDBUF * 2
+                    );
+                } else {
+                    tracing::info!(wmem_max = wmem_str, "SO_SNDBUF limit OK");
+                }
+            }
         }
     }
 }
 
-/// Read the current `SO_SNDBUF` from a socket (for diagnostics).
-fn get_sndbuf(stream: &std::net::TcpStream) -> u32 {
+/// Set `SO_SNDBUF` on a socket and return the actual granted value.
+fn set_sndbuf(stream: &std::net::TcpStream, size: u32) -> u32 {
     use std::os::fd::AsRawFd;
+    let fd = stream.as_raw_fd();
+    let val = size as libc::c_int;
+
+    unsafe {
+        libc::setsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_SNDBUF,
+            &val as *const libc::c_int as *const libc::c_void,
+            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+        );
+    }
+
     let mut actual: libc::c_int = 0;
     let mut len = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
     unsafe {
         libc::getsockopt(
-            stream.as_raw_fd(),
+            fd,
             libc::SOL_SOCKET,
             libc::SO_SNDBUF,
             &mut actual as *mut libc::c_int as *mut libc::c_void,
             &mut len,
         );
     }
+
     actual.max(0) as u32
 }
 
@@ -260,11 +292,11 @@ async fn handle_connection(stream: tokio::net::TcpStream, ctx: AppContext, app: 
             };
             let _ = std_stream.set_write_timeout(Some(write_timeout));
 
-            // Let the kernel autotune SO_SNDBUF via tcp_sndbuf_expand().
-            // Setting SO_SNDBUF manually locks SOCK_SNDBUF_LOCK which disables
-            // autotuning — worse for sustained sendfile over NFS/SMB storage.
-            let sndbuf = get_sndbuf(&std_stream);
-            tracing::debug!(sndbuf, "sendfile socket (kernel-autotuned)");
+            // Cap the send buffer to limit NFS pipeline depth. The kernel
+            // autotuner overshoots for NFS-backed sendfile — it optimizes for
+            // TCP throughput, not backend I/O cost. 128KB is the sweet spot.
+            let actual = set_sndbuf(&std_stream, SENDFILE_SNDBUF);
+            tracing::debug!(requested = SENDFILE_SNDBUF, actual, "SO_SNDBUF set");
             tokio::task::spawn_blocking(move || {
                 if let Err(e) = sendfile::handle_sendfile(std_stream, &ctx, route) {
                     // Broken pipe is expected when clients probe video streams
