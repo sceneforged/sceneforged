@@ -192,6 +192,21 @@ async fn run_accept_loop(
     }
 }
 
+/// Best-effort `SO_SNDBUF` tuning — failures are silently ignored.
+fn set_sndbuf(stream: &std::net::TcpStream, size: u32) {
+    use std::os::fd::AsRawFd;
+    let val = size as libc::c_int;
+    unsafe {
+        libc::setsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_SNDBUF,
+            &val as *const libc::c_int as *const libc::c_void,
+            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+        );
+    }
+}
+
 /// Handle a single TCP connection: peek to see if it's a sendfile-eligible
 /// request, then either serve it via sendfile or pass it through to hyper/Axum.
 async fn handle_connection(stream: tokio::net::TcpStream, ctx: AppContext, app: Router) {
@@ -211,7 +226,21 @@ async fn handle_connection(stream: tokio::net::TcpStream, ctx: AppContext, app: 
             // sendfile(2) waits instead of returning EAGAIN immediately.
             let _ = std_stream.set_nonblocking(false);
             let _ = std_stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
-            let _ = std_stream.set_write_timeout(Some(std::time::Duration::from_secs(30)));
+
+            // Direct play streams can be paused for minutes; HLS segments are short.
+            let write_timeout = match &route {
+                sendfile::PeekRoute::Direct { .. }
+                | sendfile::PeekRoute::JellyfinStream { .. } => {
+                    std::time::Duration::from_secs(300)
+                }
+                sendfile::PeekRoute::Segment { .. } => std::time::Duration::from_secs(30),
+            };
+            let _ = std_stream.set_write_timeout(Some(write_timeout));
+
+            // Enlarge the send buffer to reduce sendfile(2) syscall frequency.
+            // Default ~128KB fills in ~17ms at 60 Mbps; 1MB gives ~130ms of
+            // headroom, cutting context-switch overhead ~7×.
+            set_sndbuf(&std_stream, 1024 * 1024);
             tokio::task::spawn_blocking(move || {
                 if let Err(e) = sendfile::handle_sendfile(std_stream, &ctx, route) {
                     // Broken pipe is expected when clients probe video streams

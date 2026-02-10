@@ -47,7 +47,14 @@ pub enum PeekRoute {
 /// if it should fall through to the normal Axum/hyper pipeline.
 pub fn classify_peek(peek_buf: &[u8]) -> Option<PeekRoute> {
     let path = extract_get_path(peek_buf)?;
+    classify_path(path)
+}
 
+/// Classify a request path into a sendfile route.
+///
+/// Shared by both the peek classifier (initial connection) and the keep-alive
+/// loop (subsequent requests on the same connection).
+fn classify_path(path: &str) -> Option<PeekRoute> {
     // Try /api/stream/{uuid}/...
     if let Some(rest) = path.strip_prefix("/api/stream/") {
         let slash = rest.find('/')?;
@@ -439,15 +446,17 @@ fn set_tcp_nopush(fd: RawFd, enabled: bool) -> io::Result<()> {
 // Main sendfile handler
 // ---------------------------------------------------------------------------
 
-/// Handle a sendfile-routed request.
+/// Handle a sendfile-routed request with HTTP keep-alive support.
 ///
 /// Called from `spawn_blocking` with a std `TcpStream` and the pre-parsed
 /// [`PeekRoute`]. Reads the full HTTP headers, validates auth once, then
-/// dispatches to the appropriate serve function.
+/// dispatches to the appropriate serve function. After the first response,
+/// loops to serve additional requests on the same connection (keep-alive),
+/// saving TCP setup, auth, and file-open overhead per subsequent request.
 pub fn handle_sendfile(mut stream: TcpStream, ctx: &AppContext, route: PeekRoute) -> io::Result<()> {
     let req = read_request_headers(&mut stream)?;
 
-    // Authenticate.
+    // Authenticate once for the entire connection.
     if validate_auth_headers(
         &ctx.config.auth,
         &ctx.db,
@@ -462,11 +471,37 @@ pub fn handle_sendfile(mut stream: TcpStream, ctx: &AppContext, route: PeekRoute
         return Ok(());
     }
 
-    match route {
-        PeekRoute::Segment { mf_id, index } => serve_segment(&mut stream, ctx, mf_id, index),
-        PeekRoute::Direct { mf_id } => serve_direct(&mut stream, ctx, mf_id, req.range),
+    // Serve the initial request.
+    dispatch_route(&mut stream, ctx, &route, &req)?;
+
+    // Keep-alive loop: try to serve more requests on the same connection.
+    // Use a 15-second idle timeout between requests.
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(15)));
+
+    while let Ok(next_req) = read_request_headers(&mut stream) {
+        if let Some(next_route) = classify_path(&next_req.path) {
+            dispatch_route(&mut stream, ctx, &next_route, &next_req)?;
+        } else {
+            break; // Non-sendfile route — can't handle it, close.
+        }
+    }
+
+    Ok(())
+}
+
+/// Dispatch a classified request to the appropriate serve function.
+fn dispatch_route(
+    stream: &mut TcpStream,
+    ctx: &AppContext,
+    route: &PeekRoute,
+    req: &ParsedRequest,
+) -> io::Result<()> {
+    tracing::debug!(route = ?route, range = ?req.range, "sendfile request");
+    match *route {
+        PeekRoute::Segment { mf_id, index } => serve_segment(stream, ctx, mf_id, index),
+        PeekRoute::Direct { mf_id } => serve_direct(stream, ctx, mf_id, req.range),
         PeekRoute::JellyfinStream { item_id } => {
-            serve_jellyfin_stream(&mut stream, ctx, item_id, &req.path, req.range)
+            serve_jellyfin_stream(stream, ctx, item_id, &req.path, req.range)
         }
     }
 }
@@ -521,7 +556,7 @@ fn serve_segment(
         "HTTP/1.1 200 OK\r\n\
          Content-Type: video/iso.segment\r\n\
          Content-Length: {content_length}\r\n\
-         Connection: close\r\n\
+         Connection: keep-alive\r\n\
          \r\n"
     );
     stream.write_all(response_headers.as_bytes())?;
@@ -675,7 +710,9 @@ fn serve_file_sendfile(
 
     let _ = set_tcp_nopush(sock_fd, true);
 
-    match range {
+    let start_time = std::time::Instant::now();
+
+    let bytes_sent = match range {
         Some((start, end_opt)) => {
             let end = end_opt.unwrap_or(file_size - 1).min(file_size - 1);
             if start > end || start >= file_size {
@@ -698,11 +735,12 @@ fn serve_file_sendfile(
                  Content-Range: bytes {start}-{end}/{file_size}\r\n\
                  Content-Length: {length}\r\n\
                  Accept-Ranges: bytes\r\n\
-                 Connection: close\r\n\
+                 Connection: keep-alive\r\n\
                  \r\n"
             );
             stream.write_all(response_headers.as_bytes())?;
             sendfile_range(sock_fd, file_fd, start, length, None)?;
+            length
         }
         None => {
             let response_headers = format!(
@@ -710,15 +748,31 @@ fn serve_file_sendfile(
                  Content-Type: {content_type}\r\n\
                  Content-Length: {file_size}\r\n\
                  Accept-Ranges: bytes\r\n\
-                 Connection: close\r\n\
+                 Connection: keep-alive\r\n\
                  \r\n"
             );
             stream.write_all(response_headers.as_bytes())?;
             sendfile_range(sock_fd, file_fd, 0, file_size, None)?;
+            file_size
         }
-    }
+    };
 
     let _ = set_tcp_nopush(sock_fd, false);
+
+    let elapsed = start_time.elapsed();
+    let mbps = if elapsed.as_secs_f64() > 0.0 {
+        (bytes_sent as f64 * 8.0) / (elapsed.as_secs_f64() * 1_000_000.0)
+    } else {
+        0.0
+    };
+    tracing::debug!(
+        bytes = bytes_sent,
+        elapsed_ms = elapsed.as_millis() as u64,
+        mbps = format_args!("{mbps:.1}"),
+        path = %path.display(),
+        "sendfile transfer complete"
+    );
+
     Ok(())
 }
 

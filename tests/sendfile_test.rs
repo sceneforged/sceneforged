@@ -101,7 +101,7 @@ async fn sendfile_serves_segment_correctly() {
             .unwrap()
             .to_str()
             .unwrap(),
-        "close"
+        "keep-alive"
     );
 
     let body = resp.bytes().await.unwrap();
