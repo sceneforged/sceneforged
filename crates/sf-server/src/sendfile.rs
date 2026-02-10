@@ -548,12 +548,6 @@ fn serve_segment(
     let file_fd = file.as_raw_fd();
     let sock_fd = stream.as_raw_fd();
 
-    // Hint sequential read-ahead for the segment data ranges.
-    #[cfg(target_os = "linux")]
-    unsafe {
-        libc::posix_fadvise(file_fd, 0, 0, libc::POSIX_FADV_SEQUENTIAL);
-    }
-
     // Set TCP_NOPUSH to coalesce the HTTP headers + moof + mdat_header + data.
     let _ = set_tcp_nopush(sock_fd, true);
 
@@ -713,14 +707,6 @@ fn serve_file_sendfile(
     let content_type = guess_content_type_from_path(path);
     let file_fd = file.as_raw_fd();
     let sock_fd = stream.as_raw_fd();
-
-    // Hint the kernel to use aggressive sequential read-ahead. For linear
-    // video streams this pre-fetches pages before sendfile needs them,
-    // reducing page-cache stalls on large files.
-    #[cfg(target_os = "linux")]
-    unsafe {
-        libc::posix_fadvise(file_fd, 0, 0, libc::POSIX_FADV_SEQUENTIAL);
-    }
 
     let _ = set_tcp_nopush(sock_fd, true);
 
