@@ -195,88 +195,38 @@ async fn run_accept_loop(
     }
 }
 
-/// Desired `SO_SNDBUF` size for sendfile streams (128KB).
+/// Log startup diagnostics about kernel TCP buffer autotuning limits.
 ///
-/// Matches the effective size that was in use before wmem_max was fixed
-/// (kernel capped 1MB request to wmem_max/2 = 104KB). Larger values
-/// (512KB, 2MB) caused burstier I/O patterns with higher iowait.
-const SENDFILE_SNDBUF: u32 = 128 * 1024;
-
-/// Read the kernel's `net.core.wmem_max` limit from procfs.
-///
-/// Returns `None` on non-Linux or if the file can't be read.
-fn read_wmem_max() -> Option<u32> {
+/// We deliberately do NOT set SO_SNDBUF — doing so sets SOCK_SNDBUF_LOCK
+/// which disables the kernel's tcp_sndbuf_expand() autotuner. The autotuner
+/// dynamically sizes the send buffer based on cwnd and RTT, which is optimal
+/// for sustained sendfile streaming over network-attached storage.
+fn check_sndbuf_limits() {
     #[cfg(target_os = "linux")]
     {
-        std::fs::read_to_string("/proc/sys/net/core/wmem_max")
-            .ok()
-            .and_then(|s| s.trim().parse().ok())
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        None
-    }
-}
-
-/// Log a startup diagnostic about socket buffer limits.
-///
-/// The kernel caps `SO_SNDBUF` to `wmem_max / 2`. If `wmem_max` is too low,
-/// our send buffer tuning is silently ignored — warn the operator.
-fn check_sndbuf_limits() {
-    if let Some(wmem_max) = read_wmem_max() {
-        let effective_max = wmem_max / 2;
-        if effective_max >= SENDFILE_SNDBUF {
-            tracing::info!(
-                wmem_max,
-                effective_max,
-                requested = SENDFILE_SNDBUF,
-                "SO_SNDBUF limit OK"
-            );
-        } else {
-            let needed = SENDFILE_SNDBUF * 2;
-            tracing::warn!(
-                wmem_max,
-                effective_max,
-                requested = SENDFILE_SNDBUF,
-                "SO_SNDBUF capped by kernel — sendfile streaming may use more CPU. \
-                 Fix: sysctl -w net.core.wmem_max={needed} \
-                 (persist in /etc/sysctl.d/99-streaming.conf)"
-            );
+        if let Ok(tcp_wmem) = std::fs::read_to_string("/proc/sys/net/ipv4/tcp_wmem") {
+            tracing::info!(tcp_wmem = tcp_wmem.trim(), "TCP send buffer autotuning range");
+        }
+        if let Ok(wmem_max) = std::fs::read_to_string("/proc/sys/net/core/wmem_max") {
+            tracing::info!(wmem_max = wmem_max.trim(), "SO_SNDBUF upper limit");
         }
     }
 }
 
-/// Set `SO_SNDBUF` on a socket, then read back the actual value.
-///
-/// Returns the effective buffer size granted by the kernel.
-fn set_sndbuf(stream: &std::net::TcpStream, size: u32) -> u32 {
+/// Read the current `SO_SNDBUF` from a socket (for diagnostics).
+fn get_sndbuf(stream: &std::net::TcpStream) -> u32 {
     use std::os::fd::AsRawFd;
-    let fd = stream.as_raw_fd();
-    let val = size as libc::c_int;
-
-    unsafe {
-        libc::setsockopt(
-            fd,
-            libc::SOL_SOCKET,
-            libc::SO_SNDBUF,
-            &val as *const libc::c_int as *const libc::c_void,
-            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
-        );
-    }
-
-    // Read back what the kernel actually set.
     let mut actual: libc::c_int = 0;
     let mut len = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
     unsafe {
         libc::getsockopt(
-            fd,
+            stream.as_raw_fd(),
             libc::SOL_SOCKET,
             libc::SO_SNDBUF,
             &mut actual as *mut libc::c_int as *mut libc::c_void,
             &mut len,
         );
     }
-
     actual.max(0) as u32
 }
 
@@ -310,11 +260,11 @@ async fn handle_connection(stream: tokio::net::TcpStream, ctx: AppContext, app: 
             };
             let _ = std_stream.set_write_timeout(Some(write_timeout));
 
-            // Enlarge the send buffer to reduce sendfile(2) syscall frequency.
-            // Default ~128KB fills in ~17ms at 60 Mbps; 2MB gives ~260ms of
-            // headroom, cutting context-switch overhead ~14×.
-            let actual = set_sndbuf(&std_stream, SENDFILE_SNDBUF);
-            tracing::debug!(requested = SENDFILE_SNDBUF, actual, "SO_SNDBUF set");
+            // Let the kernel autotune SO_SNDBUF via tcp_sndbuf_expand().
+            // Setting SO_SNDBUF manually locks SOCK_SNDBUF_LOCK which disables
+            // autotuning — worse for sustained sendfile over NFS/SMB storage.
+            let sndbuf = get_sndbuf(&std_stream);
+            tracing::debug!(sndbuf, "sendfile socket (kernel-autotuned)");
             tokio::task::spawn_blocking(move || {
                 if let Err(e) = sendfile::handle_sendfile(std_stream, &ctx, route) {
                     // Broken pipe is expected when clients probe video streams
