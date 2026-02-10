@@ -442,7 +442,7 @@
 							{#if activeConversion.status === 'processing'}
 								<Progress value={activeConversion.progress_pct} max={100} />
 							{/if}
-						{:else}
+						{:else if authStore.isAdmin}
 							<Button
 								variant="default"
 								size="lg"
@@ -465,6 +465,15 @@
 									Convert this item for web playback.
 								</p>
 							{/if}
+						{:else}
+							<Button variant="secondary" size="lg" class="w-full py-6 text-lg" disabled>
+								<Film class="mr-2 h-6 w-6" />
+								Not Available for Web Playback
+							</Button>
+							<p class="text-center text-sm text-muted-foreground">
+								This item needs conversion before it can be played in the browser.
+								Contact an administrator.
+							</p>
 						{/if}
 					</div>
 				{/if}

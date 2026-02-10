@@ -463,6 +463,16 @@ export async function getAuthStatus(): Promise<{
 	return api.get('/auth/status', { skipCache: true });
 }
 
+export async function changePassword(
+	currentPassword: string,
+	newPassword: string
+): Promise<{ success: boolean; message: string }> {
+	return api.put('/auth/password', {
+		current_password: currentPassword,
+		new_password: newPassword
+	});
+}
+
 // --- Admin: Users ---
 
 export async function listUsers(): Promise<User[]> {

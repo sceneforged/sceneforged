@@ -16,7 +16,9 @@
 		Sun,
 		Moon,
 		LogOut,
-		Search
+		Search,
+		BookOpen,
+		UserCircle
 	} from '@lucide/svelte';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -51,7 +53,6 @@
 
 	onMount(() => {
 		libraryStore.loadLibraries();
-		authStore.checkStatus();
 		conversionsStore.refresh();
 		eventsService.connect();
 
@@ -175,50 +176,9 @@
 
 		<Sidebar.Separator />
 
-		<!-- Admin -->
+		<!-- User -->
 		<Sidebar.Group>
-			<Sidebar.GroupLabel>Admin</Sidebar.GroupLabel>
 			<Sidebar.Menu>
-				<Sidebar.MenuItem>
-					<Sidebar.MenuButton isActive={isActive('/admin', true)} tooltipContent="Dashboard">
-						{#snippet child({ props })}
-							<a href="/admin" {...props}>
-								<LayoutDashboard class="h-4 w-4" />
-								<span>Dashboard</span>
-							</a>
-						{/snippet}
-					</Sidebar.MenuButton>
-				</Sidebar.MenuItem>
-				<Sidebar.MenuItem>
-					<Sidebar.MenuButton isActive={isActive('/admin/libraries')} tooltipContent="Libraries">
-						{#snippet child({ props })}
-							<a href="/admin/libraries" {...props}>
-								<Library class="h-4 w-4" />
-								<span>Libraries</span>
-							</a>
-						{/snippet}
-					</Sidebar.MenuButton>
-				</Sidebar.MenuItem>
-				<Sidebar.MenuItem>
-					<Sidebar.MenuButton isActive={isActive('/admin/jobs')} tooltipContent="Jobs">
-						{#snippet child({ props })}
-							<a href="/admin/jobs" {...props}>
-								<Briefcase class="h-4 w-4" />
-								<span>Jobs</span>
-							</a>
-						{/snippet}
-					</Sidebar.MenuButton>
-				</Sidebar.MenuItem>
-				<Sidebar.MenuItem>
-					<Sidebar.MenuButton isActive={isActive('/admin/users')} tooltipContent="Users">
-						{#snippet child({ props })}
-							<a href="/admin/users" {...props}>
-								<Users class="h-4 w-4" />
-								<span>Users</span>
-							</a>
-						{/snippet}
-					</Sidebar.MenuButton>
-				</Sidebar.MenuItem>
 				<Sidebar.MenuItem>
 					<Sidebar.MenuButton isActive={isActive('/settings')} tooltipContent="Settings">
 						{#snippet child({ props })}
@@ -229,11 +189,97 @@
 						{/snippet}
 					</Sidebar.MenuButton>
 				</Sidebar.MenuItem>
+				<Sidebar.MenuItem>
+					<Sidebar.MenuButton isActive={isActive('/account')} tooltipContent="Account">
+						{#snippet child({ props })}
+							<a href="/account" {...props}>
+								<UserCircle class="h-4 w-4" />
+								<span>Account</span>
+							</a>
+						{/snippet}
+					</Sidebar.MenuButton>
+				</Sidebar.MenuItem>
 			</Sidebar.Menu>
 		</Sidebar.Group>
+
+		{#if authStore.isAdmin}
+			<Sidebar.Separator />
+
+			<!-- Admin -->
+			<Sidebar.Group>
+				<Sidebar.GroupLabel>Admin</Sidebar.GroupLabel>
+				<Sidebar.Menu>
+					<Sidebar.MenuItem>
+						<Sidebar.MenuButton isActive={isActive('/admin', true)} tooltipContent="Dashboard">
+							{#snippet child({ props })}
+								<a href="/admin" {...props}>
+									<LayoutDashboard class="h-4 w-4" />
+									<span>Dashboard</span>
+								</a>
+							{/snippet}
+						</Sidebar.MenuButton>
+					</Sidebar.MenuItem>
+					<Sidebar.MenuItem>
+						<Sidebar.MenuButton isActive={isActive('/admin/libraries')} tooltipContent="Libraries">
+							{#snippet child({ props })}
+								<a href="/admin/libraries" {...props}>
+									<Library class="h-4 w-4" />
+									<span>Libraries</span>
+								</a>
+							{/snippet}
+						</Sidebar.MenuButton>
+					</Sidebar.MenuItem>
+					<Sidebar.MenuItem>
+						<Sidebar.MenuButton isActive={isActive('/admin/jobs')} tooltipContent="Jobs">
+							{#snippet child({ props })}
+								<a href="/admin/jobs" {...props}>
+									<Briefcase class="h-4 w-4" />
+									<span>Jobs</span>
+								</a>
+							{/snippet}
+						</Sidebar.MenuButton>
+					</Sidebar.MenuItem>
+					<Sidebar.MenuItem>
+						<Sidebar.MenuButton isActive={isActive('/admin/users')} tooltipContent="Users">
+							{#snippet child({ props })}
+								<a href="/admin/users" {...props}>
+									<Users class="h-4 w-4" />
+									<span>Users</span>
+								</a>
+							{/snippet}
+						</Sidebar.MenuButton>
+					</Sidebar.MenuItem>
+					<Sidebar.MenuItem>
+						<Sidebar.MenuButton isActive={isActive('/rules')} tooltipContent="Rules">
+							{#snippet child({ props })}
+								<a href="/rules" {...props}>
+									<BookOpen class="h-4 w-4" />
+									<span>Rules</span>
+								</a>
+							{/snippet}
+						</Sidebar.MenuButton>
+					</Sidebar.MenuItem>
+					<Sidebar.MenuItem>
+						<Sidebar.MenuButton isActive={isActive('/admin/settings')} tooltipContent="Server Settings">
+							{#snippet child({ props })}
+								<a href="/admin/settings" {...props}>
+									<Settings class="h-4 w-4" />
+									<span>Server Settings</span>
+								</a>
+							{/snippet}
+						</Sidebar.MenuButton>
+					</Sidebar.MenuItem>
+				</Sidebar.Menu>
+			</Sidebar.Group>
+		{/if}
 	</Sidebar.Content>
 
 	<Sidebar.Footer class="border-t border-sidebar-border px-4 py-2">
-		<span class="font-mono text-xs text-sidebar-foreground/40">{__GIT_SHA__}</span>
+		<div class="flex items-center justify-between">
+			{#if authStore.username}
+				<span class="truncate text-xs text-sidebar-foreground/60">{authStore.username}</span>
+			{/if}
+			<span class="font-mono text-xs text-sidebar-foreground/40">{__GIT_SHA__}</span>
+		</div>
 	</Sidebar.Footer>
 </Sidebar.Sidebar>

@@ -213,10 +213,10 @@
 							<span>Rules</span>
 						</Button>
 					</a>
-					<a href="/settings" class="block">
+					<a href="/admin/settings" class="block">
 						<Button variant="outline" class="h-auto w-full flex-col gap-2 py-4">
 							<Settings class="h-6 w-6" />
-							<span>Settings</span>
+							<span>Server Settings</span>
 						</Button>
 					</a>
 				</div>

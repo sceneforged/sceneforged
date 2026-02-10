@@ -23,6 +23,7 @@ use crate::routes;
         routes::auth::login,
         routes::auth::logout,
         routes::auth::auth_status,
+        routes::auth::change_password,
         routes::libraries::list_libraries,
         routes::libraries::create_library,
         routes::libraries::get_library,
@@ -65,6 +66,7 @@ use crate::routes;
         routes::auth::LoginRequest,
         routes::auth::AuthResponse,
         routes::auth::AuthStatusResponse,
+        routes::auth::ChangePasswordRequest,
         routes::libraries::LibraryResponse,
         routes::libraries::CreateLibraryRequest,
         routes::items::ItemResponse,
@@ -110,6 +112,8 @@ pub fn build_router(ctx: AppContext, static_dir: Option<PathBuf>) -> Router {
 
     // Protected API routes.
     let protected_routes = Router::new()
+        // Self-service auth
+        .route("/auth/password", put(routes::auth::change_password))
         // Libraries
         .route("/libraries", get(routes::libraries::list_libraries))
         .route("/libraries", post(routes::libraries::create_library))

@@ -4,6 +4,7 @@
 	import { MediaRow } from '$lib/components/media/index.js';
 	import type { Item, ContinueWatchingEntry, FavoriteEntry } from '$lib/types.js';
 	import { Loader2 } from '@lucide/svelte';
+	import { authStore } from '$lib/stores/auth.svelte.js';
 
 	let recentlyAdded = $state<Item[]>([]);
 	let continueWatching = $state<Item[]>([]);
@@ -60,7 +61,11 @@
 	{:else if !hasContent}
 		<div class="py-12 text-center">
 			<p class="text-muted-foreground">
-				No media to display yet. Add some libraries in the Admin section to get started.
+				{#if authStore.isAdmin}
+					No media to display yet. Add some libraries in the Admin section to get started.
+				{:else}
+					No media available yet. Ask an administrator to add libraries.
+				{/if}
 			</p>
 		</div>
 	{:else}

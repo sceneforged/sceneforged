@@ -1,9 +1,15 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import '../app.css';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 	import AppSidebar from '$lib/components/AppSidebar.svelte';
+	import { authStore } from '$lib/stores/auth.svelte.js';
 
 	let { children } = $props();
+
+	onMount(() => {
+		authStore.checkStatus();
+	});
 </script>
 
 <Sidebar.Provider>

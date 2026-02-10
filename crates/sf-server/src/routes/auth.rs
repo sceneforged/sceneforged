@@ -35,7 +35,16 @@ pub struct AuthStatusResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+}
+
+/// Password change request.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct ChangePasswordRequest {
+    pub current_password: String,
+    pub new_password: String,
 }
 
 /// POST /api/auth/login
@@ -175,6 +184,7 @@ pub async fn auth_status(
             auth_enabled: false,
             authenticated: true,
             user_id: None,
+            username: None,
             role: Some("admin".into()),
         });
     }
@@ -186,6 +196,7 @@ pub async fn auth_status(
                     auth_enabled: true,
                     authenticated: true,
                     user_id: None,
+                    username: None,
                     role: Some("admin".into()),
                 });
             }
@@ -193,15 +204,15 @@ pub async fn auth_status(
 
         if let Ok(conn) = sf_db::pool::get_conn(&ctx.db) {
             if let Ok(Some(tok)) = sf_db::queries::auth::get_token(&conn, &token) {
-                let role = sf_db::queries::users::get_user_by_id(&conn, tok.user_id)
+                let user = sf_db::queries::users::get_user_by_id(&conn, tok.user_id)
                     .ok()
-                    .flatten()
-                    .map(|u| u.role);
+                    .flatten();
                 return Json(AuthStatusResponse {
                     auth_enabled: true,
                     authenticated: true,
                     user_id: Some(tok.user_id.to_string()),
-                    role,
+                    username: user.as_ref().map(|u| u.username.clone()),
+                    role: user.map(|u| u.role),
                 });
             }
         }
@@ -211,8 +222,61 @@ pub async fn auth_status(
         auth_enabled: true,
         authenticated: false,
         user_id: None,
+        username: None,
         role: None,
     })
+}
+
+/// PUT /api/auth/password
+#[utoipa::path(
+    put,
+    path = "/api/auth/password",
+    request_body = ChangePasswordRequest,
+    responses(
+        (status = 200, description = "Password changed"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Current password incorrect")
+    )
+)]
+pub async fn change_password(
+    State(ctx): State<AppContext>,
+    axum::extract::Extension(user_id): axum::extract::Extension<sf_core::UserId>,
+    Json(payload): Json<ChangePasswordRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    if payload.new_password.len() < 8 {
+        return Err(sf_core::Error::Validation(
+            "New password must be at least 8 characters".into(),
+        )
+        .into());
+    }
+
+    let conn =
+        sf_db::pool::get_conn(&ctx.db).map_err(|e| sf_core::Error::Internal(e.to_string()))?;
+
+    let user = sf_db::queries::users::get_user_by_id(&conn, user_id)?
+        .ok_or_else(|| sf_core::Error::Unauthorized("User not found".into()))?;
+
+    // Verify current password.
+    let valid = if user.password_hash.starts_with("$2") {
+        bcrypt::verify(&payload.current_password, &user.password_hash).unwrap_or(false)
+    } else {
+        false
+    };
+
+    if !valid {
+        return Err(sf_core::Error::Unauthorized("Current password is incorrect".into()).into());
+    }
+
+    let new_hash = bcrypt::hash(&payload.new_password, bcrypt::DEFAULT_COST)
+        .map_err(|e| sf_core::Error::Internal(format!("bcrypt error: {e}")))?;
+
+    sf_db::queries::users::update_password(&conn, user.id, &new_hash)?;
+
+    Ok(Json(AuthResponse {
+        success: true,
+        message: "Password changed".into(),
+        token: None,
+    }))
 }
 
 /// Extract a bearer token or session cookie from request headers.

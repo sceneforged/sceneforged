@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import AuthGuard from '$lib/components/AuthGuard.svelte';
 	import { getConfigRules, createRule, updateRule, deleteRule } from '$lib/api/index.js';
 	import type { Rule } from '$lib/types.js';
 	import {
@@ -114,6 +115,7 @@
 	});
 </script>
 
+<AuthGuard requireAdmin>
 <div class="space-y-6">
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-bold">Rules</h1>
@@ -259,3 +261,4 @@
 		editingRule = null;
 	}}
 />
+</AuthGuard>
