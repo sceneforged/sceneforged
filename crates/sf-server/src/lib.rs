@@ -24,6 +24,7 @@ pub mod watcher;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use axum::Router;
@@ -99,6 +100,9 @@ pub async fn start(config: Config, config_path: Option<PathBuf>) -> sf_core::Res
     let active_conversions = Arc::new(DashMap::new());
     let active_scans = Arc::new(DashMap::new());
 
+    // Determine SO_SNDBUF from config override or storage-class detection.
+    let sendfile_sndbuf = Arc::new(AtomicU32::new(resolve_sndbuf(&config, &db)));
+
     let ctx = AppContext {
         db,
         config: Arc::new(config.clone()),
@@ -110,6 +114,7 @@ pub async fn start(config: Config, config_path: Option<PathBuf>) -> sf_core::Res
         hls_loading,
         active_conversions,
         active_scans,
+        sendfile_sndbuf,
     };
 
     // Cancellation token for graceful shutdown.
@@ -144,7 +149,7 @@ pub async fn start(config: Config, config_path: Option<PathBuf>) -> sf_core::Res
     let app = router::build_router(ctx.clone(), config.server.static_dir.clone());
 
     // Check kernel socket buffer limits before accepting connections.
-    check_sndbuf_limits();
+    check_sndbuf_limits(ctx.sendfile_sndbuf.load(Ordering::Relaxed));
 
     tracing::info!("Starting server on {addr}");
 
@@ -195,40 +200,180 @@ async fn run_accept_loop(
     }
 }
 
-/// Desired `SO_SNDBUF` for sendfile streams (128KB).
+// ---------------------------------------------------------------------------
+// SO_SNDBUF: storage-class detection
+// ---------------------------------------------------------------------------
+
+/// Default SO_SNDBUF for network-attached storage (NFS, CIFS, etc.).
+/// Limits pipeline depth to avoid iowait spikes from concurrent NFS reads.
+const SNDBUF_NETWORK: u32 = 128 * 1024;
+
+/// Default SO_SNDBUF for local storage (SSD, HDD, etc.).
+/// No NFS round-trip cost, so a larger buffer improves TCP batching.
+const SNDBUF_LOCAL: u32 = 512 * 1024;
+
+/// Storage classification for SO_SNDBUF tuning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StorageClass {
+    Network,
+    Local,
+}
+
+/// Resolve the SO_SNDBUF value from config override or storage detection.
+fn resolve_sndbuf(config: &Config, db: &sf_db::pool::DbPool) -> u32 {
+    // 1. Explicit config override wins.
+    if let Some(val) = config.server.sndbuf {
+        tracing::info!(sndbuf = val, "SO_SNDBUF from config override");
+        return val;
+    }
+
+    // 2. Auto-detect from library storage paths.
+    let paths = match sf_db::pool::get_conn(db)
+        .ok()
+        .and_then(|conn| sf_db::queries::libraries::list_libraries(&conn).ok())
+    {
+        Some(libs) => libs
+            .iter()
+            .flat_map(|lib| lib.paths.clone())
+            .collect::<Vec<_>>(),
+        None => Vec::new(),
+    };
+
+    if paths.is_empty() {
+        tracing::info!(
+            sndbuf = SNDBUF_NETWORK,
+            "SO_SNDBUF defaulting to network-safe (no libraries configured)"
+        );
+        return SNDBUF_NETWORK;
+    }
+
+    let storage = detect_storage_class(&paths);
+    let sndbuf = match storage {
+        StorageClass::Network => SNDBUF_NETWORK,
+        StorageClass::Local => SNDBUF_LOCAL,
+    };
+    tracing::info!(sndbuf, storage = ?storage, "SO_SNDBUF auto-configured from storage detection");
+    sndbuf
+}
+
+/// Classify storage by checking if ALL paths reside on known-fast local filesystems.
 ///
-/// Empirically optimal for sustained sendfile over NFS-backed storage at
-/// ~70 Mbps. Larger buffers (512KB, 2MB) cause burstier NFS reads and higher
-/// iowait/softirq. Kernel autotuning also overshoots because it optimizes
-/// for TCP throughput, not backend I/O cost. 128KB (~15ms at 70 Mbps) keeps
-/// the TCP pipe full without excessive NFS pipeline depth.
-const SENDFILE_SNDBUF: u32 = 128 * 1024;
+/// Returns `Local` only when every path is on a known-fast FS (ext4, xfs, etc.).
+/// Defaults to `Network` (conservative) for unknown/FUSE/overlay filesystems,
+/// since Docker bind-mounts can mask NFS backends as fuseblk or overlay.
+fn detect_storage_class(paths: &[String]) -> StorageClass {
+    for path in paths {
+        if !is_fast_local(path) {
+            tracing::debug!(path, "not on known-fast local storage, using conservative buffer");
+            return StorageClass::Network;
+        }
+    }
+    StorageClass::Local
+}
+
+/// Filesystem types known to be fast local storage with no network round-trip
+/// cost. Only these get the larger SO_SNDBUF; everything else (FUSE, overlay,
+/// NFS, CIFS, unknown) defaults to the conservative network-safe buffer.
+///
+/// This is deliberately conservative: Docker bind-mounts can mask the real
+/// storage backend (e.g. NFS on the host appears as `fuseblk` or `overlay`
+/// inside the container). Better to under-buffer than over-buffer.
+#[cfg(any(target_os = "linux", test))]
+const FAST_LOCAL_FS_TYPES: &[&str] = &[
+    "ext4", "ext3", "ext2", "xfs", "btrfs", "zfs", "f2fs", "bcachefs",
+];
+
+/// Check if a path resides on known-fast local storage.
+#[cfg(target_os = "linux")]
+fn is_fast_local(path: &str) -> bool {
+    let mounts = match std::fs::read_to_string("/proc/mounts") {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    is_fast_local_inner(path, &mounts)
+}
+
+/// Testable inner implementation: match path against parsed mount entries.
+#[cfg(any(target_os = "linux", test))]
+fn is_fast_local_inner(path: &str, mounts: &str) -> bool {
+    let mut best_mountpoint = "";
+    let mut best_fstype = "";
+
+    for line in mounts.lines() {
+        // Format: device mountpoint fstype options dump pass
+        let mut parts = line.split_whitespace();
+        let _device = parts.next();
+        let mountpoint = match parts.next() {
+            Some(m) => m,
+            None => continue,
+        };
+        let fstype = match parts.next() {
+            Some(f) => f,
+            None => continue,
+        };
+
+        // Longest-prefix match: the mount whose mountpoint is the longest
+        // prefix of our path is the one our file lives on.
+        if path.starts_with(mountpoint)
+            && (mountpoint == "/"
+                || path.len() == mountpoint.len()
+                || path.as_bytes().get(mountpoint.len()) == Some(&b'/'))
+            && mountpoint.len() > best_mountpoint.len()
+        {
+            best_mountpoint = mountpoint;
+            best_fstype = fstype;
+        }
+    }
+
+    FAST_LOCAL_FS_TYPES.contains(&best_fstype)
+}
+
+/// Check if a path resides on known-fast local storage (macOS).
+#[cfg(target_os = "macos")]
+fn is_fast_local(path: &str) -> bool {
+    use std::ffi::CString;
+
+    let c_path = match CString::new(path) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+
+    unsafe {
+        let mut stat: libc::statfs = std::mem::zeroed();
+        if libc::statfs(c_path.as_ptr(), &mut stat) != 0 {
+            return false;
+        }
+        let fstype = std::ffi::CStr::from_ptr(stat.f_fstypename.as_ptr())
+            .to_str()
+            .unwrap_or("");
+        matches!(fstype, "apfs" | "hfs")
+    }
+}
 
 /// Log startup diagnostics about kernel socket buffer limits.
-fn check_sndbuf_limits() {
+fn check_sndbuf_limits(requested: u32) {
     #[cfg(target_os = "linux")]
     {
-        if let Ok(tcp_wmem) = std::fs::read_to_string("/proc/sys/net/ipv4/tcp_wmem") {
-            tracing::info!(tcp_wmem = tcp_wmem.trim(), "TCP send buffer autotuning range");
-        }
         if let Ok(wmem_max) = std::fs::read_to_string("/proc/sys/net/core/wmem_max") {
             let wmem_str = wmem_max.trim();
             if let Ok(val) = wmem_str.parse::<u32>() {
-                if val / 2 < SENDFILE_SNDBUF {
+                if val / 2 < requested {
                     tracing::warn!(
                         wmem_max = wmem_str,
                         effective_max = val / 2,
-                        requested = SENDFILE_SNDBUF,
+                        requested,
                         "SO_SNDBUF will be capped by kernel. \
                          Fix: sysctl -w net.core.wmem_max={}",
-                        SENDFILE_SNDBUF * 2
+                        requested * 2
                     );
                 } else {
-                    tracing::info!(wmem_max = wmem_str, "SO_SNDBUF limit OK");
+                    tracing::info!(wmem_max = wmem_str, requested, "SO_SNDBUF limit OK");
                 }
             }
         }
     }
+    #[cfg(not(target_os = "linux"))]
+    let _ = requested;
 }
 
 /// Set `SO_SNDBUF` on a socket and return the actual granted value.
@@ -292,11 +437,12 @@ async fn handle_connection(stream: tokio::net::TcpStream, ctx: AppContext, app: 
             };
             let _ = std_stream.set_write_timeout(Some(write_timeout));
 
-            // Cap the send buffer to limit NFS pipeline depth. The kernel
-            // autotuner overshoots for NFS-backed sendfile — it optimizes for
-            // TCP throughput, not backend I/O cost. 128KB is the sweet spot.
-            let actual = set_sndbuf(&std_stream, SENDFILE_SNDBUF);
-            tracing::debug!(requested = SENDFILE_SNDBUF, actual, "SO_SNDBUF set");
+            // Set SO_SNDBUF based on detected storage class. Network-attached
+            // storage uses smaller buffers to limit NFS pipeline depth; local
+            // storage uses larger buffers for better TCP batching.
+            let sndbuf = ctx.sendfile_sndbuf.load(Ordering::Relaxed);
+            let actual = set_sndbuf(&std_stream, sndbuf);
+            tracing::debug!(requested = sndbuf, actual, "SO_SNDBUF set");
             tokio::task::spawn_blocking(move || {
                 if let Err(e) = sendfile::handle_sendfile(std_stream, &ctx, route) {
                     // Broken pipe is expected when clients probe video streams
@@ -362,5 +508,91 @@ mod tests {
     fn default_config_builds_context() {
         // Verify that all the types compose correctly (compile-time check).
         let _config = Config::default();
+    }
+
+    // -- Storage class detection --
+
+    const SAMPLE_MOUNTS: &str = "\
+sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0
+proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+/dev/sda1 / ext4 rw,relatime 0 0
+/dev/sdb1 /data xfs rw,relatime 0 0
+nas:/vol/media /mnt/nfs nfs4 rw,relatime,vers=4.2 0 0
+tmpfs /tmp tmpfs rw,nosuid,nodev 0 0
+//nas/share /mnt/smb cifs rw,relatime 0 0
+/dev/sda1 /media/movies fuseblk rw,relatime 0 0";
+
+    #[test]
+    fn ext4_is_fast_local() {
+        assert!(is_fast_local_inner("/home/user/video.mp4", SAMPLE_MOUNTS));
+    }
+
+    #[test]
+    fn xfs_is_fast_local() {
+        assert!(is_fast_local_inner("/data/local/video.mp4", SAMPLE_MOUNTS));
+    }
+
+    #[test]
+    fn nfs_is_not_fast_local() {
+        assert!(!is_fast_local_inner("/mnt/nfs/movies/test.mkv", SAMPLE_MOUNTS));
+    }
+
+    #[test]
+    fn cifs_is_not_fast_local() {
+        assert!(!is_fast_local_inner("/mnt/smb/files/doc.txt", SAMPLE_MOUNTS));
+    }
+
+    #[test]
+    fn fuseblk_is_not_fast_local() {
+        // Docker bind-mounts from NFS host appear as fuseblk — must be conservative.
+        assert!(!is_fast_local_inner("/media/movies/film.mkv", SAMPLE_MOUNTS));
+    }
+
+    #[test]
+    fn longest_prefix_wins() {
+        let mounts = "\
+/dev/sda1 / ext4 rw 0 0
+nas:/vol /mnt/data nfs4 rw 0 0
+/dev/sdc1 /mnt/data/local ext4 rw 0 0";
+        // NFS mount — not fast local.
+        assert!(!is_fast_local_inner("/mnt/data/remote/file.mkv", mounts));
+        // ext4 submount under the NFS path — is fast local.
+        assert!(is_fast_local_inner("/mnt/data/local/file.mkv", mounts));
+    }
+
+    #[test]
+    fn exact_mountpoint_match() {
+        // /data should not match /data-backup.
+        let mounts = "\
+/dev/sda1 / ext4 rw 0 0
+nas:/vol /data nfs4 rw 0 0";
+        assert!(!is_fast_local_inner("/data/file.mkv", mounts));
+        // /data-backup falls through to / (ext4).
+        assert!(is_fast_local_inner("/data-backup/file.mkv", mounts));
+    }
+
+    #[test]
+    fn empty_mounts_defaults_conservative() {
+        assert!(!is_fast_local_inner("/any/path", ""));
+    }
+
+    #[test]
+    fn mixed_storage_uses_conservative() {
+        // If any path is not fast-local, the whole set is classified as Network.
+        let mounts = "\
+/dev/sda1 / ext4 rw 0 0
+/dev/sdb1 /data xfs rw 0 0
+/dev/sdc1 /media fuseblk rw 0 0";
+
+        // /data is xfs (fast), /media is fuseblk (not fast).
+        assert!(is_fast_local_inner("/data/movies/file.mkv", mounts));
+        assert!(!is_fast_local_inner("/media/movies/file.mkv", mounts));
+    }
+
+    #[test]
+    fn config_sndbuf_override() {
+        let mut config = Config::default();
+        config.server.sndbuf = Some(262144);
+        assert_eq!(config.server.sndbuf, Some(262144));
     }
 }

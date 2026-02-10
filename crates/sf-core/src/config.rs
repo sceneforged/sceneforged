@@ -156,6 +156,9 @@ pub struct ServerConfig {
     pub port: u16,
     pub static_dir: Option<PathBuf>,
     pub db_path: PathBuf,
+    /// Override SO_SNDBUF for sendfile streams (bytes). When set, disables
+    /// automatic storage-class detection. Example: `131072` for 128KB.
+    pub sndbuf: Option<u32>,
 }
 
 impl Default for ServerConfig {
@@ -165,6 +168,7 @@ impl Default for ServerConfig {
             port: 8080,
             static_dir: Some(PathBuf::from("/app/static")),
             db_path: PathBuf::from("/data/sceneforged.db"),
+            sndbuf: None,
         }
     }
 }

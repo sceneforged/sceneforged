@@ -6,6 +6,7 @@
 //! support.
 
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -201,6 +202,8 @@ pub struct AppContext {
     /// Libraries currently being scanned (prevents concurrent scans of the same library).
     /// Value is a CancellationToken that can be used to cancel the scan.
     pub active_scans: Arc<DashMap<LibraryId, CancellationToken>>,
+    /// SO_SNDBUF for sendfile connections, auto-detected from storage class or config override.
+    pub sendfile_sndbuf: Arc<AtomicU32>,
 }
 
 #[cfg(test)]

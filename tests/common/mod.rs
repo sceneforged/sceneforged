@@ -55,6 +55,7 @@ impl TestHarness {
             hls_loading: Arc::new(DashMap::new()),
             active_conversions: Arc::new(DashMap::new()),
             active_scans: Arc::new(DashMap::new()),
+            sendfile_sndbuf: Arc::new(std::sync::atomic::AtomicU32::new(128 * 1024)),
         };
 
         Self { ctx, db }
